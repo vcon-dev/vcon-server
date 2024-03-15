@@ -1,0 +1,107 @@
+links:
+  webhook_store_call_log:
+    module: links.webhook
+    options:
+      webhook-urls:
+        - https://example.com/conserver
+  expire_vcon_1_day_later:
+    module: links.expire_vcon
+    options:
+      seconds: 604800
+  deepgram:
+    module: links.deepgram
+    options:
+      DEEPGRAM_KEY: xxxxxxxxxxxxxxxxx
+      minimum_duration: 30
+      api:
+        model: "nova-2"
+        smart_format: true  
+        detect_language: true
+  summarize:
+    module: links.analyze
+    options:
+      OPENAI_API_KEY: xxxxxxxxxxxxxxxx
+      prompt: "Summarize this transcript in a few sentences, identify the purpose of the call and then indicate if there is a clear frustration expressed by the customer and if this was a conversation between two people or if someone left a message, and if agent was helpful?"
+      analysis_type: summary
+      model: 'gpt-3.5-turbo-16k'
+  sentiment:
+    module: links.analyze
+    options:
+      OPENAI_API_KEY: xxxxxxxxxxx
+      prompt: "Based on the transcript - if there were any clear frustration expressed by the customer, respond with only the words 'NEEDS REVIEW', otherwise respond 'NO REVIEW NEEDED'."
+      analysis_type: customer_frustration
+      model: 'gpt-3.5-turbo-16k'
+  diarize:
+    module: links.analyze
+    options:
+      OPENAI_API_KEY: xxxxxxxxxx
+      prompt: "Go step by step: 1. Diarize the conversation and also identify the Agent and the Customer and show the names along with it like Agent(Agent Name) and output in markdown and label each speaker in bold. 2. If it's only one speaker, return the transcript. 3. If you can't diarize the transcript, return an empty string."
+      analysis_type: diarized
+      model: 'gpt-4'
+  agent_note:
+    module: links.analyze
+    options:
+      OPENAI_API_KEY: xxxxxxxxxxxxx
+      prompt: "You are a car dealership call center agent. You will take a transcript from a recorded call and pull out only the most important information that a manager could use to help make a sale. Use shorthand to condense the notes as much as possible. You do not always need to add information for every key in the response. Things that are common to all of the agent's calls can be omitted, such as phone number confirmation, dealership location, or appointments. It's okay to return an empty string for a key's value. You will return the data in this JSON format:{'interests': '''information about the vehicle or vehicles the customer is interested in''','concerns': '''things the customer is concerned about''','requests': '''things the customer has requested''','dealer_promises': '''things the agent has promised to follow up on with the customer''','risks': '''things that could cause the dealer to lose the sale''','highlights': '''any extra information that could help the dealer close the sale'''} Here is an example response:{'interests': 'lowest financing rates for pre-owned vehicles, 2023 Pathfinder','concerns': 'condition of the vehicle, possibility of the car being sold before they can visit','requests': 'securing the vehicle with a deposit or shipping options','dealer_promises': '','risks': '','highlights': 'Customer is willing  to fly out to make the purchase'}"
+      analysis_type: agent_note
+      model: 'gpt-3.5-turbo-16k'
+      sampling_rate: 0.1
+      only_if:
+        section: 'attachments'
+        type: 'tags'
+        includes: 'category:1'
+  send_frustration_for_review:
+    module: links.post_analysis_to_slack
+    options:
+      token: xxxxxxxxxxxx
+      default_channel_name: team-rainbow-alerts
+      url: "htps://www.google.com"
+      analysis_to_post: summary
+      only_if: 
+        analysis_type: customer_frustration
+        includes: NEEDS REVIEW
+storages:
+  postgres:
+    module: storage.postgres
+    options:
+      user: xxxxxxx
+      password: xxxxxxxxx
+      host: xxxxxxxxx.us-east-1.rds.amazonaws.com
+      port: "5432"
+      database: postgres
+  s3:
+    module: storage.s3
+    options:
+      aws_access_key_id: xxxxxxxx
+      aws_secret_access_key: xxxxxxx
+      aws_bucket: vcons
+chains:
+  bria_chain:
+    links:
+      - deepgram
+      - summarize
+      - sentiment
+      - diarize
+      - agent_note
+      - webhook_store_call_log
+      - send_frustration_for_review
+      - expire_vcon_1_day_later
+    ingress_lists:
+      - default_ingress
+    storages:
+      - postgres
+      - s3
+    egress_lists:
+      - default_egress
+    enabled: 1
+  volie_chain:
+    links:
+      - expire_vcon_1_day_later
+    ingress_lists:
+      - volie_ingress
+    storages:
+      - postgres
+      - s3
+    egress_lists:
+      - volie_egress
+    enabled: 1
