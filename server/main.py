@@ -1,9 +1,6 @@
 import importlib
 import time
 import redis_mgr
-# from server.load_config import (
-#     load_config,
-# )
 from lib.logging_utils import init_logger
 from lib.metrics import init_metrics, stats_gauge, stats_count
 from lib.error_tracking import init_error_tracker
@@ -12,6 +9,8 @@ from typing import List, TypedDict, Optional
 import yaml
 from dlq_utils import get_ingress_list_dlq_name
 import settings
+from pathlib import Path
+from load_config import load_config
 
 shutdown_requested = False
 
@@ -29,18 +28,7 @@ class ChainConfig(TypedDict):
 IngressChainMap = dict[str, ChainConfig]
 
 
-config: dict | None = None
-
-
-def load_config():
-    logger.info("Loading config")
-    try:
-        with open(settings.CONSERVER_CONFIG_FILE, 'r') as file:
-            global config
-            config = yaml.safe_load(file)
-    except OSError:
-        logger.error(f"Cannot find config file {settings.CONSERVER_CONFIG_FILE}")
-        return 
+config = dict # type: ignore
 
 
 def signal_handler(signum, frame):
@@ -56,6 +44,8 @@ signal.signal(signal.SIGTERM, signal_handler)
 init_error_tracker()
 init_metrics()
 logger = init_logger(__name__)
+# enable debnugging
+logger.setLevel(settings.LOG_LEVEL)
 imported_modules = {}
 
 # TODO - address potential reconnect issues
@@ -168,8 +158,10 @@ def get_ingress_chain_map() -> IngressChainMap:
     return ingress_details
 
 
-def main():
-    load_config()
+def main():    
+    global config
+    
+    config = load_config()
     ingress_chain_map = get_ingress_chain_map()
     all_ingress_lists = list(ingress_chain_map.keys())
     while not shutdown_requested:
