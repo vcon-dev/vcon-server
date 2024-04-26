@@ -12,20 +12,33 @@ config_file = os.getenv("CONSERVER_CONFIG_FILE", "./example_config.yml")
 update_config_file = os.getenv("UPDATE_CONFIG_FILE")
 
 
-def load_config():
-    logger.info("Loading config")
-    try:
-        with open(config_file, 'r') as file:
-            config = yaml.safe_load(file)
-    except OSError:
-        logger.error(f"Cannot find config file {config_file}")
-        return 
-    
+def load_config(newConfig = None):
+    """
+    Load the config file into redis
+    """
+    global config_file
+    global update_config_file
+    global config
+
+    if not newConfig:
+        logger.debug(f"Config not provided, loading config from {config_file}")
+        try:
+            with open(config_file, 'r') as file:
+                config = yaml.safe_load(file)
+                logger.debug(f"Loaded config from {config_file}")
+                logger.debug(config)
+        except OSError:
+            logger.error(f"Cannot find config file {config_file}")
+            return 
+    else:
+        config = newConfig
+        logger.debug(f"Loaded config from new config")
+
     # Get the redis client
     r = redis_mgr.get_client()
 
     # Save the old config file in redis, so that it can be retrieved later
-    logger.debug("Saving the old config")
+    logger.debug("Saving the old configuration in redis")
     old_config = get_key("config")
     if old_config:
         # Name the old config file with a unix timestamp
@@ -87,5 +100,6 @@ def load_config():
     set_key("config", config)
 
     logger.debug("Configuration loaded")
-    return chain_names
+    return config
+
 
