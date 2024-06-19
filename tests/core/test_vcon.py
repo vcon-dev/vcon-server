@@ -1,5 +1,5 @@
 import pytest
-from vcon import Vcon
+from server.vcon import Vcon
 import json
 
 """

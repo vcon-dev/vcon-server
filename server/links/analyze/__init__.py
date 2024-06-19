@@ -19,6 +19,7 @@ init_metrics()
 logger = init_logger(__name__)
 
 default_options = {
+    "system_prompt": "You are a helpful assistant.",
     "prompt": "Summarize this transcript in a few sentences.",
     "analysis_type": "summary",
     "model": "gpt-3.5-turbo-16k",
@@ -43,11 +44,11 @@ def get_analysys_for_type(vcon, index, analysis_type):
     stop=stop_after_attempt(6),
     before_sleep=before_sleep_log(logger, logging.INFO),
 )
-def generate_analysis(transcript, prompt, model, temperature):
+def generate_analysis(transcript, system_prompt, prompt, model, temperature):
     # logger.info(f"TRANSCRIPT: {transcript}")
     # logger.info(f"PROMPT: {prompt}")
     messages = [
-        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "system", "content": system_prompt},
         {"role": "user", "content": prompt + "\n\n" + transcript},
     ]
     # logger.info(f"messages: {messages}")
@@ -120,6 +121,7 @@ def run(
             start = time.time()
             analysis = generate_analysis(
                 transcript=source_text,
+                system_prompt=opts["system_prompt"],
                 prompt=opts["prompt"],
                 model=opts["model"],
                 temperature=opts["temperature"],
@@ -148,7 +150,7 @@ def run(
             dialog=index,
             vendor="openai",
             body=analysis,
-            encoding="json",
+            encoding="text", 
             extra={
                 "vendor_schema": json.dumps(vendor_schema),
             },
@@ -157,6 +159,9 @@ def run(
     logger.info(f"Finished analyze - {module_name}:{link_name} plugin for: {vcon_uuid}")
 
     return vcon_uuid
+
+    # Transcript - object (JSON)
+    # 
 
 
 def navigate_dict(dictionary, path):

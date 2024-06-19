@@ -1,4 +1,4 @@
-from server.lib.vcon_redis import VconRedis
+from lib.vcon_redis import VconRedis
 from lib.logging_utils import init_logger
 import json
 from slack_sdk.web import WebClient
@@ -10,7 +10,7 @@ default_options = {
     "channel_name": None,
     "url": "Url to hex sheet",
     "analysis_to_post": "summary",
-    "only_if": {"analysis_type": "customer_frustration", "includes": "NEEDS REVIEW"},
+    "only_if": {"analysis_type": "summary", "trigger": "frustration_expressed"},
 }
 
 
@@ -84,16 +84,23 @@ def run(vcon_id, link_name, opts=default_options):
     vcon_redis = VconRedis()
     vcon = vcon_redis.get_vcon(vcon_id)
 
-    for a in vcon.analysis:
+    if not vcon:
+        return vcon_id
+    
+    logger.info(f"********* VCON DIALOG IN POST_ANALYSIS_TO_SLACK ********* {vcon.dialog}")
+    for ind, d in enumerate(vcon.dialog):
+        summary_analysis = get_summary(vcon, ind)
+        if not summary_analysis:
+            continue
         # we still need to run this check give the following scenario:
         # 0 customers_frustration None
         # 1 customer_frustration Needs Review
         # we need to skip first one an only post the second one to slack
-        if a["type"] != opts["only_if"]["analysis_type"]:
+        if summary_analysis["type"] != opts["only_if"]["analysis_type"]:
             continue
-        if opts["only_if"]["includes"] not in a["body"]:
+        if opts["only_if"]["trigger"] not in summary_analysis["body"]:
             continue
-        if a.get("was_posted_to_slack"):
+        if summary_analysis.get("was_posted_to_slack"):
             continue
 
         # TODO use our lib.links.filters.is_included instead of this
@@ -101,8 +108,7 @@ def run(vcon_id, link_name, opts=default_options):
         url = f"{opts['url']}?_vcon_id=\"{vcon.uuid}\""
         team_name = get_team(vcon)
         dealer_name = get_dealer(vcon)
-        summary = get_summary(vcon, a["dialog"])
-        abstract = summary["body"]
+        abstract = summary_analysis["body"]
 
         if team_name and team_name != "strolid":
             channel_name = f"team-{team_name}-alerts"
@@ -112,7 +118,7 @@ def run(vcon_id, link_name, opts=default_options):
         post_blocks_to_channel(
             opts["token"], opts["default_channel_name"], abstract, url, opts
         )
-        a["was_posted_to_slack"] = True
+        summary_analysis["was_posted_to_slack"] = True
 
     vcon_redis.store_vcon(vcon)
 

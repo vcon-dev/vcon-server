@@ -1,4 +1,4 @@
-from server.lib.vcon_redis import VconRedis
+from lib.vcon_redis import VconRedis
 from lib.logging_utils import init_logger
 
 import requests
@@ -20,6 +20,9 @@ def run(
     vcon_redis = VconRedis()
     vCon = vcon_redis.get_vcon(vcon_uuid)
 
+    if not vCon:
+        logger.info("Vcon not found: %s", vcon_uuid)
+        return vcon_uuid
     # The webhook needs a stringified JSON version.
     json_dict = vCon.to_dict()
 

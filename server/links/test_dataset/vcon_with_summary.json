@@ -1,0 +1,135 @@
+{
+    "uuid": "55dd9e21-dcc8-4275-8ea6-f0aa08ed03fd",
+    "vcon": "0.0.1",
+    "created_at": "2024-05-23T10:28:01.497347",
+    "updated_at": "2024-05-23T10:28:01.497347",
+    "dialog": [
+        {
+            "alg": "SHA-512",
+            "url": "https://fake-vcons.s3.amazonaws.com/2024/05/23/55dd9e21-dcc8-4275-8ea6-f0aa08ed03fd.mp3",
+            "meta": {
+                "direction": "in",
+                "disposition": "ANSWERED"
+            },
+            "type": "recording",
+            "start": "2024-05-23T10:27:58.183956",
+            "parties": [
+                1,
+                0
+            ],
+            "duration": 44.472,
+            "filename": "55dd9e21-dcc8-4275-8ea6-f0aa08ed03fd.mp3",
+            "mimetype": "audio/mp3",
+            "signature": "yO8SSFnp50xPOVE5a0pJBL70ENj9egZdRdzIgRDLYR2-EtcAgAQDAS1qMfd-lghGavtqLZRi8JnYNbgvdkEx8A"
+        }
+    ],
+    "parties": [
+        {
+            "tel": "+16452898127",
+            "meta": {
+                "role": "agent"
+            },
+            "name": "Henry Robinson",
+            "mailto": "henry.robinson@pickrandombusinesstype.com"
+        },
+        {
+            "tel": "+16337548551",
+            "meta": {
+                "role": "customer"
+            },
+            "name": "Christina Young",
+            "email": "christina.young@gmail.com"
+        }
+    ],
+    "attachments": [
+        {
+            "type": "generation_info",
+            "encoding": "none",
+            "body": {
+                "agent_name": "Henry Robinson",
+                "customer_name": "Christina Young",
+                "business": "Bar",
+                "problem": "typical situation",
+                "emotion": "excited",
+                "prompt": "\nGenerate a fake conversation between a customer and an agent.\nThe agent should introduce themselves, their company and give the customer\ntheir name. The agent should ask for the customer's name.\nAs part of the conversation, have the agent ask for two pieces of\npersonal information.  Spell out numbers. For example, 1000 should be\nsaid as one zero zero zero, not one thousand. The conversation should be\nat least 10 lines long and be complete. At the end\nof the conversation, the agent should thank the customer for their time\nand end the conversation. Return the conversation formatted \nlike the following example:\n\n{'conversation': \n    [\n    {'speaker': 'Agent', 'message': 'xxxxx'}, \n    {'speaker': 'Customer', 'message': \"xxxxx.\"}, \n    {'speaker': 'Agent', 'message': \"xxxxxx\"}\n    ] \n}\n\n\nIn this conversation, the agent's name is Henry Robinson and the customer's name is Christina Young.  The conversation is about a random business (a Bar ) and is a conversation about typical situation.",
+                "created_on": "2024-05-23T10:27:58.183968",
+                "model": "gpt-4o"
+            }
+        }
+    ],
+    "analysis": [
+        {
+            "type": "transcript",
+            "dialog": 0,
+            "vendor": "openai",
+            "encoding": "none",
+            "body": [
+                {
+                    "speaker": "Agent",
+                    "message": "Hello! Thank you for calling Tech Solutions. My name is Alex. How can I assist you today?"
+                },
+                {
+                    "speaker": "Customer",
+                    "message": "Hi Alex, I'm looking to inquire about your repair services."
+                },
+                {
+                    "speaker": "Agent",
+                    "message": "Of course! May I have your name, please?"
+                },
+                {
+                    "speaker": "Customer",
+                    "message": "Sure, my name is Sarah."
+                },
+                {
+                    "speaker": "Agent",
+                    "message": "Thank you, Sarah. Could I please get your email address so I can pull up your records?"
+                },
+                {
+                    "speaker": "Customer",
+                    "message": "Yes, it's sarah.smith@example.com."
+                },
+                {
+                    "speaker": "Agent",
+                    "message": "Great, thank you. Could you also provide me with your contact number, just in case we need to reach out to you?"
+                },
+                {
+                    "speaker": "Customer",
+                    "message": "Absolutely, my number is five five five, one two three, four five six seven."
+                },
+                {
+                    "speaker": "Agent",
+                    "message": "Alright, I have all the information I need. Thank you for your time, Sarah. We will get back to you shortly regarding your inquiry."
+                },
+                {
+                    "speaker": "Customer",
+                    "message": "Thank you, Alex. Have a great day!"
+                },
+                {
+                    "speaker": "Agent",
+                    "message": "You're welcome! Have a wonderful day, Sarah. Goodbye!"
+                }
+            ],
+            "vendor_schema": {
+                "model": "gpt-4o",
+                "prompt": "\nGenerate a fake conversation between a customer and an agent.\nThe agent should introduce themselves, their company and give the customer\ntheir name. The agent should ask for the customer's name.\nAs part of the conversation, have the agent ask for two pieces of\npersonal information.  Spell out numbers. For example, 1000 should be\nsaid as one zero zero zero, not one thousand. The conversation should be\nat least 10 lines long and be complete. At the end\nof the conversation, the agent should thank the customer for their time\nand end the conversation. Return the conversation formatted \nlike the following example:\n\n{'conversation': \n    [\n    {'speaker': 'Agent', 'message': 'xxxxx'}, \n    {'speaker': 'Customer', 'message': \"xxxxx.\"}, \n    {'speaker': 'Agent', 'message': \"xxxxxx\"}\n    ] \n}\n\n\nIn this conversation, the agent's name is Henry Robinson and the customer's name is Christina Young.  The conversation is about a random business (a Bar ) and is a conversation about typical situation."
+            }
+        },
+        {
+            "type": "summary",
+            "dialog": 0,
+            "vendor": "openai",
+            "encoding": "none",
+            "body": {
+                "transcript_summary": "The customer called to report an issue with their recent purchase which arrived damaged. They expressed their frustration about the inconvenience and asked for a replacement or a refund. The purpose of the call was to resolve the issue with the damaged product. The agent apologized for the issue, provided clear instructions on how to return the item, and assured the customer that a replacement would be sent promptly.",
+                "call_purpose": "To resolve an issue with a damaged product received by the customer.",
+                "frustration_expressed": true,
+                "interaction_type": "Conversation between two people",
+                "agent_helpfulness": true
+            },
+            "vendor_schema": {
+                "model": "gpt-4o",
+                "prompt": "\nSummarize this transcript in a few sentences, identify the purpose of the call and then indicate if there is a clear frustration expressed by \nthe customer and if this was a conversation between two people or if someone left a message, and if agent was helpful?\n"
+            }
+        }
+    ]
+}

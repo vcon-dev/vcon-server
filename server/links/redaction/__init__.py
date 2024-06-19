@@ -11,7 +11,6 @@ import vcon
 
 logger = init_logger(__name__)
 
-
 default_options = {
     "name": "redaction",
     "ingress-topics": ["ingress-vcons"],

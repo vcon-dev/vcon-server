@@ -15,16 +15,15 @@ class Vcon:
     def __init__(self, vcon_dict={}):
         # deep copy
         self.vcon_dict = json.loads(json.dumps(vcon_dict))
-        # TODO fix when body is optional and not present
-        for attachment in self.vcon_dict["attachments"]:
-            # assume json if encoding is not present
-            if attachment.get("encoding", None) in ["json", None]:
-                body = json.loads(attachment["body"])
-                attachment["body"] = body
 
     @classmethod
     def build_from_json(cls, json_string: str):
-        return cls(json.loads(json_string))
+        # Check to see if the string is a json string.
+        # If it is not, then raise an error. Try to load the json string
+        # into a dictionary. If it fails, raise an error.
+        # Check if the string is a valid JSON and load it into a dictionary
+        vcon_dict = json.loads(json_string)
+        return cls(vcon_dict)
 
     @classmethod
     def build_new(cls):
@@ -63,7 +62,7 @@ class Vcon:
             tags_attachment = {
                 "type": "tags",
                 "body": [],
-                "encoding": "json",
+                "encoding": "none",
             }
             self.vcon_dict["attachments"].append(tags_attachment)
         tags_attachment["body"].append(f"{tag_name}:{tag_value}")
@@ -73,10 +72,7 @@ class Vcon:
             (a for a in self.vcon_dict["attachments"] if a["type"] == type), None
         )
 
-    def add_attachment(self, *, body: Union[dict, list, str], type: str, encoding="json"):
-        if isinstance(body, str) and encoding == "json":
-            body = json.loads(body)
-
+    def add_attachment(self, *, body: Union[dict, list, str], type: str, encoding="none"):
         attachment = {
             "type": type,
             "body": body,
@@ -87,21 +83,37 @@ class Vcon:
     def find_analysis_by_type(self, type):  # TODO fix to search for specific dialog id if it's passed
         return next((a for a in self.vcon_dict["analysis"] if a["type"] == type), None)
 
-    def add_analysis(self, *, type: str, dialog: Union[list, int], vendor: str, body: Union[dict, list, str], encoding="json", extra={}):
-        if isinstance(body, str) and encoding == "json":
-            body = json.loads(body)
+    def add_analysis(self, *, type: str, dialog: Union[list, int], vendor: str, body: Union[dict, list, str], encoding="none", extra={}):
         analysis = {
+            **extra,
             "type": type,
             "dialog": dialog,
             "vendor": vendor,
             "body": body,
             "encoding": encoding,
-            **extra,
         }
         self.vcon_dict["analysis"].append(analysis)
 
     def add_party(self, party: dict):
         self.vcon_dict["parties"].append(party)
+
+    def get_transcripts(self):
+        transcripts = [a for a in self.vcon_dict["analysis"] if a["type"] == 'transcript']
+        transcript_texts = []
+        for transcript in transcripts:
+            transcript_text = ""
+            if transcript["vendor"] == "Whisper":
+                transcript_text += transcript["body"]["ori_dict"]["text"]
+            if transcript["vendor"] == "openai":
+                text = ""
+                for msg in transcript["body"]:
+                    text += msg['speaker'] + ': '
+                    text += msg['message'] + '\n'
+                transcript_text += text
+            if transcript["vendor"] == "deepgram":
+                transcript_text += transcript["body"]["transcript"]
+            transcript_texts.append((transcript_text, transcript["dialog"]))
+        return transcript_texts
 
     def find_party_index(self, by: str, val: str) -> Optional[int]:
         return next(

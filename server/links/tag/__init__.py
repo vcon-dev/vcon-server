@@ -1,4 +1,4 @@
-from server.lib.vcon_redis import VconRedis
+from lib.vcon_redis import VconRedis
 from lib.logging_utils import init_logger
 
 logger = init_logger(__name__)
@@ -16,7 +16,12 @@ def run(
 
     vcon_redis = VconRedis()
     vCon = vcon_redis.get_vcon(vcon_uuid)
-    vCon.add_analysis(0, "tags", opts["tags"])  # TODO fix and test that link (first argument is type now)
+    if not vCon:
+        logger.debug(f"vCon not found: {vcon_uuid}")
+        return vcon_uuid
+    
+    for tag in opts["tags"]:
+        vCon.add_tag("strolid", tag)
     vcon_redis.store_vcon(vCon)
 
     # Return the vcon_uuid down the chain.

@@ -16,9 +16,7 @@ from redis.asyncio import Redis as RedisAsync
 from settings import REDIS_URL
 
 logger = init_logger(__name__)
-
 redis = Redis.from_url(REDIS_URL, decode_responses=True)
-
 
 def get_client():
     return redis
