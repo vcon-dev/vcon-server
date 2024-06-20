@@ -34,7 +34,8 @@ def save(
         tenant_attachment = vcon.find_attachment_by_type("tenant")
         tenant_id = None
         if tenant_attachment:
-            tenant_id = tenant_attachment["body"]["id"]
+            tenant = json.loads(tenant_attachment["body"])
+            tenant_id = tenant["id"]
 
         # es.index(
         #     index=opts["index"],
@@ -50,6 +51,7 @@ def save(
                 index_name += f"_{role}"
             if tenant_id:
                 party["tenant_id"] = tenant_id
+            party["vcon_id"] = vcon_dict["uuid"]
             es.index(
                 index=index_name,
                 id=f"{vcon_dict['uuid']}_{ind}",
@@ -64,6 +66,7 @@ def save(
                 attachment["body"] = json.loads(attachment["body"])
             if tenant_id:
                 attachment["tenant_id"] = tenant_id
+            attachment["vcon_id"] = vcon_dict["uuid"]
             es.index(
                 index=index_name,
                 id=f"{vcon_dict['uuid']}_{ind}",
@@ -73,13 +76,13 @@ def save(
         # Index the analysis, separated by 'type' - id=f"{vcon_uuid}_{analysis_index}"
         for ind, analysis in enumerate(vcon_dict["analysis"]):
             type = analysis.get("type")
-            print(f"ANALYSIS TYPE: {type}")
             index_name = f"vcon_analysis_{type}"
             if analysis["encoding"] == "json":  # TODO may be we need handle different encodings
                 if isinstance(analysis["body"], str):
                     analysis["body"] = json.loads(analysis["body"])
             if tenant_id:
                 analysis["tenant_id"] = tenant_id
+            analysis["vcon_id"] = vcon_dict["uuid"]
             es.index(
                 index=index_name,
                 id=f"{vcon_dict['uuid']}_{ind}",
@@ -91,6 +94,7 @@ def save(
         for ind, dialog in enumerate(vcon_dict["dialog"]):
             if tenant_id:
                 dialog["tenant_id"] = tenant_id
+            dialog["vcon_id"] = vcon_dict["uuid"]
             es.index(
                 index="vcon_dialog",
                 id=f"{vcon_dict['uuid']}_{ind}",

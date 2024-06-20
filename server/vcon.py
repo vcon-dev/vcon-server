@@ -15,6 +15,13 @@ class Vcon:
     def __init__(self, vcon_dict={}):
         # deep copy
         self.vcon_dict = json.loads(json.dumps(vcon_dict))
+        # TODO fix when body is optional and not present
+        for attachment in self.vcon_dict["attachments"]:
+            # assume json if encoding is not present
+            if attachment.get("encoding", None) in ["json", None]:
+                body = json.loads(attachment["body"])
+                attachment["body"] = body
+
 
     @classmethod
     def build_from_json(cls, json_string: str):
