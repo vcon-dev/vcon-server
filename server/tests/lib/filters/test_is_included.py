@@ -50,7 +50,7 @@ async def test_is_included():
         body="foo bar NEEDS REVIEW bar foo",
         dialog=0,
         vendor="FooBar Inc.",
-        encoding="text"
+        encoding="none"
     )
     assert is_included(
         {

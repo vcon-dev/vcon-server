@@ -150,7 +150,7 @@ def run(
             dialog=index,
             vendor="openai",
             body=analysis,
-            encoding="text", 
+            encoding="none", 
             extra={
                 "vendor_schema": json.dumps(vendor_schema),
             },

@@ -73,6 +73,8 @@ class Vcon:
         )
 
     def add_attachment(self, *, body: Union[dict, list, str], type: str, encoding="none"):
+        if isinstance(body, str) and encoding == "json":
+            body = json.loads(body)
         attachment = {
             "type": type,
             "body": body,
@@ -84,6 +86,8 @@ class Vcon:
         return next((a for a in self.vcon_dict["analysis"] if a["type"] == type), None)
 
     def add_analysis(self, *, type: str, dialog: Union[list, int], vendor: str, body: Union[dict, list, str], encoding="none", extra={}):
+        if isinstance(body, str) and encoding == "json":
+            body = json.loads(body)
         analysis = {
             **extra,
             "type": type,
