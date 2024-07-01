@@ -57,7 +57,7 @@ class Vcon:
             tags_attachment = {
                 "type": "tags",
                 "body": [],
-                "encoding": "json",
+                "encoding": "none",
             }
             self.vcon_dict["attachments"].append(tags_attachment)
         tags_attachment["body"].append(f"{tag_name}:{tag_value}")
