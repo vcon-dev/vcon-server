@@ -150,9 +150,9 @@ def run(
             dialog=index,
             vendor="openai",
             body=analysis,
-            encoding="none", 
+            encoding="none",
             extra={
-                "vendor_schema": json.dumps(vendor_schema),
+                "vendor_schema": vendor_schema,
             },
         )
     vcon_redis.store_vcon(vCon)
@@ -161,7 +161,7 @@ def run(
     return vcon_uuid
 
     # Transcript - object (JSON)
-    # 
+    #
 
 
 def navigate_dict(dictionary, path):

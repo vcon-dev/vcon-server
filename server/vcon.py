@@ -6,7 +6,7 @@ import time
 import uuid6
 from datetime import datetime, UTC
 from pydash import get as _get
-
+import base64
 
 _LAST_V8_TIMESTAMP = None
 
@@ -15,13 +15,6 @@ class Vcon:
     def __init__(self, vcon_dict={}):
         # deep copy
         self.vcon_dict = json.loads(json.dumps(vcon_dict))
-        # TODO fix when body is optional and not present
-        for attachment in self.vcon_dict["attachments"]:
-            # assume json if encoding is not present
-            if attachment.get("encoding", None) in ["json", None]:
-                body = json.loads(attachment["body"])
-                attachment["body"] = body
-
 
     @classmethod
     def build_from_json(cls, json_string: str):
@@ -79,9 +72,24 @@ class Vcon:
             (a for a in self.vcon_dict["attachments"] if a["type"] == type), None
         )
 
-    def add_attachment(self, *, body: Union[dict, list, str], type: str, encoding="none"):
-        if isinstance(body, str) and encoding == "json":
-            body = json.loads(body)
+    def add_attachment(
+        self, *, body: Union[dict, list, str], type: str, encoding="none"
+    ):
+        if encoding not in ["json", "none", "base64url"]:
+            raise Exception("Invalid encoding")
+
+        if encoding == "json":
+            try:
+                json.loads(body)
+            except Exception as e:
+                raise Exception("Invalid JSON body: ", e)
+
+        if encoding == "base64url":
+            try:
+                base64.urlsafe_b64decode(body)
+            except Exception as e:
+                raise Exception("Invalid base64url body: ", e)
+
         attachment = {
             "type": type,
             "body": body,
@@ -89,12 +97,37 @@ class Vcon:
         }
         self.vcon_dict["attachments"].append(attachment)
 
-    def find_analysis_by_type(self, type):  # TODO fix to search for specific dialog id if it's passed
+    def find_analysis_by_type(
+        self, type
+    ):  # TODO fix to search for specific dialog id if it's passed
         return next((a for a in self.vcon_dict["analysis"] if a["type"] == type), None)
 
-    def add_analysis(self, *, type: str, dialog: Union[list, int], vendor: str, body: Union[dict, list, str], encoding="none", extra={}):
-        if isinstance(body, str) and encoding == "json":
-            body = json.loads(body)
+    def add_analysis(
+        self,
+        *,
+        type: str,
+        dialog: Union[list, int],
+        vendor: str,
+        body: Union[dict, list, str],
+        encoding="none",
+        extra={},
+    ):
+
+        if encoding not in ["json", "none", "base64url"]:
+            raise Exception("Invalid encoding")
+
+        if encoding == "json":
+            try:
+                json.loads(body)
+            except Exception as e:
+                raise Exception("Invalid JSON body: ", e)
+
+        if encoding == "base64url":
+            try:
+                base64.urlsafe_b64decode(body)
+            except Exception as e:
+                raise Exception("Invalid base64url body: ", e)
+
         analysis = {
             **extra,
             "type": type,
@@ -109,7 +142,9 @@ class Vcon:
         self.vcon_dict["parties"].append(party)
 
     def get_transcripts(self):
-        transcripts = [a for a in self.vcon_dict["analysis"] if a["type"] == 'transcript']
+        transcripts = [
+            a for a in self.vcon_dict["analysis"] if a["type"] == "transcript"
+        ]
         transcript_texts = []
         for transcript in transcripts:
             transcript_text = ""
@@ -118,8 +153,8 @@ class Vcon:
             if transcript["vendor"] == "openai":
                 text = ""
                 for msg in transcript["body"]:
-                    text += msg['speaker'] + ': '
-                    text += msg['message'] + '\n'
+                    text += msg["speaker"] + ": "
+                    text += msg["message"] + "\n"
                 transcript_text += text
             if transcript["vendor"] == "deepgram":
                 transcript_text += transcript["body"]["transcript"]
@@ -147,14 +182,12 @@ class Vcon:
 
     def to_json(self) -> str:
         tmp_vcon_dict = copy.copy(self.vcon_dict)
-        for attachment in tmp_vcon_dict["attachments"]:
-            # assume json if encoding is not present
-            if attachment.get("encoding") in ["json", None]:
-                attachment["body"] = json.dumps(attachment["body"])
         return json.dumps(tmp_vcon_dict)
 
     def to_dict(self) -> dict:
-        return json.loads(self.to_json())  # convert from internal dict format to vcon format
+        return json.loads(
+            self.to_json()
+        )  # convert from internal dict format to vcon format
 
     def dumps(self) -> str:
         return self.to_json()
@@ -197,7 +230,7 @@ class Vcon:
 
     @property
     def created_at(self):
-        """"
+        """ "
         The created_at parameter provides the creation time of this vcon,
         which MUST be present, and should not changed once the vcon object is
         created.

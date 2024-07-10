@@ -10,6 +10,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from lib.logging_utils import init_logger
 from load_config import load_config
+from config import Configuration
+from storage.base import Storage
 from peewee import CharField, Model
 from playhouse.postgres_ext import (
     BinaryJSONField,
@@ -138,9 +140,14 @@ async def get_vcons(
 )
 async def get_vcon(vcon_uuid: UUID):
     vcon = await redis_async.json().get(f"vcon:{str(vcon_uuid)}")
-    
-    status_code = 200 if vcon else 404
-    return JSONResponse(content=vcon, status_code=status_code)
+    if not vcon:
+        # Fallback to the storages if the vcon is not found in redis
+        for storage_name in Configuration.get_storages():
+            vcon = Storage(storage_name=storage_name).get(vcon_uuid)
+            if vcon:
+                break
+
+    return JSONResponse(content=vcon, status_code=200 if vcon else 404)
 
 
 @app.post(
@@ -317,11 +324,11 @@ async def delete_config():
 
 # Reprocess Dead Letter Queue
 @app.post(
-    "/dql/reprocess",
+    "/dlq/reprocess",
     status_code=200,
     summary="Reprocess the dead letter queue",
     description="Move the dead letter queue vcons back to the ingress chain",
-    tags=["chain"],
+    tags=["dlq"],
 )
 async def post_dlq_reprocess(ingress_list: str):
     # Get all items from redis list and move them back to the ingress list
@@ -331,6 +338,21 @@ async def post_dlq_reprocess(ingress_list: str):
         await redis_async.rpush(ingress_list, item)
         counter += 1
     return JSONResponse(content=counter)
+
+
+@app.get(
+    "/dlq",
+    status_code=200,
+    summary="Get Vcons list from the dead letter queue",
+    description="Get Vcons list from the dead letter queue, returns array of vcons.",
+    tags=["dlq"],
+)
+async def get_dlq_vcons(ingress_list: str):
+    """ Get all the vcons from the dead letter queue """
+    dlq_name = get_ingress_list_dlq_name(ingress_list)
+    vcons = await redis_async.lrange(dlq_name, 0, -1)
+    return JSONResponse(content=vcons)
+
 
 @app.get(
     "/index_vcons",

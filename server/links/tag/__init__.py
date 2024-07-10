@@ -7,6 +7,7 @@ default_options = {
     "tags": ["iron", "maiden"],
 }
 
+
 def run(
     vcon_uuid,
     link_name,
@@ -19,9 +20,9 @@ def run(
     if not vCon:
         logger.debug(f"vCon not found: {vcon_uuid}")
         return vcon_uuid
-    
-    for tag in opts["tags"]:
-        vCon.add_tag("strolid", tag)
+
+    for tag in opts.get("tags", []):
+        vCon.add_tag(tag_name=tag, tag_value=tag)
     vcon_redis.store_vcon(vCon)
 
     # Return the vcon_uuid down the chain.

@@ -47,14 +47,13 @@ def save(
 
         db.create_tables([Vcons], safe=True)
 
-        try:
-            source = next(
-                json.loads(a["body"])["source"]
-                for a in vcon.attachments
-                if a["type"] == "ingress_info"
-            )
-        except Exception:
-            source = None
+        source = None
+        for a in vcon.attachments:
+            if a["type"] == "ingress_info":
+                if a['encoding'] == 'json':
+                    source = json.loads(a["body"])["source"]
+                else: 
+                    source = a["body"]["source"]
 
         vcon_data = {
             "id": vcon.uuid,
@@ -75,6 +74,49 @@ def save(
     except Exception as e:
         logger.error(
             f"postgres storage plugin: failed to insert vCon: {vcon_uuid}, error: {e} "
+        )
+    finally:
+        db.close()
+
+
+def get(
+    vcon_uuid,
+    opts=default_options,
+):
+    # logger.info("Starting the Postgres storage get for vCon: %s", vcon_uuid)
+    try:
+        # Connect to Postgres
+        db = PostgresqlExtDatabase(
+            opts["database"],
+            user=opts["user"],
+            password=opts["password"],
+            host=opts["host"],
+            port=opts["port"],
+        )
+
+        class BaseModel(Model):
+            class Meta:
+                database = db
+
+        class Vcons(BaseModel):
+            id = UUIDField(primary_key=True)
+            vcon = TextField()
+            uuid = UUIDField()
+            created_at = DateTimeField()
+            updated_at = DateTimeField(null=True)
+            subject = TextField(null=True)
+            vcon_json = BinaryJSONField(null=True)
+            type = TextField()
+
+        try:
+            vcon = Vcons.get(Vcons.id == vcon_uuid)
+        except Vcons.DoesNotExist:
+            vcon = None
+
+        return vcon.vcon_json if vcon else None
+    except Exception as e:
+        logger.error(
+            f"Postgres storage plugin: failed to get vCon: {vcon_uuid}, error: {e} "
         )
     finally:
         db.close()
