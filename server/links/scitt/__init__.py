@@ -178,7 +178,7 @@ def run(
         signing_key,
         payload,
         include_vcon=True,
-        feed=opts["feed"],
+        subject=opts["subject"],
         issuer=opts["issuer"],
         content_type=opts["content_type"],
     )
