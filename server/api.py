@@ -45,8 +45,6 @@ app.router.add_event_handler("startup", on_startup)
 app.router.add_event_handler("shutdown", on_shutdown)
 
 
-
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -129,6 +127,28 @@ async def get_vcons_uuids(
     # Convert the vcon_uuids to strings and strip the vcon: prefix
     vcon_uuids = [vcon.split(":")[1] for vcon in vcon_uuids]
     return vcon_uuids
+
+
+# Create an endpoint to pop vcon IDs from one or more redis lists
+@app.get(
+    "/vcon/egress",
+    status_code=204,
+    summary="Removes one or more vCon UUIDs from the output of a chain (egress)",
+    description="Removes one or more vCon UUIDs from the output of a chain (egress)",
+    tags=["chain"],
+)
+async def get_vcon_egress(egress_list: str, limit=1):
+    try:
+        vcon_uuids = []
+        for i in range(limit):
+            vcon_uuid = await redis_async.rpop(egress_list)
+            if vcon_uuid:
+                vcon_uuids.append(vcon_uuid)
+        return JSONResponse(content=vcon_uuids)
+
+    except Exception as e:
+        logger.info("Error: {}".format(e))
+        raise HTTPException(status_code=500)
 
 
 @app.get(
@@ -243,28 +263,6 @@ async def post_vcon_ingress(vcon_uuids: List[str], ingress_list: str):
         raise HTTPException(status_code=500)
 
 
-# Create an endpoint to pop vcon IDs from one or more redis lists
-@app.get(
-    "/vcon/egress",
-    status_code=204,
-    summary="Removes one or more vCon UUIDs from the output of a chain (egress)",
-    description="Removes one or more vCon UUIDs from the output of a chain (egress)",
-    tags=["chain"],
-)
-async def get_vcon_egress(egress_list: str, limit=1):
-    try:
-        vcon_uuids = []
-        for i in range(limit):
-            vcon_uuid = await redis_async.rpop(egress_list)
-            if vcon_uuid:
-                vcon_uuids.append(vcon_uuid)
-        return JSONResponse(content=vcon_uuids)
-
-    except Exception as e:
-        logger.info("Error: {}".format(e))
-        raise HTTPException(status_code=500)
-
-
 # Create an endpoint to count the number of vCon UUIds in a redis list
 @app.get(
     "/vcon/count",
@@ -372,7 +370,7 @@ async def post_dlq_reprocess(ingress_list: str):
     tags=["dlq"],
 )
 async def get_dlq_vcons(ingress_list: str):
-    """ Get all the vcons from the dead letter queue """
+    """Get all the vcons from the dead letter queue"""
     dlq_name = get_ingress_list_dlq_name(ingress_list)
     vcons = await redis_async.lrange(dlq_name, 0, -1)
     return JSONResponse(content=vcons)
@@ -396,11 +394,10 @@ async def index_vcons():
             created_at = datetime.fromisoformat(vcon["created_at"])
             timestamp = int(created_at.timestamp())
             await add_vcon_to_set(key, timestamp)
-        
+
         # Return the number of vcons indexed
         return JSONResponse(content=len(vcon_keys))
-            
+
     except Exception as e:
         logger.info("Error: {}".format(e))
         raise HTTPException(status_code=500)
-

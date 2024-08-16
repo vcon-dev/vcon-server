@@ -1,6 +1,7 @@
 import importlib
 import time
 import redis_mgr
+
 # from server.load_config import (
 #     load_config,
 # )
@@ -12,6 +13,7 @@ from typing import List, TypedDict, Optional
 from dlq_utils import get_ingress_list_dlq_name
 from config import get_config
 from storage.base import Storage
+import follower
 
 shutdown_requested = False
 
@@ -33,7 +35,7 @@ config: dict | None = None
 
 
 def signal_handler(signum, frame):
-    logger.info('SIGTERM received, initiating graceful shutdown...')
+    logger.info("SIGTERM received, initiating graceful shutdown...")
     # Set a global flag to stop the loop or exit the blocking call safely
     global shutdown_requested
     shutdown_requested = True
@@ -66,7 +68,11 @@ class VconChainRequest:
         for link_name in self.chain_details["links"]:
             should_continue_chain = self._process_link(link_name)
             if not should_continue_chain:
-                logger.info("Link %s did not want to forward vCon %s. Ending chain", link_name, self.vcon_id)
+                logger.info(
+                    "Link %s did not want to forward vCon %s. Ending chain",
+                    link_name,
+                    self.vcon_id,
+                )
                 break
         self._wrap_up()
         vcon_processing_time = round(time.time() - vcon_started, 3)
@@ -88,13 +94,19 @@ class VconChainRequest:
         for storage_name in self.chain_details.get("storages", []):
             self._process_storage(storage_name)
 
-        logger.info("Finished wrap_up of chain %s for vCon: %s", self.chain_details['name'], self.vcon_id)
+        logger.info(
+            "Finished wrap_up of chain %s for vCon: %s",
+            self.chain_details["name"],
+            self.vcon_id,
+        )
 
     def _process_storage(self, storage_name):
         try:
             Storage(storage_name).save(self.vcon_id)
         except Exception as e:
-            logger.error("Error saving vCon %s to storage %s: %s", self.vcon_id, storage_name, e)
+            logger.error(
+                "Error saving vCon %s to storage %s: %s", self.vcon_id, storage_name, e
+            )
 
     def _process_link(self, link_name):
         logger.info("Started processing link %s for vCon: %s", link_name, self.vcon_id)
@@ -140,6 +152,7 @@ def main():
     logger.info("Starting main loop")
     global config
     config = get_config()
+    follower.start_followers()
     ingress_chain_map = get_ingress_chain_map()
     all_ingress_lists = list(ingress_chain_map.keys())
     while not shutdown_requested:
@@ -150,8 +163,12 @@ def main():
             continue
 
         ingress_list, vcon_id = popped_item
-        if shutdown_requested:  # we got something from the queue but we're shutting down
-            r.lpush(ingress_list, vcon_id)  # push it back into the queue so we don't lose it
+        if (
+            shutdown_requested
+        ):  # we got something from the queue but we're shutting down
+            r.lpush(
+                ingress_list, vcon_id
+            )  # push it back into the queue so we don't lose it
             break
 
         log_llen(ingress_list)
@@ -160,7 +177,12 @@ def main():
         try:
             vcon_chain_request.process()
         except Exception as e:
-            logger.error("Error processing vCon %s: %s. Moving it to the Dead Letter Queue.", vcon_id, e, exc_info=True)
+            logger.error(
+                "Error processing vCon %s: %s. Moving it to the Dead Letter Queue.",
+                vcon_id,
+                e,
+                exc_info=True,
+            )
             r.lpush(get_ingress_list_dlq_name(ingress_list), vcon_id)
 
 

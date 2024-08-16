@@ -5,7 +5,7 @@ _config: dict = None
 
 
 def get_config() -> dict:
-    """ This is to keep logic of accessing config in one place """
+    """This is to keep logic of accessing config in one place"""
     global _config
     if not _config:
         with open(settings.CONSERVER_CONFIG_FILE) as file:
@@ -22,3 +22,8 @@ class Configuration:
     def get_storages(cls) -> dict:
         config = cls.get_config()
         return config.get("storages", {})
+
+    @classmethod
+    def get_followers(cls) -> dict:
+        config = cls.get_config()
+        return config.get("followers", {})
