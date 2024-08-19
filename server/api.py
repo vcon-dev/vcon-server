@@ -22,7 +22,9 @@ from playhouse.postgres_ext import (
 from pydantic import BaseModel
 from dlq_utils import get_ingress_list_dlq_name
 from settings import VCON_SORTED_SET_NAME, VCON_STORAGE
-
+from fastapi import Query
+import jsonpath_ng
+    
 logger = init_logger(__name__)
 logger.info("Api starting up")
 
@@ -222,6 +224,55 @@ async def delete_vcon(vcon_uuid: UUID):
         raise HTTPException(status_code=500)
 
 
+@app.get(
+    "/vcons/jqsearch",
+    response_model=List[Vcon],
+    summary="Search vCons based on content",
+    description="Search vCons using a JQ-like syntax to match content.",
+    tags=["vcon"],
+)
+async def search_vcons(
+    query: str = Query(..., description="JQ-like query to search vCons"),
+    limit: int = Query(10, description="Maximum number of results to return")
+) -> JSONResponse:
+    """
+    Search vCons based on content.
+
+    Args:
+        query (str): JQ-like query to search vCons.
+        limit (int, optional): Maximum number of results to return. Defaults to 10.
+
+    Returns:
+        List[Vcon]: List of vCons that match the query.
+
+    Raises:
+        HTTPException: If there is an error searching vCons.
+
+    """
+    try:
+        # Get all vCon keys
+        vcon_keys = await redis_async.keys("vcon:*")
+        
+        results = []
+        for key in vcon_keys:
+            vcon = await redis_async.json().get(key)
+            
+            # Use jsonpath to evaluate the query
+            jsonpath_expr = jsonpath_ng.parse(query)
+            matches = jsonpath_expr.find(vcon)
+            
+            if matches:
+                results.append(vcon)
+                
+            if len(results) >= limit:
+                break
+        
+        return JSONResponse(content=results, status_code=200)
+    
+    except Exception as e:
+        logger.error(f"Error searching vCons: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error searching vCons")
+    
 # Ingress and egress endpoints for vCon IDs
 # Create an endpoint to push vcon IDs to one or more redis lists
 @app.post(
@@ -231,7 +282,7 @@ async def delete_vcon(vcon_uuid: UUID):
     description="Inserts a vCon UUID into one or more chains.",
     tags=["chain"],
 )
-async def post_vcon_ingress(vcon_uuids: List[str], ingress_list: str):
+async def post_vcon_ingress(vcon_uuids: List[str], ingress_list: str) -> None:
     try:
         for vcon_id in vcon_uuids:
             await redis_async.rpush(
