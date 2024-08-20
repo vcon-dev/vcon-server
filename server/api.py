@@ -493,7 +493,7 @@ async def get_dlq_vcons(ingress_list: str):
 
 
 async def index_vcon(uuid):
-    key = "vcon:" + uuid
+    key = "vcon:" + str(uuid)
     vcon = await redis_async.json().get(key)
     created_at = datetime.fromisoformat(vcon["created_at"])
     timestamp = int(created_at.timestamp())
