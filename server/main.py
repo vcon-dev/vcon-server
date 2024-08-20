@@ -13,7 +13,8 @@ from typing import List, TypedDict, Optional
 from dlq_utils import get_ingress_list_dlq_name
 from config import get_config
 from storage.base import Storage
-import follower
+
+# import follower
 
 shutdown_requested = False
 
@@ -152,7 +153,7 @@ def main():
     logger.info("Starting main loop")
     global config
     config = get_config()
-    follower.start_followers()
+    # follower.start_followers()
     ingress_chain_map = get_ingress_chain_map()
     all_ingress_lists = list(ingress_chain_map.keys())
     while not shutdown_requested:
