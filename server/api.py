@@ -140,7 +140,7 @@ async def get_vcons_uuids(
     description="Removes one or more vCon UUIDs from the output of a chain (egress)",
     tags=["chain"],
 )
-async def get_vcon_egress(egress_list: str, limit=1):
+async def get_vcon_egress(egress_list: str, limit: int = 1):
     try:
         vcon_uuids = []
         for i in range(limit):
