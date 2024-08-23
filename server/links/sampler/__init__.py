@@ -1,6 +1,9 @@
 import random
 import time
 import hashlib
+from lib.logging_utils import init_logger
+
+logger = init_logger(__name__)
 
 default_options = {"method": "percentage", "value": 50, "seed": None}
 
