@@ -7,8 +7,10 @@ import uuid6
 from datetime import datetime, UTC
 from pydash import get as _get
 import base64
+import os
 
 _LAST_V8_TIMESTAMP = None
+UUID8_DOMAIN_NAME = os.getenv("UUID8_DOMAIN_NAME", "strolid.com")
 
 
 class Vcon:
@@ -152,6 +154,11 @@ class Vcon:
     def dumps(self) -> str:
         return self.to_json()
 
+    # return the SHA-256 hash of the vCon
+    @property
+    def hash(self) -> str:
+        return hashlib.sha256(self.dumps().encode()).hexdigest()
+    
     @property
     def parties(self) -> list:
         return self.vcon_dict.get("parties", [])
