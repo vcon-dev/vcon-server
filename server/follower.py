@@ -24,7 +24,8 @@ def follower_function(follower):
         follower["url"]
         + "/vcon/egress?egress_list="
         + follower["egress_list"]
-        + "&limit=30"
+        + "&limit=" 
+        + str(follower["fetch_vcon_limit"])
     )
     headers = {
         "Content-Type": "application/json",
