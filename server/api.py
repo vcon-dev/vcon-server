@@ -11,7 +11,7 @@ from uuid import UUID
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-import load_config
+import yaml
 from server.config import Configuration
 from storage.base import Storage
 from peewee import CharField, Model
@@ -583,7 +583,9 @@ async def get_config():
         HTTPException: With a status code of 500 if any error occurs.
     """
     try:
-        config = await redis_async.json().get("config")
+        # read the file from CONSERVER_CONFIG_FILE
+        with open(os.getenv("CONSERVER_CONFIG_FILE"), "r") as f:
+            config = yaml.safe_load(f)
         return JSONResponse(content=config)
 
     except Exception as e:
@@ -600,58 +602,23 @@ async def get_config():
     description="Updates the config file for the conserver",
     tags=["config"],
 )
-async def post_config(config: Dict, update_file_name=None):
+async def post_config(config: Dict):
     """
     Updates the config file for the conserver.
 
-    This endpoint takes a JSON representation of the config file and stores it in Redis.
+    This endpoint takes a JSON representation of the config file and stores it in on Disk.
 
     Args:
         config (Dict): The JSON representation of the config file.
-        update_file_name (str, optional): If provided, the file at this path will be updated with the new config. Defaults to None.
 
     Raises:
         HTTPException: With a status code of 500 if any error occurs.
     """
     try:
-        load_config(config)
-    except Exception as e:
-        logger.info("Error: {}".format(e))
-        raise HTTPException(status_code=500)
-
-
-# This endpoint clears the config
-@api_router.delete(
-    "/config",
-    status_code=204,
-    summary="Clears the config file for the conserver",
-    description="Clears the config file for the conserver",
-    tags=["config"],
-)
-async def delete_config():
-    """
-    Clears the config file for the conserver.
-
-    This endpoint deletes the config, all links, all storages, and all chains from Redis.
-
-    Raises:
-        HTTPException: With a status code of 500 if any error occurs.
-    """
-    try:
-        await redis_async.delete("config")
-        # Delete the links
-        links = await redis_async.keys("link:*")
-        for link in links:
-            await redis_async.delete(link)
-        # Delete the storages
-        storages = await redis_async.keys("storage:*")
-        for storage in storages:
-            await redis_async.delete(storage)
-        # Delete the chains
-        chains = await redis_async.keys("chain:*")
-        for chain in chains:
-            await redis_async.delete(chain)
-
+        # Write the config from CONSERVER_CONFIG_FILE to the config.yml file
+        with open(os.getenv("CONSERVER_CONFIG_FILE"), "w") as f:
+            yaml.dump(config, f)
+ 
     except Exception as e:
         logger.info("Error: {}".format(e))
         raise HTTPException(status_code=500)

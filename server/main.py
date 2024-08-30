@@ -154,9 +154,11 @@ def main():
     global config
     config = get_config()
     follower.start_followers()
-    ingress_chain_map = get_ingress_chain_map()
-    all_ingress_lists = list(ingress_chain_map.keys())
+   
     while not shutdown_requested:
+        config = get_config()
+        ingress_chain_map = get_ingress_chain_map()
+        all_ingress_lists = list(ingress_chain_map.keys())
         popped_item = r.blpop(all_ingress_lists, timeout=15)
         if not popped_item:
             if shutdown_requested:
