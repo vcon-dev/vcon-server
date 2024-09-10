@@ -1,44 +1,48 @@
 from lib.logging_utils import init_logger
-from lib.vcon_redis import VconRedis
 import json
-from openai import OpenAI
 import os
 import redis_mgr
+from openai import OpenAI, APIError
+
 logger = init_logger(__name__)
 
 
-default_options = {"purpose": "assistants"}
+default_options = {
+    "organization_key": "org-xxxxx",
+    "project_key": "proj_xxxxxxx",
+    "api_key": "sk-proj-xxxxxx",
+    "vector_store_id": "xxxxxx",
+    "purpose": "assistants",
+}
 
 
-def save(
-    vcon_uuid,
-    opts=default_options,
-):
-    logger.info("Starting the chatgpt storage for vCon: %s", vcon_uuid)
-    client = OpenAI(
-        organization=opts["organization_key"],
-        project=opts["project_key"],
-        api_key=opts["api_key"]
-    )
+def save_vcon_to_chatgpt_files(
+    vcon_uuid: str, options: dict = default_options
+) -> None:
+    """Save a vCon to ChatGPT files.
+
+    Args:
+        vcon_uuid (str): The UUID of the vCon to be saved.
+        options (dict, optional): Dictionary containing organization and project keys, API key, 
+        vector store ID, and purpose. Defaults to default_options.
+    """
     try:
         vcon = redis_mgr.get_key(vcon_uuid)
-        # Upload the vCons
-        # Save the vCon as a file
-        file_name = f'{vcon_uuid}.vcon.json'
-        with open(file_name, "w") as f:
-            f.write(json.dumps(vcon))
-              
-        # Upload the file to OpenAI
-        file = client.files.create(file=open(file_name, "rb"), purpose=opts["purpose"])      
-        # Remove the file
-        os.remove(file_name)  
+        file_name = f"{vcon_uuid}.vcon.json"
+        with open(file_name, "w") as file:
+            json.dump(vcon, file)
+        client = OpenAI(
+            organization=options["organization_key"],
+            project=options["project_key"],
+            api_key=options["api_key"],
+        )
+        file = client.files.create(file=open(file_name, "rb"), purpose=options["purpose"])
+        os.remove(file_name)
         client.beta.vector_stores.files.create(
-            vector_store_id=opts["vector_store_id"],
-            file_id=file.id
+            vector_store_id=options["vector_store_id"], file_id=file.id
         )
-        logger.info(f"Finished chatgpt storage for vCon: {vcon_uuid}")
-    except Exception as e:
-        logger.error(
-            f"chatgpt storage plugin: failed to insert vCon: {vcon_uuid}, error: {e}"
-        )
-        raise e
+    except APIError as error:
+        raise error
+    except Exception as error:
+        raise error
+    
