@@ -16,7 +16,7 @@ default_options = {
 }
 
 
-def save_vcon_to_chatgpt_files(
+def save(
     vcon_uuid: str, options: dict = default_options
 ) -> None:
     """Save a vCon to ChatGPT files.
