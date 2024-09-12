@@ -26,3 +26,8 @@ class Configuration:
     def get_followers(cls) -> dict:
         config = cls.get_config()
         return config.get("followers", {})
+
+    @classmethod
+    def get_imports(cls) -> dict:
+        config = cls.get_config()
+        return config.get("imports", {})
