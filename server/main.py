@@ -153,6 +153,16 @@ def main():
     logger.info("Starting main loop")
     global config
     config = get_config()
+    logger.info("Importing modules")
+    imports = config.get("imports", {})
+    for module_name, module_path in imports.items():
+        try:
+            logger.info("Importing module %s from %s", module_name, module_path)
+            imported_modules[module_name] = importlib.import_module(module_path)
+        except Exception as e:
+            logger.error(
+                "Error importing module %s from %s: %s", module_name, module_path, e
+            )
     follower.start_followers()
    
     while not shutdown_requested:
