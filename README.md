@@ -5,7 +5,7 @@
 
 Based on a digital ocean install, to keep it vanilla. Created a 4 GB Memory / 2 Intel vCPUs / 120 GB Disk / NYC3 - Ubuntu 23.04 x64 droplet, logged in.
 
-```
+```bash
 snap install docker
 git clone https://github.com/vcon-dev/vcon.git
 cd vcon/
@@ -19,7 +19,7 @@ Create an \~/vcon/.env file for some of the global environmental stuff.  See exa
 
 The conserver repo can be downloaded directly, but is also included in the vcon repo as a sub-repo in the von-server directory.
 
-```
+```bash
 cd vcon-server
 ```
 
@@ -27,7 +27,7 @@ Secrets for the conserver are kept in the .env file at the root of the vcon\_ser
 
 ## Example vcon-server/.env file
 
-```
+```bash
 AWS_BUCKET=vcon-storage
 AWS_KEY_ID=xxxxx
 AWS_SECRET_KEY=xxxxx
@@ -53,7 +53,7 @@ Create a new config file in the server directory
 
 ## Example vcon-server/config.yml
 
-```
+```yaml
 links:
   webhook_store_call_log:
     module: links.webhook
@@ -95,8 +95,7 @@ links:
     module: links.analyze
     options:
       OPENAI_API_KEY: xxxx
-      prompt: "Go step by step: 1. Diarize the conversation and also identify the Agent and the Customer and show the names along with it like Agent(Agent Name) and output in markdown and label each speaker in bold. Don't add any extra information except for the speakers. Don't add 
-the word markdown. 2. If it's only one speaker, return the transcript. 3. If you can't diarize the transcript, return an empty string."
+      prompt: "Go step by step: 1. Diarize the conversation and also identify the Agent and the Customer and show the names along with it like Agent(Agent Name) and output in markdown and label each speaker in bold. Don't add any extra information except for the speakers. Don't add the word markdown. 2. If it's only one speaker, return the transcript. 3. If you can't diarize the transcript, return an empty string."
       analysis_type: diarized
       model: 'gpt-4o'
   send_frustration_for_review:
@@ -182,23 +181,23 @@ chains:
       - postgres
       - s3
       - elasticsearch
-
 ```
 
 ### Start the Conserver
 
-```
+```bash
 docker network create conserver
 docker compose build
-docker compose up
+docker compose up -d
 docker compose up --scale conserver=4 -d
 ```
 
 ## Troubleshooting and Checking
 
-You can validate that the conserver is running on the command line using "docker ps".  In the example below, we can see four instances running.
+You can validate that the conserver is running on the command line using `docker ps`.
+In the example below, we can see four instances running.
 
-```
+```output
 root@partner-demo:~/vcon/vcon-server# docker ps
 CONTAINER ID   IMAGE                      COMMAND                  CREATED         STATUS                   PORTS                                                 NAMES
 21bc6e3aacd7   vcon-server-conserver      "/app/docker/wait_fo…"   4 minutes ago   Up 4 minutes                                                                   vcon-server-conserver-4
@@ -210,9 +209,10 @@ e3388b5f23be   redis/redis-stack:latest   "/entrypoint.sh"         5 minutes ago
 root@partner-demo:~/vcon/vcon-server# 
 ```
 
-You can see the operational logs using "docker compose logs -f".  Here's a typical log:
+You can see the operational logs using `docker compose logs -f`.
+Here's a typical log:
 
-```
+```output
 vcon-server-redis-1      | 9:C 23 Aug 2024 17:27:20.581 # WARNING Memory overcommit must be enabled! Without it, a background save or replication may fail under low memory condition. Being disabled, it can also cause failures without low memory condition, see https://github.com/jemalloc/jemalloc/issues/1328. To fix this issue add 'vm.overcommit_memory = 1' to /etc/sysctl.conf and then reboot or run the command 'sysctl vm.overcommit_memory=1' for this to take effect.
 vcon-server-redis-1      | 9:C 23 Aug 2024 17:27:20.582 * oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
 vcon-server-redis-1      | 9:C 23 Aug 2024 17:27:20.582 * Redis version=7.4.0, bits=64, commit=00000000, modified=0, pid=9, just started
@@ -280,7 +280,6 @@ vcon-server-api-1        | {"asctime": "2024-08-23 17:27:24,227", "levelname": "
 vcon-server-conserver-1  | Redis is ready!
 vcon-server-conserver-1  | Redis is ready. Starting the dependent service...
 vcon-server-conserver-1  | {"asctime": "2024-08-23 17:27:22,240", "levelname": "INFO", "name": "__main__", "message": "Starting main loop", "taskName": null}
-
 ```
 
 The [vCon admin program](https://github.com/vcon-dev/vcon-admin) is a nice tool for managing the conserver.&#x20;
