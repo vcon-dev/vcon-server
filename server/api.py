@@ -278,18 +278,9 @@ async def get_vcons(vcon_uuids: List[UUID] = Query(None)):
 
     return JSONResponse(content=results, status_code=200)
 
-
-class SearchResult(BaseModel):
-    uuid: str
-    created_at: datetime
-    updated_at: Optional[datetime]
-    subject: Optional[str]
-    parties: List[dict]
-
-
 @api_router.get(
     "/vcons/search",
-    response_model=List[SearchResult],
+    response_model=List[UUID],
     summary="Search vCons based on various parameters",
     description="Search for vCons using personal identifiers and metadata.",
     tags=["vcon"],
@@ -308,7 +299,7 @@ async def search_vcons(
         name (str): Name of the party to search for.
 
     Returns:
-        A list of SearchResult objects containing the matching vCons.
+        a list of vCon UUIDs that match the search criteria.
     """
     if tel is None and mailto is None and name is None:
         raise HTTPException(
@@ -366,21 +357,11 @@ async def search_vcons(
          
         if not keys:
             return []   
-                
-        # Get the vcons from the keys
-        results = await redis_async.json().mget(keys=list(keys), path=".")
 
-        return [
-            SearchResult(
-                uuid=result["uuid"],
-                created_at=result["created_at"],
-                updated_at=result.get("updated_at"),
-                subject=result.get("subject"),
-                parties=result["parties"],
-            )
-            for result in results
-        ]
-
+        # Return the list of uuids as a list, stripping the vcon: prefix
+        return [key.split(":")[1] for key in keys]
+    
+ 
     except Exception as e:
         logger.error(f"Error in search_vcons: {str(e)}")
         raise HTTPException(
