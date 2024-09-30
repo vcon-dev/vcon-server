@@ -5,18 +5,15 @@ networks:
 
 services:
   conserver:
+    container_name: "conserver"
     build:
       dockerfile: ./docker/Dockerfile
       context: .
     command: "python ./server/main.py"
-    # command: tail -f /dev/null
     volumes:
       - .:/app
-    # ports:
-    #   - "${CONSERVER_EXTERNAL_PORT:-8000}:8000"
     depends_on:
       - redis
-      # - mongo
     env_file:
       - .env
     stop_grace_period: 60s
@@ -24,28 +21,26 @@ services:
       - conserver
 
   api:
+    container_name: "api"
     build:
       dockerfile: ./docker/Dockerfile
       context: .
-    # command: poetry run gunicorn server.api:app -k uvicorn.workers.UvicornWorker -b $HOST:$PORT
     command: /bin/bash -c "poetry run uvicorn server.api:app --host 0.0.0.0 --port 8000"
     volumes:
       - .:/app
-    ports:
-      - "${CONSERVER_EXTERNAL_PORT:-8000}:8000"
     depends_on:
       - redis
-      # - mongo
+      - certbot
     env_file:
       - .env
     networks:
       - conserver
 
   redis:
+    container_name: "redis"
     image: "redis/redis-stack:latest"
     ports:
       - "${REDIS_EXTERNAL_PORT:-8001}:8001"
-      # - "6379:6379"
     environment:
       REDIS_ARGS: --save 20 1
     mem_limit: 1gb # <===== IMPORTANT!!!! We're overriding this in the docker-compose.override.yml file
@@ -59,3 +54,30 @@ services:
     networks:
       - conserver
     
+
+  certbot:
+    container_name: "certbot"
+    image: certbot/certbot
+    ports:
+      - "80:80"
+    volumes:
+      - certbot-data:/etc/letsencrypt
+    command: certonly --standalone --agree-tos --email thomas.howe@strolid.com  --non-interactive -d thynkforward.demos.strolid.net
+    networks:
+      - conserver
+
+  nginx:
+    container_name: "nginx"
+    image: nginx:latest
+    ports:
+      - "443:443"
+    volumes:
+      - certbot-data:/etc/letsencrypt
+      - ./nginx.conf:/etc/nginx/nginx.conf
+    depends_on:
+      - certbot
+    networks:
+      - conserver
+volumes:
+  certbot-data:
+
