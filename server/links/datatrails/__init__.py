@@ -1,18 +1,19 @@
-import requests
 import os
-import json
+import requests
 from datetime import datetime, timedelta
+from fastapi import HTTPException
 from lib.vcon_redis import VconRedis
-from vcon import Vcon
 from lib.logging_utils import init_logger
+from starlette.status import HTTP_404_NOT_FOUND
+from vcon import Vcon
 
 logger = init_logger(__name__)
 
 default_options = {
     "api_url": "https://app.datatrails.ai/archivist/v2/",
     "auth_url": "https://app.datatrails.ai/archivist/iam/v1/appidp/token",
-    "client_id": "DATATRAILS_CLIENT_ID",
-    "client_secret": "DATATRAILS_CLIENT_SECRET",
+    "client_id": "<DATATRAILS_CLIENT_ID>",
+    "client_secret": "<DATATRAILS_CLIENT_SECRET>",
     "behaviours": ["RecordEvidence"],
     "asset_attributes": {
         "arc_description": "DataTrails Conserver Link",
@@ -82,36 +83,6 @@ class DataTrailsAuth:
         with open(os.path.join(datatrails_dir, "bearer-token.txt"), "w") as f:
             f.write(f"Authorization: Bearer {self.token}")
 
-        logger.info("DataTrails auth token refreshed and saved to file")
-
-
-def get_asset(api_url: str, asset_id: str, auth: DataTrailsAuth) -> dict:
-    """
-    Retrieve an asset from DataTrails API.
-
-    Args:
-        api_url (str): Base URL for the DataTrails API.
-        asset_id (str): ID of the asset to retrieve.
-        auth (DataTrailsAuth): Authentication object for DataTrails API.
-
-    Returns:
-        dict: Asset data if found, None if not found.
-
-    Raises:
-        requests.HTTPError: If the API request fails for reasons other than a 404.
-    """
-    headers = {
-        "Authorization": f"Bearer {auth.get_token()}",
-        "Content-Type": "application/json",
-    }
-    response = requests.get(f"{api_url}/{asset_id}", headers=headers)
-    if response.status_code == 200:
-        return response.json()
-    elif response.status_code == 404:
-        return None
-    else:
-        response.raise_for_status()
-
 
 def create_asset(
     api_url: str, auth: DataTrailsAuth, attributes: dict, behaviours: list
@@ -138,7 +109,7 @@ def create_asset(
     payload = {
         "behaviours": behaviours,
         "attributes": {"arc_display_type": "Publish", **attributes},
-        "public": True,
+        "public": False,
     }
     response = requests.post(f"{api_url}/assets", headers=headers, json=payload)
     response.raise_for_status()
@@ -149,9 +120,7 @@ def create_event(
     api_url: str,
     asset_id: str,
     auth: DataTrailsAuth,
-    event_type: str,
-    event_attributes: dict,
-    behaviours: list
+    event_attributes: dict
 ) -> dict:
     """
     Create a new DataTrails Event
@@ -160,7 +129,6 @@ def create_event(
         api_url (str): Base URL for the DataTrails API.
         asset_id (str): ID of the asset to associate the Event with.
         auth (DataTrailsAuth): Authentication object for DataTrails API.
-        event_type (str): Type of the event to be created.
         event_attributes (dict): Attributes of the event.
 
     Returns:
@@ -180,50 +148,6 @@ def create_event(
     }
     response = requests.post(f"{api_url}{asset_id}/events", headers=headers, json=payload)
 
-    response.raise_for_status()
-    #event_id = response["identity"]
-    #logger.info(f"DataTrails Event created: {event_id}")
-    return response.json()
-
-
-def update_asset(
-    api_url: str,
-    asset_id: str,
-    auth: DataTrailsAuth,
-    event_type: str,
-    event_attributes: dict,
-    asset_attributes: dict,
-) -> dict:
-    """
-    Update an existing asset in DataTrails by creating a new event.
-
-    Args:
-        api_url (str): Base URL for the DataTrails API.
-        asset_id (str): ID of the asset to update.
-        auth (DataTrailsAuth): Authentication object for DataTrails API.
-        event_type (str): Type of the event to be created.
-        event_attributes (dict): Attributes of the event.
-        asset_attributes (dict): Updated attributes of the asset.
-
-    Returns:
-        dict: Data of the created event.
-
-    Raises:
-        requests.HTTPError: If the API request fails.
-    """
-    headers = {
-        "Authorization": f"Bearer {auth.get_token()}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "operation": "Record",
-        "behaviour": "RecordEvidence",
-        "event_attributes": {"arc_display_type": event_type, **event_attributes},
-        "asset_attributes": asset_attributes,
-    }
-    response = requests.post(
-        f"{api_url}/{asset_id}/events", headers=headers, json=payload
-    )
     response.raise_for_status()
     return response.json()
 
@@ -246,7 +170,7 @@ def run(vcon_uuid: str, link_name: str, opts: dict = default_options) -> str:
     Raises:
         ValueError: If client_id or client_secret is not provided in the options.
     """
-    logger.info(f"Starting DataTrails asset link for vCon: {vcon_uuid}")
+    logger.info(f"Starting DataTrails link for vCon: {vcon_uuid}")
 
     merged_opts = default_options.copy()
     merged_opts.update(opts)
@@ -256,23 +180,27 @@ def run(vcon_uuid: str, link_name: str, opts: dict = default_options) -> str:
         raise ValueError("DataTrails client ID and client secret must be provided")
 
     auth = DataTrailsAuth(opts["auth_url"], opts["client_id"], opts["client_secret"])
+
+    # Get the vCon from Redis
     vcon_redis = VconRedis()
     v = vcon_redis.get_vcon(vcon_uuid)
+    if not v:
+        logger.info(f"vCon not found: {vcon_uuid}") 
+        raise HTTPException(
+            status_code=HTTP_404_NOT_FOUND, detail=f"vCon not found: {vcon_uuid}"
+        )
 
     # Extract relevant information from vCon
     asset_id = v.get_tag("datatrails_asset_id")
+    asset_name = v.subject or f"vcon:{vcon_uuid}"
 
     # Create the SHA256 hash of the vcon
     # This is used to record what version of the vcon
-    asset_name = v.subject or f"vcon:{vcon_uuid}"
     original_vcon_hash = v.hash
-
-    # Verify a single Asset exists for the vcon_uuid
-    #asset = get_asset(opts["api_url"], asset_id, auth)
 
     # Check if asset exists, create if it doesn't
     if not asset_id:
-        logger.info(f"Asset doesn't exist: {asset_id}")
+        logger.info(f"DataTrails Asset not found: {asset_id}")
 
         # Prepare attributes
         asset_attributes = opts["asset_attributes"].copy()
@@ -316,17 +244,12 @@ def run(vcon_uuid: str, link_name: str, opts: dict = default_options) -> str:
         }
     )
 
-    # Prepare event details, based on the opts
-    event_type = opts.get("event_type") or "Update"
-
-    # Update the asset with new event
-    # update_asset(
-    #     opts["api_url"], asset_id, auth, event_type, event_attributes, asset_attributes
-    # )
-
     event = create_event(
-        opts["api_url"], asset_id, auth, event_type, event_attributes, opts["behaviours"]
+        opts["api_url"], asset_id, auth, event_attributes
     )
+    event_id = event["identity"]
+    logger.info(f"Created DataTrails Event: {event_id}")
+
 
     # DataTrails Events can be found based on the vcon_uuid, or the DataTrails Asset
     # We may want to store the receipt/transparent statement in the vCon, in the future
