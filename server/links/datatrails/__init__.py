@@ -192,7 +192,7 @@ def run(vcon_uuid: str, link_name: str, opts: dict = default_options) -> str:
 
     # Extract relevant information from vCon
     asset_id = v.get_tag("datatrails_asset_id")
-    asset_name = v.subject or f"vcon:{vcon_uuid}"
+    asset_name = v.subject or f"vcon://{vcon_uuid}"
 
     # Create the SHA256 hash of the vcon
     # This is used to record what version of the vcon
@@ -209,7 +209,9 @@ def run(vcon_uuid: str, link_name: str, opts: dict = default_options) -> str:
                 "arc_display_name": asset_name,
                 "document_hash_value": original_vcon_hash,
                 "document_version": v.updated_at or v.created_at,
-                "subject": vcon_uuid,
+                "arc_event_type": "vCon",
+                "arc_description": "DataTrails Conserver Link",
+                "subject": asset_name,
                 "vcon_uuid": vcon_uuid,
             }
         )
@@ -239,7 +241,7 @@ def run(vcon_uuid: str, link_name: str, opts: dict = default_options) -> str:
             "document_hash_value": v.hash,
             "document_original_hash_value": original_vcon_hash,
             "document_version": v.updated_at or v.created_at,
-            "subject": vcon_uuid,
+            "subject": asset_name,
             "vcon_uuid": vcon_uuid,
         }
     )
