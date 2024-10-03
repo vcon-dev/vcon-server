@@ -62,7 +62,7 @@ services:
       - "80:80"
     volumes:
       - certbot-data:/etc/letsencrypt
-    command: certonly --standalone --agree-tos --email thomas.howe@strolid.com  --non-interactive -d thynkforward.demos.strolid.net
+    command: certonly --standalone --agree-tos --email ${CERTBOT_EMAIL} --no-self-upgrade --non-interactive -d ${SERVER_NAME}
     networks:
       - conserver
 
@@ -78,6 +78,9 @@ services:
       - certbot
     networks:
       - conserver
+    environment:
+      - SERVER_NAME=${SERVER_NAME}
+
 volumes:
   certbot-data:
 
