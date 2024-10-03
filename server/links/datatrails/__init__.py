@@ -178,14 +178,11 @@ def create_event(
         "behaviour": "RecordEvidence",
         "event_attributes": {"arc_display_type": "vCon", **event_attributes}
     }
-    logger.info(f"POST: {api_url}{asset_id}/events")
     response = requests.post(f"{api_url}{asset_id}/events", headers=headers, json=payload)
-    logger.info(f"Asset: {asset_id}")
-    logger.info(f"Event: " + json.dumps(payload))
 
     response.raise_for_status()
-    event_id = response["identity"]
-    logger.info(f"DataTrails Event created: {event_id}")
+    #event_id = response["identity"]
+    #logger.info(f"DataTrails Event created: {event_id}")
     return response.json()
 
 
