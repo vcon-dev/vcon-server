@@ -251,7 +251,8 @@ async def get_vcon(vcon_uuid: UUID):
     description="Get multiple vCons by UUIDs",
     tags=["vcon"],
 )
-async def get_vcons(vcon_uuids: List[UUID] = Query(None)):
+        
+async def get_vcons(vcon_uuids: str = Query(None)):
     """
     Gets multiple vCons by UUIDs
 
@@ -262,7 +263,8 @@ async def get_vcons(vcon_uuids: List[UUID] = Query(None)):
 
     Returns:
         JSONResponse: A JSONResponse containing a list of vCons as JSON objects if the vCons are found, otherwise a 404 status code.
-    """
+    """ 
+    vcon_uuids = vcon_uuids.split(",")
     keys = [f"vcon:{vcon_uuid}" for vcon_uuid in vcon_uuids]
     vcons = await redis_async.json().mget(keys=keys, path=".")
 
@@ -277,7 +279,6 @@ async def get_vcons(vcon_uuids: List[UUID] = Query(None)):
         results.append(vcon)
 
     return JSONResponse(content=results, status_code=200)
-
 @api_router.get(
     "/vcons/search",
     response_model=List[UUID],
