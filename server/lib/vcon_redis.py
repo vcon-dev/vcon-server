@@ -21,7 +21,7 @@ class VconRedis:
         redis.json().set(key, Path.root_path(), cleanvCon)
 
     def get_vcon(self, vcon_id: str) -> Optional[vcon.Vcon]:
-        """Retrives the vcon from redis for given vcon_id
+        """Retrieves the vcon from redis for given vcon_id
 
         Args:
             vcon_id (str): vcon id
