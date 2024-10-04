@@ -12,11 +12,13 @@ logger = init_logger(__name__)
 # Increment for any API/attribute changes
 link_version = "0.1.0.0"
 
+# datatrails_client_id, datatrails_client_secret noted here for reference only
+# Set the datatrails_client_id, datatrails_client_secret in the vcon_server/config.yml
 default_options = {
     "api_url": "https://app.datatrails.ai/archivist/v2/",
     "auth_url": "https://app.datatrails.ai/archivist/iam/v1/appidp/token",
-    "client_id": "<DATATRAILS_CLIENT_ID>",
-    "client_secret": "<DATATRAILS_CLIENT_SECRET>",
+    "datatrails_client_id": "<DATATRAILS_CLIENT_ID>",
+    "datatrails_client_secret": "<DATATRAILS_CLIENT_SECRET>",
     "behaviours": ["RecordEvidence"],
     "asset_attributes": {
         "arc_description": "DataTrails Conserver Link",
@@ -40,18 +42,18 @@ class DataTrailsAuth:
     Handles authentication for DataTrails API, including token management and refresh.
     """
 
-    def __init__(self, auth_url, client_id, client_secret):
+    def __init__(self, auth_url, datatrails_client_id, datatrails_client_secret):
         """
         Initialize the DataTrailsAuth object.
 
         Args:
             auth_url (str): URL for the authentication endpoint.
-            client_id (str): Client ID for DataTrails API.
-            client_secret (str): Client secret for DataTrails API.
+            datatrails_client_id (str): Client ID for DataTrails API.
+            datatrails_client_secret (str): Client secret for DataTrails API.
         """
         self.auth_url = auth_url
-        self.client_id = client_id
-        self.client_secret = client_secret
+        self.datatrails_client_id = datatrails_client_id
+        self.datatrails_client_secret = datatrails_client_secret
         self.token = None
         self.token_expiry = None
 
@@ -72,8 +74,8 @@ class DataTrailsAuth:
         """
         data = {
             "grant_type": "client_credentials",
-            "client_id": self.client_id,
-            "client_secret": self.client_secret,
+            "client_id": self.datatrails_client_id,
+            "client_secret": self.datatrails_client_secret,
         }
         response = requests.post(self.auth_url, data=data)
         response.raise_for_status()
@@ -124,7 +126,10 @@ def create_asset(
         "attributes": {"arc_display_type": "Publish", **attributes},
         "public": False,
     }
-    response = requests.post(f"{api_url}/assets", headers=headers, json=payload)
+    response = requests.post(
+        f"{api_url}/assets",
+        headers=headers, json=payload
+    )
     response.raise_for_status()
     return response.json()
 
@@ -159,13 +164,21 @@ def create_event(
         "behaviour": "RecordEvidence",
         "event_attributes": {**event_attributes}
     }
-    response = requests.post(f"{api_url}{asset_id}/events", headers=headers, json=payload)
+    response = requests.post(
+        f"{api_url}{asset_id}/events",
+        headers=headers,
+        json=payload
+    )
 
     response.raise_for_status()
     return response.json()
 
 
-def run(vcon_uuid: str, link_name: str, opts: dict = default_options) -> str:
+def run(
+    vcon_uuid: str,
+    link_name: str,
+    opts: dict = default_options
+) -> str:
     """
     Main function to run the DataTrails asset link.
 
@@ -181,7 +194,7 @@ def run(vcon_uuid: str, link_name: str, opts: dict = default_options) -> str:
         str: The UUID of the processed vCon.
 
     Raises:
-        ValueError: If client_id or client_secret is not provided in the options.
+        ValueError: If datatrails_client_id or datatrails_client_secret is not provided in the options.
     """
     logger.info(f"Starting DataTrails link for vCon: {vcon_uuid}")
 
@@ -189,10 +202,14 @@ def run(vcon_uuid: str, link_name: str, opts: dict = default_options) -> str:
     merged_opts.update(opts)
     opts = merged_opts
 
-    if not opts["client_id"] or not opts["client_secret"]:
+    if not opts["datatrails_client_id"] or not opts["datatrails_client_secret"]:
         raise ValueError("DataTrails client ID and client secret must be provided")
 
-    auth = DataTrailsAuth(opts["auth_url"], opts["client_id"], opts["client_secret"])
+    auth = DataTrailsAuth(
+        opts["auth_url"],
+        opts["datatrails_client_id"],
+        opts["datatrails_client_secret"]
+        )
 
     # Get the vCon from Redis
     vcon_redis = VconRedis()
@@ -200,7 +217,8 @@ def run(vcon_uuid: str, link_name: str, opts: dict = default_options) -> str:
     if not v:
         logger.info(f"vCon not found: {vcon_uuid}") 
         raise HTTPException(
-            status_code=HTTP_404_NOT_FOUND, detail=f"vCon not found: {vcon_uuid}"
+            status_code=HTTP_404_NOT_FOUND,
+            detail=f"vCon not found: {vcon_uuid}"
         )
 
     # Extract relevant information from vCon
@@ -228,7 +246,10 @@ def run(vcon_uuid: str, link_name: str, opts: dict = default_options) -> str:
 
         logger.info(f"Creating new DataTrails asset for vCon: {vcon_uuid}")
         asset = create_asset(
-            opts["api_url"], auth, asset_attributes, opts["behaviours"]
+            opts["api_url"],
+            auth,
+            asset_attributes,
+            opts["behaviours"]
         )
         asset_id = asset["identity"]
 
@@ -264,7 +285,10 @@ def run(vcon_uuid: str, link_name: str, opts: dict = default_options) -> str:
         )
 
     event = create_event(
-        opts["api_url"], asset_id, auth, event_attributes
+        opts["api_url"],
+        asset_id,
+        auth,
+        event_attributes
     )
     event_id = event["identity"]
     logger.info(f"Created DataTrails Event: {event_id}")
