@@ -9,6 +9,9 @@ from vcon import Vcon
 
 logger = init_logger(__name__)
 
+# Increment for any API/attribute changes
+link_version = "0.1.0.0"
+
 default_options = {
     "api_url": "https://app.datatrails.ai/archivist/v2/",
     "auth_url": "https://app.datatrails.ai/archivist/iam/v1/appidp/token",
@@ -17,10 +20,16 @@ default_options = {
     "behaviours": ["RecordEvidence"],
     "asset_attributes": {
         "arc_description": "DataTrails Conserver Link",
+        "arc_event_type": "vCon",
+        "conserver_link_version": link_version
     },
     "event_attributes": {
         "arc_description": "DataTrails Conserver Link",
-        "document_hash_alg": "SHA-256",
+        "arc_display_type": "vCon",
+        "arc_event_type": "vCon",
+        "conserver_link_version": link_version,
+        "preimage_content_type": "application/vcon",
+        "payload_hash_alg": "SHA-256"
     },
     "event_type": "Update",
 }
@@ -89,18 +98,22 @@ def create_asset(
 ) -> dict:
     """
     Create a new DataTrails Asset
+    Note: Assets have minimal information as a temporary anchor 
+    for a collection of events.
+    Over time, the DataTrails Asset will be deprecated, 
+    in lieu of a collection of Events
 
     Args:
-        api_url (str): Base URL for the DataTrails API.
-        auth (DataTrailsAuth): Authentication object for DataTrails API.
-        attributes (dict): Attributes of the asset to be created.
-        behaviours (list): Behaviours to be associated with the asset.
+        api_url (str): Base URL for the DataTrails API
+        auth (DataTrailsAuth): Authentication object for DataTrails API
+        attributes (dict): Attributes of the asset to be created
+        behaviours (list): Behaviours to be associated with the asset
 
     Returns:
-        dict: Data of the created asset.
+        dict: Data of the created asset
 
     Raises:
-        requests.HTTPError: If the API request fails.
+        requests.HTTPError: If the API request fails
     """
     headers = {
         "Authorization": f"Bearer {auth.get_token()}",
@@ -144,7 +157,7 @@ def create_event(
     payload = {
         "operation": "Record",
         "behaviour": "RecordEvidence",
-        "event_attributes": {"arc_display_type": "vCon", **event_attributes}
+        "event_attributes": {**event_attributes}
     }
     response = requests.post(f"{api_url}{asset_id}/events", headers=headers, json=payload)
 
@@ -192,7 +205,7 @@ def run(vcon_uuid: str, link_name: str, opts: dict = default_options) -> str:
 
     # Extract relevant information from vCon
     asset_id = v.get_tag("datatrails_asset_id")
-    asset_name = v.subject or f"vcon://{vcon_uuid}"
+    subject = v.subject or f"vcon://{vcon_uuid}"
 
     # Create the SHA256 hash of the vcon
     # This is used to record what version of the vcon
@@ -206,12 +219,9 @@ def run(vcon_uuid: str, link_name: str, opts: dict = default_options) -> str:
         asset_attributes = opts["asset_attributes"].copy()
         asset_attributes.update(
             {
-                "arc_display_name": asset_name,
-                "document_hash_value": original_vcon_hash,
-                "document_version": v.updated_at or v.created_at,
-                "arc_event_type": "vCon",
+                "arc_display_name": subject,
                 "arc_description": "DataTrails Conserver Link",
-                "subject": asset_name,
+                "subject": subject,
                 "vcon_uuid": vcon_uuid,
             }
         )
@@ -223,7 +233,7 @@ def run(vcon_uuid: str, link_name: str, opts: dict = default_options) -> str:
         asset_id = asset["identity"]
 
         v.add_tag("datatrails_asset_id", asset_id)
-        v.add_tag("datatrails_asset_name", asset_name)
+        v.add_tag("datatrails_subject", subject)
 
         # Could set the public url here
     else:
@@ -234,17 +244,24 @@ def run(vcon_uuid: str, link_name: str, opts: dict = default_options) -> str:
     # Get the clean attributes
     event_attributes = opts["event_attributes"].copy()
 
-    # We might have to update the hash value of the vcon
-    # TODO: Only add original_hash_value if the hash's are different
     event_attributes.update(
         {
-            "document_hash_value": v.hash,
-            "document_original_hash_value": original_vcon_hash,
-            "document_version": v.updated_at or v.created_at,
-            "subject": asset_name,
+            "arc_correlation_value": subject,
+            "payload_hash_value": v.hash,
+            "payload_version": v.updated_at or v.created_at,
+            "subject": subject,
             "vcon_uuid": vcon_uuid,
         }
     )
+
+    # We might have to update the hash value of the vcon
+    # TODO: Only add original_hash_value if the hash's are different
+    if original_vcon_hash != v.hash:
+        event_attributes.update(
+            {
+                "payload_original_hash_value": original_vcon_hash
+            }
+        )
 
     event = create_event(
         opts["api_url"], asset_id, auth, event_attributes
