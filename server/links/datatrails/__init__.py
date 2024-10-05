@@ -141,7 +141,7 @@ def create_event(
     event_attributes: dict
 ) -> dict:
     """
-    Create a new DataTrails Event
+    Create a new DataTrails Event, mapping to a SCITT Envelope
 
     Args:
         api_url (str): Base URL for the DataTrails API.
@@ -159,6 +159,8 @@ def create_event(
         "Authorization": f"Bearer {auth.get_token()}",
         "Content-Type": "application/json",
     }
+    # event_attributes will map to SCITT headers and
+    # a cose-meta-map draft (https://github.com/SteveLasker/draft-lasker-cose-meta-map)
     payload = {
         "operation": "Record",
         "behaviour": "RecordEvidence",
@@ -256,15 +258,16 @@ def run(
         v.add_tag("datatrails_asset_id", asset_id)
         v.add_tag("datatrails_subject", subject)
 
-        # Could set the public url here
     else:
         logger.info(f"DataTrails Asset found: {asset_id}")
 
     # Create a DataTrails Event
 
-    # Get the clean attributes
+    # Get the default attributes
     event_attributes = opts["event_attributes"].copy()
 
+    # using cose-hash-envelope format, consistent with:
+    # (https://datatracker.ietf.org/doc/draft-steele-cose-hash-envelope/)
     event_attributes.update(
         {
             "arc_correlation_value": subject,
@@ -275,14 +278,21 @@ def run(
         }
     )
 
-    # We might have to update the hash value of the vcon
-    # TODO: Only add original_hash_value if the hash's are different
+    # Update the hash value of the vcon
+    # good example for a key/value pair stored in a cose-meta-map
     if original_vcon_hash != v.hash:
         event_attributes.update(
             {
                 "payload_original_hash_value": original_vcon_hash
             }
         )
+
+    # TODO: Set the public url for the vCon
+    # event_attributes.update(
+    #     {
+    #         "payload_location": vcon_location
+    #     }
+    # )
 
     event = create_event(
         opts["api_url"],
