@@ -2,16 +2,15 @@
 
 ## Overview
 
-The DataTrails Asset Link is a conserver link designed to integrate vCon (virtual conversation) data with the [DataTrails API](https://docs.datatrails.ai/developers/api-reference/).
-The DataTrails Asset Link allows for the creation of DataTrails Events based on vCon information, enabling seamless tracking and management of conversation-related assets.
+The DataTrails Link is a conserver link designed to integrate vCon (virtual conversation) data with the [DataTrails API](https://docs.datatrails.ai/developers/api-reference/).
+The DataTrails Link allows for the creation of DataTrails Events based on vCon information, enabling seamless tracking and management of conversation-related assets.
 
 ## Features
 
 - Automatic creation of [DataTrails Events](https://docs.datatrails.ai/developers/api-reference/events-api/) from vCon data
 - Appending DataTrails Events with new vCon information
 - Automatic token management and refresh for DataTrails API authentication
-- Configurable asset attributes and behaviors
-- Event recording for vCon updates
+- Configurable attributes
 
 ## Prerequisites
 
@@ -30,8 +29,8 @@ The DataTrails Asset Link allows for the creation of DataTrails Events based on 
 
 ## Configuration
 
-To use the DataTrails Asset Link, you need to configure it in your conserver setup.
-Add the following to your conserver configuration file, replacing `"<your_client_id>"` and `"<your_client_secret>"` with your actual [DataTrails API credentials](https://docs.datatrails.ai/developers/developer-patterns/getting-access-tokens-using-app-registrations/).
+The DataTrails Link requires minimal configuration in the conserver setup.
+Add the following to the conserver configuration file, replacing `"<your_client_id>"` and `"<your_client_secret>"` with the actual [DataTrails API credentials](https://docs.datatrails.ai/developers/developer-patterns/getting-access-tokens-using-app-registrations/).
 
 ```yaml
 links:
@@ -44,24 +43,31 @@ links:
 
 ## Usage
 
-The DataTrails Asset Link will automatically process vCons as they pass through the conserver.
+The DataTrails Link will automatically process vCons as they pass through the conserver.
 
 For each vCon:
 
-1. If no DataTrails asset exists for the vCon, a new asset will be created
-1. A DataTrails Event will be recorded, integrity protecting the latest vCon, setting the `subject` to `vcon://<vcon_uuid>` for correlation of events to each vCon
+1. If no DataTrails asset exists for the vCon, a new asset will be created.  
+   Note: this is a temporary solution as Assets are being deprecated.  
+1. A DataTrails Event will be recorded, integrity protecting each vCon, setting the `subject` to `vcon://<vcon_uuid>` for correlation of events to each vCon
 
-### Customizing Asset Creation and Updates
+### Customizing Event Creation
 
-You can customize how events are created by setting specific tags in your vCon before it's processed by this link:
+Customizing events are configured by setting specific tags in the vCon before it's processed by the DataTrails link
 
-- `asset_name`: Use this to set a custom name for the asset.
-- `datatrails_event_attributes`: JSON string of additional attributes for the event.
+- `vcon_operation`: Set to differentiate what operation is being recorded on DataTrails/SCITT.  
+  DataTrails supports [configurable permissions on Event Types](https://docs.datatrails.ai/platform/administration/sharing-access-outside-your-tenant/#creating-an-obac-policy)  
+  The DataTrails `arc_display_type` is configured at: `f"vcon-{vcon_operation}"`, enabling permissions to specific vCon operations
+- `vcon_operation_id`: Optionally Set to provide additional details for an operation
+- `datatrails_metadata`: JSON array of additional attributes for each the event, in key/value format
 
 Example of setting a custom tag in a vCon:
 
+TODO: DISCUSS & possibly DELETE various tags
 ```python
-vcon.add_tag("asset_name", "Customer Interaction 12345")
+vcon.add_tag("vcon_operation", "transcription")
+vcon.add_tag("vcon_operation_id", "trans-id:abc123")
+vcon.add_tag("datatrails_metadata", ["key":value1, "key2", value2])
 ```
 
 ## Development and Testing
