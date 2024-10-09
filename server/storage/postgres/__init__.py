@@ -7,11 +7,48 @@ from peewee import (
     TextField,
     UUIDField,
 )
-import json
 from datetime import datetime
 
 logger = init_logger(__name__)
 default_options = {"name": "postgres"}
+
+
+def create_vcons_class(opts):
+    # Initialize the database connection
+    db = PostgresqlExtDatabase(
+        opts["database"],
+        user=opts["user"],
+        password=opts["password"],
+        host=opts["host"],
+        port=opts["port"],
+    )
+    
+    # Define the Meta class with the database
+    class Meta:
+        database = db
+
+    # Use the type function to dynamically create the Vcons class
+    Vcons = type(
+        'Vcons',  # The class name
+        (Model,),  # The base class (Model in this case)
+        {
+            'id': UUIDField(primary_key=True),
+            'vcon': TextField(),
+            'uuid': UUIDField(),
+            'created_at': DateTimeField(),
+            'updated_at': DateTimeField(null=True),
+            'subject': TextField(null=True),
+            'vcon_json': BinaryJSONField(null=True),
+            'created_by_local_type': TextField(),
+            'created_by_domain': TextField(),
+            'created_by_local_type_version': TextField(),
+            'Meta': Meta,  # Include the Meta class
+        }
+    )
+
+    db.create_tables([Vcons], safe=True)
+
+    return Vcons, db
 
 
 def save(
@@ -22,39 +59,7 @@ def save(
     try:
         vcon_redis = VconRedis()
         vcon = vcon_redis.get_vcon(vcon_uuid)
-        # Connect to Postgres
-        db = PostgresqlExtDatabase(
-            opts["database"],
-            user=opts["user"],
-            password=opts["password"],
-            host=opts["host"],
-            port=opts["port"],
-        )
-
-        class BaseModel(Model):
-            class Meta:
-                database = db
-
-        class Vcons(BaseModel):
-            id = UUIDField(primary_key=True)
-            vcon = TextField()
-            uuid = UUIDField()
-            created_at = DateTimeField()
-            updated_at = DateTimeField(null=True)
-            subject = TextField(null=True)
-            vcon_json = BinaryJSONField(null=True)
-            type = TextField()
-
-        db.create_tables([Vcons], safe=True)
-
-        source = None
-        for a in vcon.attachments:
-            if a["type"] == "ingress_info":
-                if a['encoding'] == 'json':
-                    source = json.loads(a["body"])["source"]
-                else: 
-                    source = a["body"]["source"]
-
+        Vcons, db = create_vcons_class(opts)
         vcon_data = {
             "id": vcon.uuid,
             "uuid": vcon.uuid,
@@ -63,57 +68,35 @@ def save(
             "updated_at": datetime.now(),
             "subject": vcon.subject,
             "vcon_json": vcon.to_dict(),
-            "type": source,
+            "created_by_local_type": vcon.to_dict().get('created_by', {}).get("local_type"),
+            "created_by_local_type_version": vcon.to_dict().get('created_by', {}).get("local_type_version"),
+            "created_by_domain": vcon.to_dict().get('created_by', {}).get("domain"),
         }
         Vcons.insert(**vcon_data).on_conflict(
             conflict_target=(Vcons.id), update=vcon_data
         ).execute()
 
-        db.close()
         logger.info("Finished the Postgres storage for vCon: %s", vcon_uuid)
     except Exception as e:
         logger.error(
             f"postgres storage plugin: failed to insert vCon: {vcon_uuid}, error: {e} "
         )
     finally:
-        db.close()
+        db.close()  # TODO - connection pooling?
 
 
 def get(
     vcon_uuid,
     opts=default_options,
 ):
-    # logger.info("Starting the Postgres storage get for vCon: %s", vcon_uuid)
     try:
-        # Connect to Postgres
-        db = PostgresqlExtDatabase(
-            opts["database"],
-            user=opts["user"],
-            password=opts["password"],
-            host=opts["host"],
-            port=opts["port"],
-        )
+        Vcons, db = create_vcons_class(opts)
 
-        class BaseModel(Model):
-            class Meta:
-                database = db
+        vcon = Vcons.get(Vcons.id == vcon_uuid)
+        return vcon.vcon_json
 
-        class Vcons(BaseModel):
-            id = UUIDField(primary_key=True)
-            vcon = TextField()
-            uuid = UUIDField()
-            created_at = DateTimeField()
-            updated_at = DateTimeField(null=True)
-            subject = TextField(null=True)
-            vcon_json = BinaryJSONField(null=True)
-            type = TextField()
-
-        try:
-            vcon = Vcons.get(Vcons.id == vcon_uuid)
-        except Vcons.DoesNotExist:
-            vcon = None
-
-        return vcon.vcon_json if vcon else None
+    except Vcons.DoesNotExist:
+        pass  # just return None
     except Exception as e:
         logger.error(
             f"Postgres storage plugin: failed to get vCon: {vcon_uuid}, error: {e} "
