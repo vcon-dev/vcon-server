@@ -31,6 +31,28 @@ Setting the `vcon_operation` chain configuration, log different types of Events,
 - Automatic token management and refresh for DataTrails API authentication
 - Configurable attributes
 
+### vCon - DataTrails Attribute Mappings
+
+The following vCon properties are mapped to DataTrails Attributes.
+There are different sources for the content:
+
+- **config.yaml** - set in the conserver configuration, which can be unique per conserver chain configuration
+- **Link code** - set within the DataTrails Link code, and not considered configurable
+- **vcon** - pulled from the vcon object passed into the Link
+
+| Source | Property | DataTrails Attribute | Note |
+| -      | -        | -                    | -    |
+| config.yaml | `vcon_operation` | `arc_display_type` | used for default permissions,<br>_duplicate of vcon_operation_ |
+| config.yaml | `vcon_operation`| `vcon_operation` | used for filtering |
+| config.yaml | `DataTrails-User-Agent` | `headers["DataTrails-User-Agent"]` | diagnostics for the source of the request |
+| config.yaml | `partner_id` | `headers["DataTrails-Partner-ID"]` | used for tracing source requests |
+| Link code | |  `conserver_link_version` | version control of data |
+| Link code | | `payload_hash_alg` | Hash algorithm of the vcon |
+| Link code | |  `preimage_content_type` | Content type of the vCon |
+| vcon | `hash` | `payload_hash_value` | vCon Hash |
+| vcon | `vcon_uuid` | `subject` | Unique Identifier of the vCon |
+| vcon | `vcon.updated_at or `<br>`vcon.created_at` | `vcon_updated_at` | Created or Updated datetime |
+
 ## Prerequisites
 
 - Python 3.7+
