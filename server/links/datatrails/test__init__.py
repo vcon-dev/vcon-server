@@ -7,9 +7,8 @@ import json
 # Import the functions and classes we want to test
 from . import (
     DataTrailsAuth,
-    get_asset,
     create_asset,
-    update_asset,
+    create_event,
     run
 )
 
@@ -20,11 +19,11 @@ class MockVconRedis:
             get_tag=Mock(side_effect=lambda x: {
                 "datatrails_asset_id": "asset123" if x == "datatrails_asset_id" else None,
                 "asset_name": "Test Asset" if x == "asset_name" else None,
-                "datatrails_event_type": "TestEvent" if x == "datatrails_event_type" else None,
-                "datatrails_event_attributes": '{"test": "event"}' if x == "datatrails_event_attributes" else "{}",
-                "datatrails_asset_attributes": '{"test": "asset"}' if x == "datatrails_asset_attributes" else "{}"
+                "event_type": "vCon" if x == "event_type" else None,
+                "event_attributes": '{"test": "event"}' if x == "event_attributes" else "{}",
+                "asset_attributes": '{"test": "asset"}' if x == "asset_attributes" else "{}"
             }.get(x)),
-            subject="Test Subject",
+            subject="vcon://abc123",
             add_tag=Mock()
         )
     
