@@ -49,10 +49,10 @@ There are different sources for the content:
 | config.yaml | `partner_id` | `headers["DataTrails-Partner-ID"]` | N/A |used for tracing source requests |
 | Link code | |  `conserver_link_version` | `metamap.link_version` | version control of data |
 | Link code | | `payload_hash_alg` | `protected-header.payload_hash_alg` | Hash algorithm of the vcon |
-| Link code | |  `preimage_content_type` | `protected-header.preimage_content_type` | Content type of the vCon |
+| Link code | |  `payload_preimage_content_type` | `protected-header.payload_preimage_content_type` | Content type of the vCon |
 | vcon | `hash` | `payload_hash_value` | `protected-header.payload_hash_value` |vCon Hash |
 | vcon | `vcon_uuid` | `subject` | `protected-header.cwt-claims.subject` | Unique Identifier of the vCon |
-| vcon | `vcon.updated_at or `<br>`vcon.created_at` | `vcon_updated_at` | `metamap.vcon_updated_at`| Created or Updated datetime |
+| vcon | `vcon.updated_at or`<br>`vcon.created_at` | `vcon_updated_at` | `metamap.vcon_updated_at`| Created or Updated datetime |
 
 ## Prerequisites
 

@@ -37,7 +37,7 @@ default_options = {
         "arc_display_type": "vcon",
         "conserver_link_version": link_version,
         "payload_hash_alg": "SHA-256",
-        "preimage_content_type": "application/vcon"
+        "payload_preimage_content_type": "application/vcon"
     }
 }
 
@@ -362,7 +362,7 @@ def run(
     # Get the default attributes
     event_attributes = opts["event_attributes"].copy()
 
-    # payload_hash_value, preimage_content_type are consistent with
+    # payload_hash_value, payload_preimage_content_type are consistent with
     # cose-hash-envelope: https://datatracker.ietf.org/doc/draft-steele-cose-hash-envelope
 
     # additional metadata properties, consistent with 
