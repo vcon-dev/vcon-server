@@ -293,10 +293,6 @@ def run(
     # Set the subject to the vcon identifier
     subject = vcon.subject or f"vcon://{vcon_uuid}"
 
-    # Create the SHA256 hash of the vcon
-    # This is used to record what version of the vcon
-    original_vcon_hash = vcon.hash
-
     #####################
     # ASSET REMOVAL_BEGIN
     # Everything from here to ASSET REMOVAL_END 
@@ -385,15 +381,6 @@ def run(
             "vcon_updated_at": vcon.updated_at or vcon.created_at
         }
     )
-
-    # If the vCon hash changed, record the historical version
-    # good example for a key/value pair stored in a cose-meta-map
-    if original_vcon_hash != vcon.hash:
-        event_attributes.update(
-            {
-                "payload_original_hash_value": original_vcon_hash
-            }
-        )
 
     # TODO: Should we set the public url for the vCon
     #       from https://datatracker.ietf.org/doc/draft-steele-cose-hash-envelope
