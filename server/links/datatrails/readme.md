@@ -2,24 +2,31 @@
 
 ![image](https://github.com/datatrails/datatrails-scitt-samples/blob/1de38b563c70ae96cd1983227d00675b222932ef/DataTrails_Horizontal_Logo_Black.png?raw=true)
 
-While the vCon is authored, signed and stored in the vCon/Conserver services, the guarantee of integrity protection can be assured through SCITT.
+While vCons are authored, signed and stored in vCon services, assure integrity and inclusions protection through the DataTrails implementation of [SCITT][scitt-architecture]
+
+## Overview
 
 Most storage services provide the ability to create, modify and delete content.
-How do you know your vCons weren't tampered with, or important updates were deleted?
+Which raises the question, can you guarantee your vCons weren't tampered with, or important updates weren't deleted?
 
-> If a vCon disappeared in the woods, would you know?
+> _If a vCon disappeared in the woods, would you know?_
 
 With the SCITT capabilities of DataTrails, the integrity and inclusion of all vCons are recorded.
 If you're in possession of a vCon that's not recorded on a SCITT ledger, how do you know it's a valid vCon, or the latest version of that vCon?
 
-## Overview
-
-The DataTrails Link is a conserver link designed to integrate vCon (virtual conversation) data with the [DataTrails API](https://docs.datatrails.ai/developers/api-reference/).
+The DataTrails Link is a conserver link designed to integrate vCon (virtual conversation) data with the [DataTrails Events API][datatrails-events].
 The DataTrails Link allows for the creation of DataTrails Events based on vCon information, enabling seamless tracking and management of conversation-related assets.
+Setting the `vcon_operation` chain configuration, log different types of Events, based on which chain is executed.
+
+### DataTrails and SCITT
+
+> _**Note:**_ The [IETF SCITT architecture][scitt-architecture] and [SCRAPI][scitt-scrapi] are in currently draft form.
+> The [SCITT Link][scitt-link] conforms the draft version as specified in the `.scitt-version` property.
+> To provide a production SLA, [DataTrails Events][datatrails-events] provides a SCITT like API that will continue to evolve as the SCITT draft matures.
 
 ## Features
 
-- Automatic creation of [DataTrails Events](https://docs.datatrails.ai/developers/api-reference/events-api/) from vCon data
+- Automatic creation of [DataTrails Events][datatrails-events] from vCon data
 - Appending DataTrails Events with new vCon information
 - Automatic token management and refresh for DataTrails API authentication
 - Configurable attributes
@@ -39,58 +46,59 @@ The DataTrails Link allows for the creation of DataTrails Events based on vCon i
    pip install requests
    ```
 
-## Configuration
-
-The DataTrails Link requires minimal configuration in the conserver setup.
-Add the following to the conserver configuration file, replacing `"<your_client_id>"` and `"<your_client_secret>"` with the actual [DataTrails API credentials](https://docs.datatrails.ai/developers/developer-patterns/getting-access-tokens-using-app-registrations/).
-
-```yaml
-links:
-  datatrails:
-    module: links.datatrails
-    options:
-      datatrails_client_id: "<your_client_id>"
-      datatrails_client_secret: "<your_client_secret>"
-chains:
-  datatrails_chain:
-    links:
-      - datatrails
-    ingress_lists:
-      - datatrails_ingress
-    egress_lists:
-      - datatrails_egress
-    enabled: 1
-```
-
 ## Usage
 
 The DataTrails Link will automatically process vCons as they pass through the conserver providing integrity protection to the "moments that matter".
 
 ### Ledgering a vCon
 
-For each vCon:
+For each vCon Chain:
 
 1. A [DataTrails Event]() will be recorded, integrity protecting each vCon, setting the `subject` to `vcon://<vcon_uuid>` for correlation of events to each vCon
 1. If no DataTrails Asset exists for the vCon, a new asset will be created.  
-   Note: this is a temporary solution as Assets are being deprecated.  
+   _**Note:** this is a temporary solution as Assets are being deprecated._
 
-#### Customizing Event Creation
+## Configuration
 
-Customizing events are configured by setting specific tags in the vCon before it's processed by the DataTrails link
+The DataTrails Link requires minimal configuration in the conserver setup.
 
-- `vcon_operation`: Set to differentiate what operation is being recorded on DataTrails/SCITT.  
-  DataTrails supports [configurable permissions on Event Types](https://docs.datatrails.ai/platform/administration/sharing-access-outside-your-tenant/#creating-an-obac-policy)  
-  The DataTrails `arc_display_type` is configured at: `f"vcon-{vcon_operation}"`, enabling permissions to specific vCon operations
-- `vcon_operation_id`: Optionally Set to provide additional details for an operation
-- `datatrails_metadata`: JSON array of additional attributes for each the event, in key/value format
+- Add the following datatrails configurations to the conserver configuration file (`config.yml`)
+- Replace `"<your_client_id>"` and `"<your_client_secret>"` with your [DataTrails API credentials](https://docs.datatrails.ai/developers/developer-patterns/getting-access-tokens-using-app-registrations/)
+- Set `vcon_operation` to differentiate what operation is being recorded on DataTrails/SCITT.  
+- The DataTrails `arc_display_type` is configured as: `"vcon_operation}"`, enabling [configurable permissions on Event Types](https://docs.datatrails.ai/platform/administration/sharing-access-outside-your-tenant/#creating-an-obac-policy)  
 
-Example of setting a custom tag in a vCon:
+```yaml
+links:
+  datatrails-create:
+    module: links.datatrails
+    options:
+      datatrails_client_id: "<your_client_id>"
+      datatrails_client_secret: "<your_client_secret>"
+      vcon_operation: "vcon-create"
+  datatrails-consent:
+    module: links.datatrails
+    options:
+      datatrails_client_id: "<your_client_id>"
+      datatrails_client_secret: "<your_client_secret>"
+      vcon_operation: "vcon-consent"
 
-TODO: DISCUSS & possibly DELETE various tags
-```python
-vcon.add_tag("vcon_operation", "transcription")
-vcon.add_tag("vcon_operation_id", "trans-id:abc123")
-vcon.add_tag("datatrails_metadata", ["key":value1, "key2", value2])
+chains:
+  create_chain:
+    links:
+      - datatrails-create
+    ingress_lists:
+      - create_ingress
+    egress_lists:
+      - default_egress
+    enabled: 1
+  consent_chain:
+    links:
+      - datatrails-consent
+    ingress_lists:
+      - consent_ingress
+    egress_lists:
+      - default_egress
+    enabled: 1
 ```
 
 ## Verifying vCons
@@ -133,16 +141,27 @@ To query the history of DataTrails Events for a given vCon, use the following:
      | jq
    ```
 
-- Query All Events for a Specific Conserver Chain  
-  TODO: NOTE: `conserver_chain` is not yet plumbed through the Conserver
+- Query Events for a Specific vCon for a Specific Operation
 
    ```bash
    DATATRAILS_EVENTS_URL="https://app.datatrails.ai/archivist/v2/assets/-/events"
-   CONSERVER_CHAIN="datatrails_chain"
+   VCON="bbba043b-d1aa-4691-8739-ac3ddd030390"
+   VCON_OPERATION="vcon-create"
    curl -g -X GET \
      -H "@$HOME/.datatrails/bearer-token.txt" \
      "$DATATRAILS_EVENTS_URL?event_attributes.subject=vcon://$VCON" \
-     + "&event_attributes.conserver_chain=SHA-256" \
+     + "&event_attributes.vcon_operation=$VCON_OPERATION" \
+     | jq
+   ```
+
+- Query All Events for a Specific Operations
+
+   ```bash
+   DATATRAILS_EVENTS_URL="https://app.datatrails.ai/archivist/v2/assets/-/events"
+   VCON_OPERATION="vcon-create"
+   curl -g -X GET \
+     -H "@$HOME/.datatrails/bearer-token.txt" \
+     "$DATATRAILS_EVENTS_URL?event_attributes.vcon_operation=$VCON_OPERATION" \
      | jq
    ```
 
@@ -192,7 +211,7 @@ Please follow these steps:
 ## Troubleshooting
 
 - If you encounter authentication issues, ensure your `datatrails_client_id` and `datatrails_client_secret` are correct and have the necessary permissions in DataTrails.  
-  See [Creating Access Tokens Using a Custom Integration](https://docs.datatrails.ai/developers/developer-patterns/getting-access-tokens-using-app-registrations/)
+  See [Creating Access Tokens Using a Custom Integration][datatrails-tokens]
 - Check the conserver logs for any error messages related to the DataTrails Link.
 - Verify that your vCons contain the expected data and tags.
 
@@ -203,3 +222,9 @@ For issues, questions, or contributions, please open an issue in the GitHub repo
 ## License
 
 The [DataTrails Asset Link is open-sourced under the MIT license](./LICENSE).
+
+[datatrails-tokens]:  https://docs.datatrails.ai/developers/developer-patterns/getting-access-tokens-using-app-registrations/
+[datatrails-events]:  https://docs.datatrails.ai/developers/api-reference/events-api/
+[scitt-scrapi]:       https://datatracker.ietf.org/doc/draft-ietf-scitt-scrapi/
+[scitt-link]:         https://github.com/vcon-dev/vcon-server/tree/main/server/links/scitt
+[scitt-architecture]: https://datatracker.ietf.org/wg/scitt/about/

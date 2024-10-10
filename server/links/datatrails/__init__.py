@@ -1,6 +1,6 @@
 import os
 import requests
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException
 from lib.vcon_redis import VconRedis
 from lib.logging_utils import init_logger
@@ -12,16 +12,8 @@ logger = init_logger(__name__)
 # Increment for any API/attribute changes
 link_version = "0.1.0.0"
 
-# can the conserver_chain name and conserver_ingress_queue
-# be pulled from the vCon object?
-conserver_chain = "datatrails_chain"
-conserver_ingress_queue = "datatrails_ingress"
-
-# NOTE: "arc_display_type" should evolve to contain the sub-task 
-# as that's the DataTrails permission model
-
 # NOTE: Once DataTrails removes the dependency for assets, 
-#       "asset_attributes" can be removed
+#       "asset_attributes" will be removed
 
 # NOTE: droid_id is a temporary placeholder to associate an
 #       asset with a collection of events
@@ -35,8 +27,8 @@ conserver_ingress_queue = "datatrails_ingress"
 default_options = {
     "api_url": "https://app.datatrails.ai/archivist/v2/",
     "auth_url": "https://app.datatrails.ai/archivist/iam/v1/appidp/token",
-    "datatrails_client_id": "<DATATRAILS_CLIENT_ID>",
-    "datatrails_client_secret": "<DATATRAILS_CLIENT_SECRET>",
+    "datatrails_client_id": "<set-in-config.yml>",
+    "datatrails_client_secret": "<set-in-config.yml>",
     "asset_attributes": {
         "arc_display_type": "vcon_droid",
         "conserver_link_version": link_version
@@ -61,7 +53,7 @@ class DataTrailsAuth:
         Args:
             auth_url (str): URL for the authentication endpoint
             datatrails_client_id (str): Client ID for DataTrails API
-            datatrails_client_secret (str): Client secret for DataTrails API
+            datatrails_client_secret (str): Client Secret for DataTrails API
         """
         self.auth_url = auth_url
         self.datatrails_client_id = datatrails_client_id
@@ -100,11 +92,11 @@ class DataTrailsAuth:
         )
 
         # Save token to file
-        datatrails_dir = os.path.expanduser("~/.datatrails")
-        os.makedirs(datatrails_dir, exist_ok=True)
-        os.chmod(datatrails_dir, 0o700)
-        with open(os.path.join(datatrails_dir, "bearer-token.txt"), "w") as f:
-            f.write(f"Authorization: Bearer {self.token}")
+        # datatrails_dir = os.path.expanduser("~/.datatrails")
+        # os.makedirs(datatrails_dir, exist_ok=True)
+        # os.chmod(datatrails_dir, 0o700)
+        # with open(os.path.join(datatrails_dir, "bearer-token.txt"), "w") as f:
+        #     f.write(f"Authorization: Bearer {self.token}")
 
 #    NOTE: Once DataTrails removes the dependency for assets, 
 #    this method can be removed
@@ -266,7 +258,7 @@ def run(
     Raises:
         ValueError: If datatrails_client_id or datatrails_client_secret is not provided in the options.
     """
-    logger.info(f"Starting DataTrails link for vCon: {vcon_uuid}")
+    logger.info(f"DataTrails: Starting Link for vCon: {vcon_uuid}")
 
     merged_opts = default_options.copy()
     merged_opts.update(opts)
@@ -285,7 +277,7 @@ def run(
     vcon_redis = VconRedis()
     vcon = vcon_redis.get_vcon(vcon_uuid)
     if not vcon:
-        logger.info(f"vCon not found: {vcon_uuid}") 
+        logger.info(f"DataTrails: vCon not found: {vcon_uuid}") 
         raise HTTPException(
             status_code=HTTP_404_NOT_FOUND,
             detail=f"vCon not found: {vcon_uuid}"
@@ -336,7 +328,7 @@ def run(
 
     # Check if asset exists, create if it doesn't
     if (not asset_id):
-        logger.info(f"DataTrails Asset not found: {asset_id}")
+        logger.info(f"DataTrails: Asset not found: {asset_id}")
 
         # Prepare attributes
         asset_attributes = opts["asset_attributes"].copy()
@@ -354,13 +346,15 @@ def run(
         asset_id = asset["identity"]
 
     else:
-        logger.info(f"DataTrails Asset found: {asset_id}")
+        logger.info(f"DataTrails: Asset found: {asset_id}")
 
     #####################
     # ASSET REMOVAL_END
     #####################
 
+    ###########################
     # Create a DataTrails Event
+    ###########################
 
     # Get the default attributes
     event_attributes = opts["event_attributes"].copy()
@@ -371,33 +365,20 @@ def run(
     # additional metadata properties, consistent with 
     # cose-draft-lasker-meta-map: https://github.com/SteveLasker/cose-draft-lasker-meta-map
 
-    # NOTE: DISCUSS & potentially DELETE
-    # vcon_operation = ("vcon_" + vcon.get_tag("vcon_operation")) or opts["event_attributes"]["arc_display_type"]
-    # logger.info(f"vcon_operation: {vcon_operation}")
-    #            "arc_display_type": vcon_operation,
+    operation=opts["vcon_operation"] or opts["event_attributes"]["arc_display_type"]
+    # default to "vcon_" prefix, assuring no duplicates, or alternates with "-"
+    vcon_operation = ("vcon_" + operation.removeprefix("vcon_").removeprefix("vcon-"))
 
     event_attributes.update(
         {
+            "arc_display_type": vcon_operation,
             "payload_hash_value": vcon.hash,
             "payload_version": vcon.updated_at or vcon.created_at,
             "subject": subject,
-            "conserver_chain": conserver_chain,
-            "conserver_ingress_queue": conserver_ingress_queue,
-            "conserver_task": "something"
         }
     )
 
-    # NOTE: DISCUSS & potentially DELETE
-    # vcon_operation_id = vcon.get_tag("vcon_operation_id")
-    
-    # if vcon_operation_id:
-    #     event_attributes.update(
-    #         {
-    #             "vcon_operation_id": vcon_operation_id
-    #         }
-    #     )
-
-    # Update the hash value of the vcon
+    # If the vCon hash changed, record the historical version
     # good example for a key/value pair stored in a cose-meta-map
     if original_vcon_hash != vcon.hash:
         event_attributes.update(
@@ -406,12 +387,14 @@ def run(
             }
         )
 
-    # TODO: Set the public url for the vCon
-    # event_attributes.update(
-    #     {
-    #         "payload_location": vcon_location
-    #     }
-    # )
+    # TODO: Should we set the public url for the vCon
+    #       from https://datatracker.ietf.org/doc/draft-steele-cose-hash-envelope
+    # if vcon_location:
+        # event_attributes.update(
+        #     {
+        #         "payload_location": vcon_location
+        #     }
+        # )
 
     event = create_event(
         opts["api_url"],
@@ -420,11 +403,11 @@ def run(
         event_attributes
     )
     event_id = event["identity"]
-    logger.info(f"Created DataTrails Event: {event_id}")
+    logger.info(f"DataTrails: Event Created: {event_id}")
 
     # TODO: may want to store the receipt/transparent statement in the vCon, in the future
 
     # Store updated vCon
     vcon_redis.store_vcon(vcon)
-    logger.info(f"Finished DataTrails asset link for vCon: {vcon_uuid}")
+    logger.info(f"DataTrails: Finished Link for vCon: {vcon_uuid}")
     return vcon_uuid
