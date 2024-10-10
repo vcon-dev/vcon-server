@@ -1,6 +1,6 @@
 # DataTrails Link
 
-![image](https://github.com/datatrails/datatrails-scitt-samples/blob/1de38b563c70ae96cd1983227d00675b222932ef/DataTrails_Horizontal_Logo_Black.png?raw=true)
+![DataTrails](https://www.datatrails.ai/wp-content/uploads/2024/10/DataTrails_Horizontal_Logo_Black.svg)
 
 While vCons are authored, signed and stored in vCon services, assure integrity and inclusions protection through the DataTrails implementation of [SCITT][scitt-architecture]
 
