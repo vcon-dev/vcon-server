@@ -124,7 +124,7 @@ def get_asset_by_attributes(
     api_url = opts["api_url"]
     headers = {
         "Authorization": f"Bearer {auth.get_token()}",
-        "DataTrails-User-Agent": f"oss-conserverlink-{link_version}",
+        "DataTrails-User-Agent": f"oss/conserverlink/{link_version}",
         "DataTrails-Partner-ID": opts["partner_id"],
         "Content-Type": "application/json",
     }
