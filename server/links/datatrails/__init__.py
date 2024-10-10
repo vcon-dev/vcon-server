@@ -91,13 +91,6 @@ class DataTrailsAuth:
             seconds=token_data["expires_in"] - 300
         )
 
-        # Save token to file
-        # datatrails_dir = os.path.expanduser("~/.datatrails")
-        # os.makedirs(datatrails_dir, exist_ok=True)
-        # os.chmod(datatrails_dir, 0o700)
-        # with open(os.path.join(datatrails_dir, "bearer-token.txt"), "w") as f:
-        #     f.write(f"Authorization: Bearer {self.token}")
-
 #    NOTE: Once DataTrails removes the dependency for assets, 
 #    this method can be removed
 def get_asset_by_attributes(
