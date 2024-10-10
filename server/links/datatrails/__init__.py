@@ -94,7 +94,9 @@ class DataTrailsAuth:
 #    NOTE: Once DataTrails removes the dependency for assets, 
 #    this method can be removed
 def get_asset_by_attributes(
-    api_url: str, auth: DataTrailsAuth, attributes: dict
+    opts: dict, 
+    auth: DataTrailsAuth, 
+    attributes: dict
 ) -> dict:
     """
     Assets have minimal information as a temporary anchor 
@@ -109,9 +111,9 @@ def get_asset_by_attributes(
     a daily vCon Asset will be created.
 
     Args:
-        api_url (str): Base URL for the DataTrails API
+        opts (dict): including the base URL for the DataTrails API
         auth (DataTrailsAuth): Authentication object for DataTrails API
-        attributes (dic): a dictionary of attributes to search for
+        attributes (dict): a dictionary of attributes to search for
 
     Returns:
         dict: Data of the found asset
@@ -119,10 +121,14 @@ def get_asset_by_attributes(
     Raises:
         requests.HTTPError: If the API request fails
     """
+    api_url = opts["api_url"]
     headers = {
         "Authorization": f"Bearer {auth.get_token()}",
+        "DataTrails-User-Agent": f"oss-conserverlink-{link_version}",
+        "DataTrails-Partner-ID": opts["partner_id"],
         "Content-Type": "application/json",
     }
+    
     # Searching DataTrails Assets by attributes requires
     # each attribute to be prepended with "attribute."
     params = {}
@@ -145,7 +151,9 @@ def get_asset_by_attributes(
 #    NOTE: Once DataTrails removes the dependency for assets, 
 #    this method can be removed
 def create_asset(
-    api_url: str, auth: DataTrailsAuth, attributes: dict
+    opts: dict, 
+    auth: DataTrailsAuth, 
+    attributes: dict
 ) -> dict:
     """
     Create a new DataTrails Asset
@@ -158,7 +166,7 @@ def create_asset(
     this method can be removed
 
     Args:
-        api_url (str): Base URL for the DataTrails API
+        opts (dict): Including the base URL for the DataTrails API
         auth (DataTrailsAuth): Authentication object for DataTrails API
         attributes (dict): Attributes of the asset to be created
 
@@ -168,10 +176,13 @@ def create_asset(
     Raises:
         requests.HTTPError: If the API request fails
     """
+    app_url = opts["api_url"]
     logger.info(f"DataTrails: Creating Asset: {attributes}")
 
     headers = {
         "Authorization": f"Bearer {auth.get_token()}",
+        "DataTrails-User-Agent": "oss/conserverlink/" + link_version,
+        "DataTrails-Partner-ID": opts["partner_id"],
         "Content-Type": "application/json",
     }
     payload = {
@@ -188,7 +199,7 @@ def create_asset(
 
 
 def create_event(
-    api_url: str,
+    opts : dict,
     asset_id: str,
     auth: DataTrailsAuth,
     event_attributes: dict
@@ -197,7 +208,7 @@ def create_event(
     Create a new DataTrails Event, mapping to a SCITT Envelope
 
     Args:
-        api_url (str): Base URL for the DataTrails API.
+        opts (dict): Configuration, including the base URL for the DataTrails API.
         asset_id (str): ID of the asset to associate the Event with.
         auth (DataTrailsAuth): Authentication object for DataTrails API.
         event_attributes (dict): Attributes of the event.
@@ -210,8 +221,11 @@ def create_event(
     """
     headers = {
         "Authorization": f"Bearer {auth.get_token()}",
+        "DataTrails-User-Agent": "oss/conserverlink/" + link_version,
+        "DataTrails-Partner-ID": opts["partner_id"],
         "Content-Type": "application/json",
     }
+    api_url = opts["api_url"]
     # event_attributes will map to SCITT headers and
     # a cose-meta-map draft (https://github.com/SteveLasker/draft-lasker-cose-meta-map)
     payload = {
@@ -307,7 +321,7 @@ def run(
     #   - conserver_link_version
     #   - droid_id
     response = get_asset_by_attributes(
-        opts["api_url"],
+        opts,
         auth,
         asset_attributes
     )
@@ -360,15 +374,15 @@ def run(
 
     operation=opts["vcon_operation"] or opts["event_attributes"]["arc_display_type"]
     # default to "vcon_" prefix, assuring no duplicates, or alternates with "-"
-    vcon_operation = ("vcon_" + operation.removeprefix("vcon_").removeprefix("vcon-"))
+    vcon_operation = ("vcon_" + operation.lower().removeprefix("vcon_").lower().removeprefix("vcon-"))
 
     event_attributes.update(
         {
             "arc_display_type": vcon_operation,
-            "vcon_operation": vcon_operation,
             "payload_hash_value": vcon.hash,
-            "payload_version": vcon.updated_at or vcon.created_at,
             "subject": subject,
+            "vcon_operation": vcon_operation,
+            "vcon_updated_at": vcon.updated_at or vcon.created_at
         }
     )
 
@@ -391,7 +405,7 @@ def run(
         # )
 
     event = create_event(
-        opts["api_url"],
+        opts,
         asset_id,
         auth,
         event_attributes
@@ -401,7 +415,8 @@ def run(
 
     # TODO: may want to store the receipt/transparent statement in the vCon, in the future
 
-    # Store updated vCon
-    vcon_redis.store_vcon(vcon)
+    # DataTrails SCITT entries are based on securing the hash of the vcon
+    # This link should always be called after all changes are made, 
+    # and should not make any new changes to the vcon that will impact the vcon hash
     logger.info(f"DataTrails: Finished Link for vCon: {vcon_uuid}")
     return vcon_uuid
