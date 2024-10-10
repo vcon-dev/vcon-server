@@ -365,6 +365,7 @@ def run(
     event_attributes.update(
         {
             "arc_display_type": vcon_operation,
+            "vcon_operation": vcon_operation,
             "payload_hash_value": vcon.hash,
             "payload_version": vcon.updated_at or vcon.created_at,
             "subject": subject,
