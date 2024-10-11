@@ -216,7 +216,7 @@ To run the tests for the DataTrails Asset Link:
 2. Run the tests:
 
    ```bash
-   pytest datatrails-link-tests.py
+   pytest test_datatrails_link.py
    ```
 
 ## Contributing
