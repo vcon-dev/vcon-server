@@ -176,7 +176,7 @@ def create_asset(
     Raises:
         requests.HTTPError: If the API request fails
     """
-    app_url = opts["api_url"]
+    api_url = opts["api_url"]
     logger.info(f"DataTrails: Creating Asset: {attributes}")
 
     headers = {

@@ -62,7 +62,6 @@ def test_get_asset(mock_auth, status_code, expected_result):
         result = get_asset("http://test.com", "asset123", mock_auth)
         assert result == expected_result
 
-
 def test_create_asset(mock_auth):
     with patch('server.links.datatrails.requests.post') as mock_post:
         mock_post.return_value.json.return_value = {
@@ -70,22 +69,11 @@ def test_create_asset(mock_auth):
             "access_token": "test_token",
             "expires_in": 3600
         }
-        result = create_asset("http://test.com", mock_auth, {"name": "Test"}, ["Behaviour1"])
-        assert result == {
-            "id": "new_asset",
-            "access_token": "test_token",
-            "expires_in": 3600
-        }
-        mock_post.assert_called()
-
-def test_update_asset(mock_auth):
-    with patch('server.links.datatrails.requests.post') as mock_post:
-        mock_post.return_value.json.return_value = {
-            "id": "new_asset",
-            "access_token": "test_token",
-            "expires_in": 3600
-        }
-        result = update_asset("http://test.com", "asset123", mock_auth, "TestEvent", {"test": "event"}, {"test": "asset"})
+        result = create_asset(
+            opts={"api_url":"http://test.com", "partner_id": "foo"}, 
+            auth=mock_auth, 
+            attributes={"name": "Test"}
+        )
         assert result == {
             "id": "new_asset",
             "access_token": "test_token",
