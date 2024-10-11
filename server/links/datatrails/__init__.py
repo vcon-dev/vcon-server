@@ -10,7 +10,7 @@ from vcon import Vcon
 logger = init_logger(__name__)
 
 # Increment for any API/attribute changes
-link_version = "0.1.0.0"
+link_version = "0.1.0"
 
 # NOTE: Once DataTrails removes the dependency for assets, 
 #       "asset_attributes" will be removed
