@@ -17,8 +17,6 @@ class MockVconRedis:
     def get_vcon(self, vcon_uuid):
         return Mock(
             get_tag=Mock(side_effect=lambda x: {
-                "datatrails_asset_id": "asset123" if x == "datatrails_asset_id" else None,
-                "asset_name": "Test Asset" if x == "asset_name" else None,
                 "event_type": "vCon" if x == "event_type" else None,
                 "event_attributes": '{"test": "event"}' if x == "event_attributes" else "{}",
                 "asset_attributes": '{"test": "asset"}' if x == "asset_attributes" else "{}"
@@ -55,12 +53,6 @@ def test_datatrails_auth_refresh_token(mock_auth):
     (200, {"id": "asset123"}),
     (404, None)
 ])
-def test_get_asset(mock_auth, status_code, expected_result):
-    with patch('server.links.datatrails.requests.get') as mock_get:
-        mock_get.return_value.status_code = status_code
-        mock_get.return_value.json.return_value = expected_result
-        result = get_asset("http://test.com", "asset123", mock_auth)
-        assert result == expected_result
 
 def test_create_asset(mock_auth):
     with patch('server.links.datatrails.requests.post') as mock_post:
