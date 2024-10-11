@@ -25,7 +25,7 @@ link_version = "0.1.0"
 # datatrails_client_id, datatrails_client_secret noted here for reference only
 # Set the datatrails_client_id, datatrails_client_secret in the vcon_server/config.yml
 default_options = {
-    "api_url": "https://app.datatrails.ai/archivist/v2/",
+    "api_url": "https://app.datatrails.ai/archivist/v2",
     "auth_url": "https://app.datatrails.ai/archivist/iam/v1/appidp/token",
     "datatrails_client_id": "<set-in-config.yml>",
     "datatrails_client_secret": "<set-in-config.yml>",
@@ -342,7 +342,7 @@ def run(
         )
 
         asset = create_asset(
-            opts["api_url"],
+            opts,
             auth,
             asset_attributes
         )
