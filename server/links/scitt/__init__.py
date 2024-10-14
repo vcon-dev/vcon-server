@@ -1,14 +1,17 @@
 import os
+import requests
+from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException
 from lib.vcon_redis import VconRedis
 from lib.logging_utils import init_logger
-from links.scitt import create_signed_statement
+from links.scitt import create_hashed_signed_statement
 from starlette.status import HTTP_404_NOT_FOUND
 import hashlib
 import json
 import requests
 
 logger = init_logger(__name__)
+
 # Increment for any API/attribute changes
 link_version = "0.1.0"
 
@@ -22,15 +25,12 @@ default_options = {
     "issuer": "ANONYMOUS CONSERVER",
 }
 
-default_options = {
-}
-
 
 def run(
-    vcon_uuid,
-    link_name,
+    vcon_uuid: str,
+    link_name: str,
     opts: dict = default_options
-):
+) -> str:
     """
     Main function to run the SCITT link.
 
@@ -85,13 +85,17 @@ def run(
     # payload_location = vcon.url
 
     signing_key_path = os.path.join(opts["signing_key_path"])
-    signing_key = create_signed_statement.open_signing_key(signing_key_path)
-    signed_statement = create_signed_statement.create_signed_statement(
-        signing_key,
-        payload_s,
-        subject=f"vcon://{vcon_uuid}",
+    signing_key = create_hashed_signed_statement.open_signing_key(signing_key_path)
+    signed_statement = create_hashed_signed_statement.create_hashed_signed_statement(
         issuer=opts["issuer"],
-        content_type="application/json",
+        signing_key=signing_key,
+        subject=subject,
+        kid=key_id,
+        meta_map=meta_map,
+        payload=payload_hash,
+        payload_hash_alg=payload_hash_alg,
+        payload_location=payload_location,
+        pre_image_content_type="application/vcon+json"
     )
 
     # Get the token using the requests library
