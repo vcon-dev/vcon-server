@@ -23,7 +23,7 @@ from playhouse.postgres_ext import (
 )
 from pydantic import BaseModel
 from dlq_utils import get_ingress_list_dlq_name
-from settings import VCON_SORTED_SET_NAME, VCON_STORAGE, CONSERVER_API_TOKEN, CONSERVER_HEADER_NAME, CONSERVER_API_TOKEN_FILE
+from settings import VCON_SORTED_SET_NAME, CONSERVER_API_TOKEN, CONSERVER_HEADER_NAME, CONSERVER_API_TOKEN_FILE
 from fastapi.security.api_key import APIKeyHeader
 from fastapi import APIRouter
 from fastapi import Security
@@ -88,6 +88,7 @@ app.add_middleware(
 api_router = APIRouter()
 
 
+# use vcon lib for this instead of redefining it here
 class Vcon(BaseModel):
     vcon: str
     uuid: UUID
@@ -103,21 +104,21 @@ class Vcon(BaseModel):
     meta: Optional[dict] = {}
 
 
-if VCON_STORAGE:
+# if VCON_STORAGE:
 
-    class VConPeeWee(Model):
-        id = UUIDField(primary_key=True)
-        vcon = CharField()
-        uuid = UUIDField()
-        created_at = DateTimeField()
-        updated_at = DateTimeField(null=True)
-        subject = CharField(null=True)
-        vcon_json = BinaryJSONField(null=True)
-        type = CharField(null=True)
+#     class VConPeeWee(Model):
+#         id = UUIDField(primary_key=True)
+#         vcon = CharField()
+#         uuid = UUIDField()
+#         created_at = DateTimeField()
+#         updated_at = DateTimeField(null=True)
+#         subject = CharField(null=True)
+#         vcon_json = BinaryJSONField(null=True)
+#         type = CharField(null=True)
 
-        class Meta:
-            table_name = "vcons"
-            database = PostgresqlExtDatabase(VCON_STORAGE)
+#         class Meta:
+#             table_name = "vcons"
+#             database = PostgresqlExtDatabase(VCON_STORAGE)
 
 
 async def add_vcon_to_set(vcon_uuid: UUID, timestamp: int):

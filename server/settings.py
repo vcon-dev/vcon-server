@@ -21,7 +21,7 @@ CONSERVER_HEADER_NAME = os.getenv("CONSERVER_HEADER_NAME", "x-conserver-api-toke
 DEEPGRAM_KEY = os.getenv("DEEPGRAM_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-VCON_STORAGE = os.getenv("VCON_STORAGE", "")
+# VCON_STORAGE = os.getenv("VCON_STORAGE", "")
 INDEX_NAME = "vcon"
 WEVIATE_HOST = os.getenv("WEVIATE_HOST", "localhost:8000")
 WEVIATE_API_KEY = os.getenv('WEVIATE_API_KEY')
