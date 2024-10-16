@@ -9,7 +9,7 @@ def test_store_vcon():
 
     # Load tests/dataset/1ba06c0c-97ea-439f-8691-717ef86e4f3e.vcon.json to use
     # as the vCon object
-    with open("../dataset/1ba06c0c-97ea-439f-8691-717ef86e4f3e.vcon.json") as f:
+    with open("tests/dataset/1ba06c0c-97ea-439f-8691-717ef86e4f3e.vcon.json") as f:
         vcon_json = json.load(f)
     vcon_obj = vcon.Vcon(vcon_json)
 
@@ -23,7 +23,7 @@ def test_get_vcon():
 
     # Load tests/dataset/1ba06c0c-97ea-439f-8691-717ef86e4f3e.vcon.json to use
     # as the vCon object
-    with open("../dataset/1ba06c0c-97ea-439f-8691-717ef86e4f3e.vcon.json") as f:
+    with open("tests/dataset/1ba06c0c-97ea-439f-8691-717ef86e4f3e.vcon.json") as f:
         vcon_json = json.load(f)
     vcon_obj = vcon.Vcon(vcon_json)
 

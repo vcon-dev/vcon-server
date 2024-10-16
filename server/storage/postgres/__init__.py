@@ -7,7 +7,6 @@ from peewee import (
     TextField,
     UUIDField,
 )
-import json
 from datetime import datetime
 
 logger = init_logger(__name__)
@@ -43,17 +42,8 @@ def save(
             updated_at = DateTimeField(null=True)
             subject = TextField(null=True)
             vcon_json = BinaryJSONField(null=True)
-            type = TextField()
 
         db.create_tables([Vcons], safe=True)
-
-        source = None
-        for a in vcon.attachments:
-            if a["type"] == "ingress_info":
-                if a['encoding'] == 'json':
-                    source = json.loads(a["body"])["source"]
-                else: 
-                    source = a["body"]["source"]
 
         vcon_data = {
             "id": vcon.uuid,
@@ -62,8 +52,7 @@ def save(
             "created_at": vcon.created_at,
             "updated_at": datetime.now(),
             "subject": vcon.subject,
-            "vcon_json": vcon.to_dict(),
-            "type": source,
+            "vcon_json": vcon.to_dict()
         }
         Vcons.insert(**vcon_data).on_conflict(
             conflict_target=(Vcons.id), update=vcon_data
@@ -106,7 +95,6 @@ def get(
             updated_at = DateTimeField(null=True)
             subject = TextField(null=True)
             vcon_json = BinaryJSONField(null=True)
-            type = TextField()
 
         try:
             vcon = Vcons.get(Vcons.id == vcon_uuid)

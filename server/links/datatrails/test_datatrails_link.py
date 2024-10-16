@@ -49,10 +49,6 @@ def test_datatrails_auth_refresh_token(mock_auth):
     assert token == "test_token"
     assert mock_auth.token_expiry > datetime.now()
 
-@pytest.mark.parametrize("status_code,expected_result", [
-    (200, {"id": "asset123"}),
-    (404, None)
-])
 
 def test_create_asset(mock_auth):
     with patch('server.links.datatrails.requests.post') as mock_post:

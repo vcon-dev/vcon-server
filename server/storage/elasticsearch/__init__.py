@@ -1,7 +1,7 @@
 from lib.logging_utils import init_logger
 from server.lib.vcon_redis import VconRedis
 import logging
-from elasticsearch import Elasticsearch
+import elasticsearch
 import json
 import os
 
@@ -38,7 +38,7 @@ def save(
 ):
     try:
         if opts.get("cloud_id", None) or opts.get("api_key", None):
-            es = Elasticsearch(
+            es = elasticsearch.Elasticsearch(
                 cloud_id=opts["cloud_id"],
                 api_key=opts["api_key"],
             )
@@ -48,9 +48,9 @@ def save(
             password = opts["password"]
             ca_certs = opts.get("ca_certs", None)
             if ca_certs and os.path.exists(ca_certs):
-                es = Elasticsearch(url, basic_auth=(username, password), ca_certs=ca_certs)
+                es = elasticsearch.Elasticsearch(url, basic_auth=(username, password), ca_certs=ca_certs)
             else:
-                es = Elasticsearch(url, basic_auth=(username, password), verify_certs=False)
+                es = elasticsearch.Elasticsearch(url, basic_auth=(username, password), verify_certs=False)
         vcon_redis = VconRedis()
         vcon = vcon_redis.get_vcon(vcon_uuid)
         vcon_dict = vcon.to_dict()

@@ -88,14 +88,14 @@ def test_get_tag():
 def test_find_attachment_by_type():
     vcon = Vcon.build_new()
     vcon.add_attachment(body={"key": "value"}, type="test_type")
-    assert vcon.find_attachment_by_type("test_type") == {"type": "test_type", "body": {"key": "value"}, "encoding": "json"}
+    assert vcon.find_attachment_by_type("test_type") == {"type": "test_type", "body": {"key": "value"}, "encoding": "none"}
     assert vcon.find_attachment_by_type("nonexistent_type") is None
 
 
 def test_find_analysis_by_type():
     vcon = Vcon.build_new()
     vcon.add_analysis(type="test_type", dialog=[1, 2], vendor="test_vendor", body={"key": "value"})
-    assert vcon.find_analysis_by_type("test_type") == {"type": "test_type", "dialog": [1, 2], "vendor": "test_vendor", "body": {"key": "value"}, "encoding": "json"}
+    assert vcon.find_analysis_by_type("test_type") == {"type": "test_type", "dialog": [1, 2], "vendor": "test_vendor", "body": {"key": "value"}, "encoding": "none"}
     assert vcon.find_analysis_by_type("nonexistent_type") is None
 
 
