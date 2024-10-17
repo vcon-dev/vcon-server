@@ -1,0 +1,36 @@
+name: Python conserver unit test
+on: 
+  push: # all
+  pull_request: # all PRs for now
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+    # Step 1: Check out the repository
+    - name: Check out the repository
+      uses: actions/checkout@v3
+
+    - name: Set up Docker
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y docker-compose
+
+    - name: Build and run services with Docker Compose
+      run: |
+        docker-compose up --build --abort-on-container-exit
+
+    # Step 3: Run Docker container with additional commands
+    - name: Run tests inside Docker container
+      run: |
+        docker-compose run --rm conserver bash -c "
+          # Install tests dependencies
+          poetry install &&
+          # Run the tests
+          pytest --maxfail=5 --disable-warnings
+        "
+
+    - name: Clean up
+      if: always()
+      run: docker-compose down
