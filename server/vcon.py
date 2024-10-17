@@ -220,10 +220,6 @@ class Vcon:
     def group(self):
         return self.vcon_dict.get("group", [])
 
-    @property
-    def meta(self):
-        return self.vcon_dict.get("meta", {})
-
     @staticmethod
     def uuid8_domain_name(domain_name: str) -> str:
         """

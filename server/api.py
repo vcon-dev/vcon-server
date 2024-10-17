@@ -1,8 +1,5 @@
 # add python path
-import sys
 import os
-sys.path.append("server")
-sys.path.append("server/lib")
 
 import traceback
 from datetime import datetime
@@ -12,7 +9,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import yaml
-from server.config import Configuration
+from config import Configuration
 from storage.base import Storage
 from peewee import CharField, Model
 from playhouse.postgres_ext import (
@@ -21,7 +18,7 @@ from playhouse.postgres_ext import (
     PostgresqlExtDatabase,
     UUIDField,
 )
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from dlq_utils import get_ingress_list_dlq_name
 from settings import VCON_SORTED_SET_NAME, VCON_STORAGE, CONSERVER_API_TOKEN, CONSERVER_HEADER_NAME, CONSERVER_API_TOKEN_FILE
 from fastapi.security.api_key import APIKeyHeader
@@ -89,6 +86,7 @@ api_router = APIRouter()
 
 
 class Vcon(BaseModel):
+    model_config = ConfigDict(extra='allow')
     vcon: str
     uuid: UUID
     created_at: Union[int, str, datetime]
@@ -100,7 +98,6 @@ class Vcon(BaseModel):
     dialog: List[Dict] = []
     analysis: List[Dict] = []
     attachments: List[Dict] = []
-    meta: Optional[dict] = {}
 
 
 if VCON_STORAGE:

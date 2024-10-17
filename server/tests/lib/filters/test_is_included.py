@@ -47,10 +47,10 @@ async def test_is_included():
     _vcon = vcon.Vcon.build_new()
     _vcon.add_analysis(
         type="customer_frustration",
-        body="foo bar NEEDS REVIEW bar foo",
+        body='"foo bar NEEDS REVIEW bar foo"',
         dialog=0,
         vendor="FooBar Inc.",
-        encoding="text"
+        encoding="json"
     )
     assert is_included(
         {
