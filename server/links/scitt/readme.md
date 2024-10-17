@@ -43,35 +43,38 @@ The SCITT Link requires minimal configuration in the conserver setup.
 - Set `vcon_operation` to differentiate what operation is being recorded on DataTrails/SCITT.  
 - The DataTrails `arc_display_type` is configured as: `"vcon_operation}"`, enabling [configurable permissions on Event Types](https://docs.datatrails.ai/platform/administration/sharing-access-outside-your-tenant/#creating-an-obac-policy)  
 
+### DataTrails
+
+For more information, see [DataTrails SCITT Conserver](https://docs.datatrails.ai/developers/api-reference/templates/scitt)
+
 ```yaml
 links:
-  scitt-create:
+  scitt:
     module: links.scitt
     options:
-      client_id: "<your_client_id>"
-      client_secret: "<your_client_secret>"
+      client_id: "<set-in-config.yml>",
+      client_secret: "<set-in-config.yml>",
+      scrapi_url: "https://app.datatrails.ai/archivist/v2",
+      auth_url: "https://app.datatrails.ai/archivist/iam/v1/appidp/token",
+```
+
+```yaml
+links:
+  scitt:
+    module: links.scitt
+    options:
       vcon_operation: "vcon-create"
-  scitt-consent:
-    module: links.scitt
-    options:
-      client_id: "<your_client_id>"
-      client_secret: "<your_client_secret>"
-      vcon_operation: "vcon-consent"
+      client_id: "<set-in-config.yml>",
+      client_secret: "<set-in-config.yml>",
+      scrapi_url: "<SCRAPI URL>",
+      auth_url: "<Auth URL>",
 
 chains:
   create_chain:
     links:
-      - datatrails-create
+      - scitt
     ingress_lists:
       - create_ingress
-    egress_lists:
-      - default_egress
-    enabled: 1
-  consent_chain:
-    links:
-      - datatrails-consent
-    ingress_lists:
-      - consent_ingress
     egress_lists:
       - default_egress
     enabled: 1

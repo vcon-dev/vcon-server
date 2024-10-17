@@ -4,7 +4,7 @@
 import argparse
 import hashlib
 import json
-import dump_cbor
+#import dump_cbor
 
 from typing import Optional
 from hashlib import sha256
@@ -250,7 +250,7 @@ def main():
     with open(args.output_file, "wb") as output_file:
         output_file.write(signed_statement)
 
-    dump_cbor.print_cbor(args.output_file)
+    #dump_cbor.print_cbor(args.output_file)
 
 
 if __name__ == "__main__":
