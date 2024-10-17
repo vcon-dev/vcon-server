@@ -1,8 +1,7 @@
 from lib.vcon_redis import VconRedis
 from lib.logging_utils import init_logger
 import logging
-import openai
-import json
+from openai import OpenAI
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -43,7 +42,7 @@ def get_analysys_for_type(vcon, index, analysis_type):
     stop=stop_after_attempt(6),
     before_sleep=before_sleep_log(logger, logging.INFO),
 )
-def generate_analysis(transcript, prompt, model, temperature) -> str:
+def generate_analysis(transcript, prompt, model, temperature, client) -> str:
     # logger.info(f"TRANSCRIPT: {transcript}")
     # logger.info(f"PROMPT: {prompt}")
     messages = [
@@ -52,11 +51,9 @@ def generate_analysis(transcript, prompt, model, temperature) -> str:
     ]
     # logger.info(f"messages: {messages}")
     # logger.info(f"MODEL: {model}")
-
-    sentiment_result = openai.ChatCompletion.create(
-        model=model, messages=messages, temperature=temperature
-    )
-    return sentiment_result["choices"][0]["message"]["content"]
+    
+    sentiment_result = client.chat.completions.create(model=model, messages=messages, temperature=temperature)
+    return sentiment_result.choices[0].message.content
 
 
 def run(
@@ -81,10 +78,7 @@ def run(
         logger.info(f"Skipping {link_name} vCon {vcon_uuid} due to sampling")
         return vcon_uuid
 
-    openai.api_key = opts["OPENAI_API_KEY"]
-    openai.max_retries = 0
-    openai.timeout = 120.0
-
+    client = OpenAI(api_key=opts["OPENAI_API_KEY"], timeout=120.0, max_retries=0)
     source_type = navigate_dict(opts, "source.analysis_type")
     text_location = navigate_dict(opts, "source.text_location")
 
@@ -123,6 +117,7 @@ def run(
                 prompt=opts["prompt"],
                 model=opts["model"],
                 temperature=opts["temperature"],
+                client=client,
             )
             stats_gauge(
                 "conserver.link.openai.analysis_time",
