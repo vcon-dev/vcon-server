@@ -22,6 +22,10 @@ jobs:
         echo "REDIS_URL=redis://redis" >> .env
         echo "CONSERVER_API_TOKEN=fake-token" >> .env
 
+    - name: We need to create Conserver network for now
+      run: |
+        docker network create conserver
+
     - name: Build and run services with Docker Compose
       run: |
         docker-compose up --build --abort-on-container-exit
