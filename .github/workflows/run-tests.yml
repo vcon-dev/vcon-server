@@ -28,7 +28,7 @@ jobs:
 
     - name: Build and run services with Docker Compose
       run: |
-        docker-compose up --build --abort-on-container-exit
+        docker-compose up --build --abort-on-container-exit --detach
 
     # Step 3: Run Docker container with additional commands
     - name: Run tests inside Docker container
