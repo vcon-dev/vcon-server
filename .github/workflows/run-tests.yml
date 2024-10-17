@@ -17,6 +17,11 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y docker-compose
 
+    - name: Create .env file
+      run: |
+        echo "REDIS_URL=redis://redis" >> .env
+        echo "CONSERVER_API_TOKEN=fake-token" >> .env
+
     - name: Build and run services with Docker Compose
       run: |
         docker-compose up --build --abort-on-container-exit
