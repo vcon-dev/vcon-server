@@ -205,7 +205,21 @@ To query the history of DataTrails Events for a given vCon, use the following:
 
 ### Running Tests
 
-To run the tests for the DataTrails Asset Link:
+Running within a docker environment is an easy way run tests, with a known environment.
+
+To run the tests for the DataTrails Link:
+
+1. Start the Docker environment:
+
+    ```bash
+    docker compose up -d
+    ```
+
+1. Exec into the conserver container
+
+    ```bash
+    docker exec -it vcon-server-api-1 bash
+    ```
 
 1. Install pytest:
 
@@ -213,15 +227,15 @@ To run the tests for the DataTrails Asset Link:
    pip install pytest
    ```
 
-2. Run the tests:
+1. Run the tests:
 
    ```bash
-   pytest test_datatrails_link.py
+   pytest server/links/datatrails/
    ```
 
 ## Contributing
 
-Contributions to improve the DataTrails Asset Link are welcome.
+Contributions to improve the DataTrails Link are welcome.
 Please follow these steps:
 
 1. Fork the repository.
@@ -244,7 +258,7 @@ For issues, questions, or contributions, please open an issue in the GitHub repo
 
 ## License
 
-The [DataTrails Asset Link is open-sourced under the MIT license](./LICENSE).
+The [DataTrails Link is open-sourced under the MIT license](./LICENSE).
 
 [datatrails-tokens]:  https://docs.datatrails.ai/developers/developer-patterns/getting-access-tokens-using-app-registrations/
 [datatrails-events]:  https://docs.datatrails.ai/developers/api-reference/events-api/
