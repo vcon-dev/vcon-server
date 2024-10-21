@@ -239,8 +239,15 @@ def create_event(
         json=payload
     )
 
-    response.raise_for_status()
-    return response.json()
+    try:
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.HTTPError as e:
+        logger.info("Error creating event >>>>>")
+        logger.info(f"headers: {headers}")
+        logger.info(f"error: {e}")
+        logger.info(f"payload: {payload}")
+        raise
 
 
 def run(
@@ -291,7 +298,7 @@ def run(
         )
 
     # Set the subject to the vcon identifier
-    subject = vcon.subject or f"vcon://{vcon_uuid}"
+    subject = f"vcon://{vcon_uuid}"
 
     #####################
     # ASSET REMOVAL_BEGIN
