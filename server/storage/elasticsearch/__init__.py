@@ -72,7 +72,7 @@ def save(
 
         # Index the parties, separated by 'role' - id=f"{vcon_uuid}_{party_index}"
         for ind, party in enumerate(vcon_dict["parties"]):
-            role = party.get("meta", {}).get("role")
+            role = party.get("role")
             do_vcon_parts_indexing(
                 es=es,
                 part=party, 
