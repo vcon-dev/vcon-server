@@ -165,7 +165,21 @@ Please see [DataTrails vCon Templates](https://docs.datatrails.ai/developers/tem
 
 ### Running Tests
 
-To run the tests for the DataTrails Asset Link, within a Docker Container:
+Running within a docker environment is an easy way run tests, with a known environment.
+
+To run the tests for the DataTrails Link:
+
+1. Start the Docker environment:
+
+    ```bash
+    docker compose up -d
+    ```
+
+1. Exec into the conserver container
+
+    ```bash
+    docker exec -it vcon-server-api-1 bash
+    ```
 
 1. Install pytest:
 
@@ -173,10 +187,10 @@ To run the tests for the DataTrails Asset Link, within a Docker Container:
    pip install pytest
    ```
 
-2. Run the tests:
+1. Run the tests:
 
    ```bash
-   pytest test_datatrails_link.py
+   pytest server/links/datatrails/
    ```
 
 ## Contributing
