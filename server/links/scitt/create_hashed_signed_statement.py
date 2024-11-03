@@ -46,7 +46,7 @@ HEADER_LABEL_PAYLOAD_LOCATION = -6801
 HEADER_LABEL_PAYLOAD_PRE_CONTENT_TYPE = -6802
 
 # key/value pairs of tstr:tstr supporting metadata
-HEADER_LABEL_META_MAP = -6803
+HEADER_LABEL_META_MAP = -6804
 
 def open_signing_key(key_file: str) -> SigningKey:
     """
