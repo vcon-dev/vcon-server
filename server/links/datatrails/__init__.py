@@ -4,13 +4,14 @@ from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException
 from lib.vcon_redis import VconRedis
 from lib.logging_utils import init_logger
-from starlette.status import HTTP_404_NOT_FOUND
+from starlette.status import HTTP_404_NOT_FOUND, HTTP_501_NOT_IMPLEMENTED
 from vcon import Vcon
 
 logger = init_logger(__name__)
 
 # Increment for any API/attribute changes
-link_version = "0.1.0"
+link_type= "DataTrails"
+link_version = "0.2.0"
 
 # NOTE: Once DataTrails removes the dependency for assets, 
 #       "asset_attributes" will be removed
@@ -22,23 +23,13 @@ link_version = "0.1.0"
 #       real id's that could be confusing
 #       Why droid_id: "these are not the droids your're looking for"
 
-# datatrails_client_id, datatrails_client_secret noted here for reference only
-# Set the datatrails_client_id, datatrails_client_secret in the vcon_server/config.yml
 default_options = {
     "api_url": "https://app.datatrails.ai/archivist/v2",
     "auth_url": "https://app.datatrails.ai/archivist/iam/v1/appidp/token",
-    "datatrails_client_id": "<set-in-config.yml>",
-    "datatrails_client_secret": "<set-in-config.yml>",
     "asset_attributes": {
         "arc_display_type": "vcon_droid",
         "conserver_link_version": link_version
     },
-    "event_attributes": {
-        "arc_display_type": "vcon",
-        "conserver_link_version": link_version,
-        "payload_hash_alg": "SHA-256",
-        "payload_preimage_content_type": "application/vcon"
-    }
 }
 
 class DataTrailsAuth:
@@ -46,18 +37,18 @@ class DataTrailsAuth:
     Handles authentication for DataTrails API, including token management and refresh.
     """
 
-    def __init__(self, auth_url, datatrails_client_id, datatrails_client_secret):
+    def __init__(self, auth_url, client_id, client_secret):
         """
         Initialize the DataTrailsAuth object
 
         Args:
             auth_url (str): URL for the authentication endpoint
-            datatrails_client_id (str): Client ID for DataTrails API
-            datatrails_client_secret (str): Client Secret for DataTrails API
+            client_id (str): Client ID for DataTrails API
+            client_secret (str): Client Secret for DataTrails API
         """
         self.auth_url = auth_url
-        self.datatrails_client_id = datatrails_client_id
-        self.datatrails_client_secret = datatrails_client_secret
+        self.client_id = client_id
+        self.client_secret = client_secret
         self.token = None
         self.token_expiry = None
 
@@ -78,8 +69,8 @@ class DataTrailsAuth:
         """
         data = {
             "grant_type": "client_credentials",
-            "client_id": self.datatrails_client_id,
-            "client_secret": self.datatrails_client_secret,
+            "client_id": self.client_id,
+            "client_secret": self.client_secret,
         }
         response = requests.post(self.auth_url, data=data)
         response.raise_for_status()
@@ -194,6 +185,9 @@ def create_asset(
         f"{api_url}/assets",
         headers=headers, json=payload
     )
+    if response.status_code == 429:
+        logger.info(f"response.raw: {response.raw}")
+
     response.raise_for_status()
     return response.json()
 
@@ -233,6 +227,7 @@ def create_event(
         "behaviour": "RecordEvidence",
         "event_attributes": {**event_attributes}
     }
+    # logger.info(f"payload: {payload}")
     response = requests.post(
         f"{api_url}/{asset_id}/events",
         headers=headers,
@@ -263,7 +258,7 @@ def run(
         str: The UUID of the processed vCon.
 
     Raises:
-        ValueError: If datatrails_client_id or datatrails_client_secret is not provided in the options.
+        ValueError: If client_id or client_secret is not provided in the options.
     """
     logger.info(f"DataTrails: Starting Link for vCon: {vcon_uuid}")
 
@@ -271,18 +266,35 @@ def run(
     merged_opts.update(opts)
     opts = merged_opts
 
-    if not opts["datatrails_client_id"] or not opts["datatrails_client_secret"]:
-        raise ValueError("DataTrails client ID and client secret must be provided")
-
-    auth = DataTrailsAuth(
-        opts["auth_url"],
-        opts["datatrails_client_id"],
-        opts["datatrails_client_secret"]
+    try:
+        auth_type = opts["auth"]["type"]
+    except:
+        raise HTTPException(
+            status_code=HTTP_501_NOT_IMPLEMENTED,
+            detail='Auth improperly configured. Unable to find opt["auth"]'
         )
+    if auth_type.lower() == "oidc-client-credentials":
+        auth = DataTrailsAuth(
+            opts["auth"]["token_endpoint"],
+            opts["auth"]["client_id"],
+            opts["auth"]["client_secret"]
+            )
+    else:
+        raise HTTPException(
+            status_code=HTTP_501_NOT_IMPLEMENTED,
+            detail=f"Auth type not currently supported: {auth_type}"
+        )
+        
 
     # Get the vCon from Redis
     vcon_redis = VconRedis()
     vcon = vcon_redis.get_vcon(vcon_uuid)
+    # TODO:
+    # need better vcon retrieval error handling, 
+    # as an invalid vCon can be recovered, 
+    # allowing the subsequent code to continue 
+    # with a malformed vcon object
+    # logger.info(f"vcon: {vcon.to_json()}")
     if not vcon:
         logger.info(f"DataTrails: vCon not found: {vcon_uuid}") 
         raise HTTPException(
@@ -291,7 +303,7 @@ def run(
         )
 
     # Set the subject to the vcon identifier
-    subject = vcon.subject or f"vcon://{vcon_uuid}"
+    subject = f"vcon://{vcon_uuid}"
 
     #####################
     # ASSET REMOVAL_BEGIN
@@ -330,7 +342,7 @@ def run(
         asset_id = None
 
     # Check if asset exists, create if it doesn't
-    if (not asset_id):
+    if not asset_id:
         logger.info(f"DataTrails: Asset not found: {asset_id}")
 
         # Prepare attributes
@@ -359,28 +371,29 @@ def run(
     # Create a DataTrails Event
     ###########################
 
-    # Get the default attributes
-    event_attributes = opts["event_attributes"].copy()
-
-    # payload_hash_value, payload_preimage_content_type are consistent with
+    # payload_hash_alg, payload_preimage_content_type are consistent with
     # cose-hash-envelope: https://datatracker.ietf.org/doc/draft-steele-cose-hash-envelope
 
     # additional metadata properties, consistent with 
     # cose-draft-lasker-meta-map: https://github.com/SteveLasker/cose-draft-lasker-meta-map
 
-    operation=opts["vcon_operation"] or opts["event_attributes"]["arc_display_type"]
+    operation=opts["vcon_operation"] or "vcon"
     # default to "vcon_" prefix, assuring no duplicates, or alternates with "-"
     vcon_operation = ("vcon_" + operation.lower().removeprefix("vcon_").lower().removeprefix("vcon-"))
 
-    event_attributes.update(
-        {
-            "arc_display_type": vcon_operation,
-            "payload_hash_value": vcon.hash,
-            "subject": subject,
-            "vcon_operation": vcon_operation,
-            "vcon_updated_at": vcon.updated_at or vcon.created_at
-        }
-    )
+    event_attributes= {
+        "arc_display_type": vcon_operation,
+        "conserver_link": link_type,
+        "conserver_link_name":  link_name,
+        "conserver_link_version": link_version,
+        "payload": vcon.hash,
+        "payload_hash_alg": "SHA-256",
+        "payload_preimage_content_type": "application/vcon+json",
+        "subject": subject,
+        "timestamp_declared": vcon.updated_at or vcon.created_at,
+        "vcon_draft_version": "00",
+        "vcon_operation": vcon_operation,
+    }
 
     # TODO: Should we set the public url for the vCon
     #       from https://datatracker.ietf.org/doc/draft-steele-cose-hash-envelope
@@ -402,8 +415,4 @@ def run(
 
     # TODO: may want to store the receipt/transparent statement in the vCon, in the future
 
-    # DataTrails SCITT entries are based on securing the hash of the vcon
-    # This link should always be called after all changes are made, 
-    # and should not make any new changes to the vcon that will impact the vcon hash
-    logger.info(f"DataTrails: Finished Link for vCon: {vcon_uuid}")
     return vcon_uuid
