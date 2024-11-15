@@ -20,7 +20,7 @@ from playhouse.postgres_ext import (
 )
 from pydantic import BaseModel, ConfigDict
 from dlq_utils import get_ingress_list_dlq_name
-from settings import VCON_SORTED_SET_NAME, VCON_STORAGE, CONSERVER_API_TOKEN, CONSERVER_HEADER_NAME, CONSERVER_API_TOKEN_FILE
+from settings import VCON_SORTED_SET_NAME, VCON_STORAGE, CONSERVER_API_TOKEN, CONSERVER_HEADER_NAME, CONSERVER_API_TOKEN_FILE, API_ROOT_PATH
 from fastapi.security.api_key import APIKeyHeader
 from fastapi import APIRouter
 from fastapi import Security
@@ -34,7 +34,7 @@ logger = init_logger(__name__)
 logger.info("Api starting up")
 
 
-app = FastAPI()
+app = FastAPI(root_path=API_ROOT_PATH)
 api_key_header = APIKeyHeader(name=CONSERVER_HEADER_NAME, auto_error=False)
 
 api_keys = []

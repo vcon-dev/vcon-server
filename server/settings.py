@@ -29,3 +29,4 @@ VCON_SORTED_FORCE_RESET = os.getenv("VCON_SORTED_FORCE_RESET", "true")
 VCON_SORTED_SET_NAME = os.getenv("VCON_SORTED_SET_NAME", "vcons")
 
 CONSERVER_CONFIG_FILE = os.getenv("CONSERVER_CONFIG_FILE", "./example_config.yml")
+API_ROOT_PATH = os.getenv("API_ROOT_PATH", "/api")
