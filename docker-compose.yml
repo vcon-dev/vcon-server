@@ -39,10 +39,8 @@ services:
       - "traefik.http.routers.api.rule=Host(`${DNS_HOST}`) && PathPrefix(`/api`)"
       - "traefik.http.routers.api.entrypoints=websecure"
       - "traefik.http.routers.api.tls.certresolver=myresolver"
-      - "traefik.http.routers.api.middlewares=auth-middleware@file"      
       - "traefik.http.services.api.loadbalancer.server.port=8000"
       - "traefik.http.middlewares.strip-api-prefix.stripprefix.prefixes=/api"
-      - "traefik.http.routers.api.middlewares=auth-middleware@file,strip-api-prefix"
 
 
   redis:
