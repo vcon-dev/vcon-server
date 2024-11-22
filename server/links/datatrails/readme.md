@@ -74,6 +74,7 @@ There are different sources for the values:
 | vcon | `vcon.updated_at` | `timestamp_declared` | `metamap.timestamp_declared`| Time the vCon was updated |
 | Link code | | `vcon_draft_version` | `metamap.vcon_draft_version` | IETF draft version |
 | config.yaml | `vcon_operation`| `vcon_operation` | `metamap.vcon_operation` | Task completed for the update |
+| DataTrails | `partner_id`| N/A | `metamap.partner_id` | Partner associated with the customer's `Client_ID` |
 
 ## Prerequisites
 
@@ -111,7 +112,9 @@ The DataTrails Link requires minimal configuration in the conserver setup.
 - Add the following datatrails configurations to the conserver configuration file (`config.yml`)
 - Replace `"<your_client_id>"` and `"<your_client_secret>"` with your [DataTrails API credentials](https://docs.datatrails.ai/developers/developer-patterns/getting-access-tokens-using-app-registrations/)
 - Set `vcon_operation` to differentiate what operation is being recorded on DataTrails/SCITT.  
-- The DataTrails `arc_display_type` is configured as: `"vcon_operation"`, enabling [configurable permissions on Event Types](https://docs.datatrails.ai/platform/administration/sharing-access-outside-your-tenant/#creating-an-obac-policy)  
+- The DataTrails `arc_display_type` is configured as: `"vcon_operation"`, enabling [configurable permissions on Event Types](https://docs.datatrails.ai/platform/administration/sharing-access-outside-your-tenant/#creating-an-obac-policy)
+- `partner_id` enables tracking which customer conserver links should be associated with their partner.
+  The value will be provided by your DataTrails contact.
 
 ```yaml
 links:
@@ -120,6 +123,7 @@ links:
     options:
       api_url: "https://app.datatrails.ai/archivist/v2"
       vcon_operation: "vcon_created"
+      partner_id: "your-company-name"
       auth:
         type: "OIDC-client-credentials"
         token_endpoint: "https://app.datatrails.ai/archivist/iam/v1/appidp/token"
