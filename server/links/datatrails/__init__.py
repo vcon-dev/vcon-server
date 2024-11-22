@@ -26,6 +26,7 @@ link_version = "0.2.0"
 default_options = {
     "api_url": "https://app.datatrails.ai/archivist/v2",
     "auth_url": "https://app.datatrails.ai/archivist/iam/v1/appidp/token",
+    "partner_id": "not-set",
     "asset_attributes": {
         "arc_display_type": "vcon_droid",
         "conserver_link_version": link_version
