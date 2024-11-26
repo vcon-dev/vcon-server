@@ -10,10 +10,10 @@ from vcon import Vcon
 logger = init_logger(__name__)
 
 # Increment for any API/attribute changes
-link_type= "DataTrails"
+link_type = "DataTrails"
 link_version = "0.2.0"
 
-# NOTE: Once DataTrails removes the dependency for assets, 
+# NOTE: Once DataTrails removes the dependency for assets,
 #       "asset_attributes" will be removed
 
 # NOTE: droid_id is a temporary placeholder to associate an
@@ -26,11 +26,9 @@ link_version = "0.2.0"
 default_options = {
     "api_url": "https://app.datatrails.ai/archivist/v2",
     "auth_url": "https://app.datatrails.ai/archivist/iam/v1/appidp/token",
-    "asset_attributes": {
-        "arc_display_type": "vcon_droid",
-        "conserver_link_version": link_version
-    },
+    "asset_attributes": {"arc_display_type": "vcon_droid", "conserver_link_version": link_version},
 }
+
 
 class DataTrailsAuth:
     """
@@ -78,24 +76,19 @@ class DataTrailsAuth:
 
         self.token = token_data["access_token"]
         # Set token expiry to 5 minutes before actual expiry for safety
-        self.token_expiry = datetime.now() + timedelta(
-            seconds=token_data["expires_in"] - 300
-        )
+        self.token_expiry = datetime.now() + timedelta(seconds=token_data["expires_in"] - 300)
 
-#    NOTE: Once DataTrails removes the dependency for assets, 
+
+#    NOTE: Once DataTrails removes the dependency for assets,
 #    this method can be removed
-def get_asset_by_attributes(
-    opts: dict, 
-    auth: DataTrailsAuth, 
-    attributes: dict
-) -> dict:
+def get_asset_by_attributes(opts: dict, auth: DataTrailsAuth, attributes: dict) -> dict:
     """
-    Assets have minimal information as a temporary anchor 
+    Assets have minimal information as a temporary anchor
     for a collection of events.
-    Over time, the DataTrails Asset will be deprecated, 
-    in lieu of a collection of Events, 
+    Over time, the DataTrails Asset will be deprecated,
+    in lieu of a collection of Events,
     aligning with a collection of SCITT statements
-    In transition to eliminating DataTrails Assets, 
+    In transition to eliminating DataTrails Assets,
     we need an arbitrary asset to hang events off.
     To avoid creating a new asset for each event or each vCon,
     or thousands of vCons for a single Asset,
@@ -119,41 +112,29 @@ def get_asset_by_attributes(
         "DataTrails-Partner-ID": opts["partner_id"],
         "Content-Type": "application/json",
     }
-    
+
     # Searching DataTrails Assets by attributes requires
     # each attribute to be prepended with "attribute."
     params = {}
     for param in attributes:
-        params.update(
-            {
-                f"attributes.{param}": f"{attributes[param]}"
-            }
-        )
+        params.update({f"attributes.{param}": f"{attributes[param]}"})
 
-    response = requests.get(
-        f"{api_url}/assets",
-        params=params,
-        headers=headers
-    )
+    response = requests.get(f"{api_url}/assets", params=params, headers=headers)
     response.raise_for_status()
     return response.json()
 
 
-#    NOTE: Once DataTrails removes the dependency for assets, 
+#    NOTE: Once DataTrails removes the dependency for assets,
 #    this method can be removed
-def create_asset(
-    opts: dict, 
-    auth: DataTrailsAuth, 
-    attributes: dict
-) -> dict:
+def create_asset(opts: dict, auth: DataTrailsAuth, attributes: dict) -> dict:
     """
     Create a new DataTrails Asset
-    Note: Assets have minimal information as a temporary anchor 
+    Note: Assets have minimal information as a temporary anchor
     for a collection of events.
-    Over time, the DataTrails Asset will be deprecated, 
+    Over time, the DataTrails Asset will be deprecated,
     in lieu of a collection of Events
 
-    NOTE: Once DataTrails removes the dependency for assets, 
+    NOTE: Once DataTrails removes the dependency for assets,
     this method can be removed
 
     Args:
@@ -181,10 +162,7 @@ def create_asset(
         "attributes": {"arc_display_type": "Publish", **attributes},
         "public": False,
     }
-    response = requests.post(
-        f"{api_url}/assets",
-        headers=headers, json=payload
-    )
+    response = requests.post(f"{api_url}/assets", headers=headers, json=payload)
     if response.status_code == 429:
         logger.info(f"response.raw: {response.raw}")
 
@@ -192,12 +170,7 @@ def create_asset(
     return response.json()
 
 
-def create_event(
-    opts : dict,
-    asset_id: str,
-    auth: DataTrailsAuth,
-    event_attributes: dict
-) -> dict:
+def create_event(opts: dict, asset_id: str, auth: DataTrailsAuth, event_attributes: dict) -> dict:
     """
     Create a new DataTrails Event, mapping to a SCITT Envelope
 
@@ -222,27 +195,15 @@ def create_event(
     api_url = opts["api_url"]
     # event_attributes will map to SCITT headers and
     # a cose-meta-map draft (https://github.com/SteveLasker/draft-lasker-cose-meta-map)
-    payload = {
-        "operation": "Record",
-        "behaviour": "RecordEvidence",
-        "event_attributes": {**event_attributes}
-    }
+    payload = {"operation": "Record", "behaviour": "RecordEvidence", "event_attributes": {**event_attributes}}
     # logger.info(f"payload: {payload}")
-    response = requests.post(
-        f"{api_url}/{asset_id}/events",
-        headers=headers,
-        json=payload
-    )
+    response = requests.post(f"{api_url}/{asset_id}/events", headers=headers, json=payload)
 
     response.raise_for_status()
     return response.json()
 
 
-def run(
-    vcon_uuid: str,
-    link_name: str,
-    opts: dict = default_options
-) -> str:
+def run(vcon_uuid: str, link_name: str, opts: dict = default_options) -> str:
     """
     Main function to run the DataTrails asset link.
 
@@ -270,44 +231,34 @@ def run(
         auth_type = opts["auth"]["type"]
     except:
         raise HTTPException(
-            status_code=HTTP_501_NOT_IMPLEMENTED,
-            detail='Auth improperly configured. Unable to find opt["auth"]'
+            status_code=HTTP_501_NOT_IMPLEMENTED, detail='Auth improperly configured. Unable to find opt["auth"]'
         )
     if auth_type.lower() == "oidc-client-credentials":
-        auth = DataTrailsAuth(
-            opts["auth"]["token_endpoint"],
-            opts["auth"]["client_id"],
-            opts["auth"]["client_secret"]
-            )
+        auth = DataTrailsAuth(opts["auth"]["token_endpoint"], opts["auth"]["client_id"], opts["auth"]["client_secret"])
     else:
         raise HTTPException(
-            status_code=HTTP_501_NOT_IMPLEMENTED,
-            detail=f"Auth type not currently supported: {auth_type}"
+            status_code=HTTP_501_NOT_IMPLEMENTED, detail=f"Auth type not currently supported: {auth_type}"
         )
-        
 
     # Get the vCon from Redis
     vcon_redis = VconRedis()
     vcon = vcon_redis.get_vcon(vcon_uuid)
     # TODO:
-    # need better vcon retrieval error handling, 
-    # as an invalid vCon can be recovered, 
-    # allowing the subsequent code to continue 
+    # need better vcon retrieval error handling,
+    # as an invalid vCon can be recovered,
+    # allowing the subsequent code to continue
     # with a malformed vcon object
     # logger.info(f"vcon: {vcon.to_json()}")
     if not vcon:
-        logger.info(f"DataTrails: vCon not found: {vcon_uuid}") 
-        raise HTTPException(
-            status_code=HTTP_404_NOT_FOUND,
-            detail=f"vCon not found: {vcon_uuid}"
-        )
+        logger.info(f"DataTrails: vCon not found: {vcon_uuid}")
+        raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail=f"vCon not found: {vcon_uuid}")
 
     # Set the subject to the vcon identifier
     subject = f"vcon://{vcon_uuid}"
 
     #####################
     # ASSET REMOVAL_BEGIN
-    # Everything from here to ASSET REMOVAL_END 
+    # Everything from here to ASSET REMOVAL_END
     # will be removed once Assets are removed from the DataTrails API
     #####################
 
@@ -318,23 +269,15 @@ def run(
     droid_id = datetime.now(timezone.utc).date().isoformat()
 
     # Add the temp id to associate a batch of events
-    asset_attributes.update(
-        {
-            "droid_id": droid_id
-        }
-    )
+    asset_attributes.update({"droid_id": droid_id})
 
-    # Search for an existing Asset, using 
-    #   - arc_display_type 
+    # Search for an existing Asset, using
+    #   - arc_display_type
     #   - conserver_link_version
     #   - droid_id
-    response = get_asset_by_attributes(
-        opts,
-        auth,
-        asset_attributes
-    )
+    response = get_asset_by_attributes(opts, auth, asset_attributes)
     # Should only be a single asset found
-    # if more than one is found, grab the first 
+    # if more than one is found, grab the first
     # as assets are still a placeholder
     if len(response["assets"]) > 0:
         asset_id = response["assets"][0]["identity"]
@@ -347,17 +290,9 @@ def run(
 
         # Prepare attributes
         asset_attributes = opts["asset_attributes"].copy()
-        asset_attributes.update(
-            {
-                "droid_id": droid_id
-            }
-        )
+        asset_attributes.update({"droid_id": droid_id})
 
-        asset = create_asset(
-            opts,
-            auth,
-            asset_attributes
-        )
+        asset = create_asset(opts, auth, asset_attributes)
         asset_id = asset["identity"]
 
     else:
@@ -374,42 +309,37 @@ def run(
     # payload_hash_alg, payload_preimage_content_type are consistent with
     # cose-hash-envelope: https://datatracker.ietf.org/doc/draft-steele-cose-hash-envelope
 
-    # additional metadata properties, consistent with 
+    # additional metadata properties, consistent with
     # cose-draft-lasker-meta-map: https://github.com/SteveLasker/cose-draft-lasker-meta-map
 
-    operation=opts["vcon_operation"] or "vcon"
+    operation = opts["vcon_operation"] or "vcon"
     # default to "vcon_" prefix, assuring no duplicates, or alternates with "-"
-    vcon_operation = ("vcon_" + operation.lower().removeprefix("vcon_").lower().removeprefix("vcon-"))
+    vcon_operation = "vcon_" + operation.lower().removeprefix("vcon_").lower().removeprefix("vcon-")
 
-    event_attributes= {
+    event_attributes = {
         "arc_display_type": vcon_operation,
         "conserver_link": link_type,
-        "conserver_link_name":  link_name,
+        "conserver_link_name": link_name,
         "conserver_link_version": link_version,
         "payload": vcon.hash,
         "payload_hash_alg": "SHA-256",
         "payload_preimage_content_type": "application/vcon+json",
         "subject": subject,
         "timestamp_declared": vcon.updated_at or vcon.created_at,
-        "vcon_draft_version": "00",
+        "vcon_draft_version": "01",
         "vcon_operation": vcon_operation,
     }
 
     # TODO: Should we set the public url for the vCon
     #       from https://datatracker.ietf.org/doc/draft-steele-cose-hash-envelope
     # if vcon_location:
-        # event_attributes.update(
-        #     {
-        #         "payload_location": vcon_location
-        #     }
-        # )
+    # event_attributes.update(
+    #     {
+    #         "payload_location": vcon_location
+    #     }
+    # )
 
-    event = create_event(
-        opts,
-        asset_id,
-        auth,
-        event_attributes
-    )
+    event = create_event(opts, asset_id, auth, event_attributes)
     event_id = event["identity"]
     logger.info(f"DataTrails: Event Created: {event_id}")
 

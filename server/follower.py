@@ -7,6 +7,8 @@ import requests
 import threading
 from fastapi import FastAPI
 
+from server import settings
+
 app = FastAPI()
 config: dict | None = None
 
@@ -24,12 +26,12 @@ def follower_function(follower):
         follower["url"]
         + "/vcon/egress?egress_list="
         + follower["egress_list"]
-        + "&limit=" 
+        + "&limit="
         + str(follower["fetch_vcon_limit"])
     )
     headers = {
         "Content-Type": "application/json",
-        "Authorization": "Bearer " + follower["auth_token"],
+        settings.CONSERVER_HEADER_NAME: follower["auth_token"],
     }
     response = requests.request("GET", endpoint, headers=headers)
     vcons_to_process = response.json()
@@ -40,10 +42,6 @@ def follower_function(follower):
 
     for vcon_id in vcons_to_process:
         endpoint = follower["url"] + "/vcon/" + vcon_id
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": "Bearer " + follower["auth_token"],
-        }
         response = requests.request("GET", endpoint, headers=headers)
         if response.status_code == 404:
             logger.error("Failed to get VCON: %s", vcon_id)
