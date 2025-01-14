@@ -33,6 +33,7 @@ from tenacity import (
     before_sleep_log,
 )
 import transformers
+import anyio
 
 # Local imports
 from lib.logging_utils import init_logger
@@ -90,7 +91,7 @@ class HuggingFaceLLM(BaseLLM):
         stop=stop_after_attempt(6),
         before_sleep=before_sleep_log(logger, logging.INFO),
     )
-    def analyze(self, text: str) -> Optional[Dict[str, Any]]:
+    async def analyze(self, text: str) -> Optional[Dict[str, Any]]:
         """Process text using HuggingFace's API.
 
         Args:
@@ -119,16 +120,18 @@ Conversation:
 
 Provide the response in JSON format with keys: summary, sentiment, key_points"""
 
-        response = requests.post(
-            api_url,
-            headers=headers,
-            json={
-                "inputs": prompt,
-                "parameters": {
-                    "max_length": self.config.max_length,
-                    "temperature": self.config.temperature,
+        response = await anyio.to_thread.run_sync(
+            lambda: requests.post(
+                api_url,
+                headers=headers,
+                json={
+                    "inputs": prompt,
+                    "parameters": {
+                        "max_length": self.config.max_length,
+                        "temperature": self.config.temperature,
+                    },
                 },
-            },
+            )
         )
 
         if response.status_code != 200:
@@ -151,11 +154,15 @@ class LocalHuggingFaceLLM(BaseLLM):
 
     def __init__(self, config: LLMConfig):
         super().__init__(config)
+        logger.info(f"Initializing local model: {self.config.model}")
+        device = "cuda" if transformers.is_torch_available() else "cpu"
+        logger.info(f"Using device: {device}")
         self.pipeline = transformers.pipeline(
             "text-generation",
             model=self.config.model,
-            device="cuda" if transformers.is_torch_available() else "cpu",
+            device=device,
         )
+        logger.info("Local model initialized successfully")
 
     @retry(
         wait=wait_exponential(multiplier=2, min=1, max=65),
@@ -165,6 +172,7 @@ class LocalHuggingFaceLLM(BaseLLM):
     def analyze(self, text: str) -> Optional[Dict[str, Any]]:
         """Process text using local HuggingFace model."""
         try:
+            logger.info(f"Starting local model analysis with {self.config.model}")
             prompt = f"""Analyze the following conversation and provide:
 1. A brief summary
 2. The overall sentiment
@@ -175,11 +183,13 @@ Conversation:
 
 Provide the response in JSON format with keys: summary, sentiment, key_points"""
 
+            logger.debug(f"Input text length: {len(text)} characters")
             result = self.pipeline(
                 prompt,
                 max_length=self.config.max_length,
                 temperature=self.config.temperature,
             )
+            logger.info("Local model analysis completed successfully")
 
             return {
                 "analysis": result[0]["generated_text"],
@@ -207,11 +217,7 @@ class VConLLMProcessor:
 
     def __init__(self, config: LLMConfig):
         self.config = config
-        self.llm = (
-            LocalHuggingFaceLLM(config)
-            if config.use_local_model
-            else HuggingFaceLLM(config)
-        )
+        self.llm = LocalHuggingFaceLLM(config) if config.use_local_model else HuggingFaceLLM(config)
         self.vcon_redis = VconRedis()
 
     def _get_llm_analysis(self, vcon) -> Optional[Dict]:
