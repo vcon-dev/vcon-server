@@ -316,8 +316,6 @@ async def post_vcon(inbound_vcon: Vcon, ingress_lists: Optional[List[str]] = Que
                 await redis_async.rpush(ingress_list, str(inbound_vcon.uuid))
                 logger.info(f"Inserted vCon ID {inbound_vcon.uuid} into ingress list {ingress_list}")
 
-        return inbound_vcon
-
     except Exception:
         logger.info(traceback.format_exc())
         return None
