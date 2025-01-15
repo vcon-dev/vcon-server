@@ -4,6 +4,11 @@ import pytest
 import api
 from datetime import datetime
 from settings import CONSERVER_API_TOKEN, CONSERVER_HEADER_NAME
+
+# Set default values for testing if not set
+CONSERVER_API_TOKEN = CONSERVER_API_TOKEN or "default_token"
+CONSERVER_HEADER_NAME = CONSERVER_HEADER_NAME or "X-API-Token"
+
 since_str = datetime.now().isoformat()
 
 
@@ -80,3 +85,26 @@ def test_create_vcon_with_extra_attribute():
         response = client.get("/vcon/{}".format(test_vcon["uuid"]))
         assert response.status_code == 200
         assert response.json()["meta"] == {"foo": "bar"}
+
+
+@pytest.mark.anyio
+def test_post_vcon_with_ingress_list():
+    # Generate a mock vCon
+    test_vcon = generate_mock_vcon()
+
+    # Define an ingress list name
+    ingress_list_name = "test_ingress_list"
+
+    # Post the vCon with the ingress list
+    with TestClient(api.app, headers={CONSERVER_HEADER_NAME: CONSERVER_API_TOKEN}) as client:
+        response = client.post("/vcon", json=test_vcon, params={"ingress_lists": [ingress_list_name]})
+        assert response.status_code == 201
+        print("response: {}".format(response))
+
+    # Verify the vCon ID is in the ingress list
+    with TestClient(api.app, headers={CONSERVER_HEADER_NAME: CONSERVER_API_TOKEN}) as client:
+        response = client.get(f"/vcon/egress?egress_list={ingress_list_name}&limit=1")
+        assert response.status_code == 200
+        vcon_ids = response.json()
+        assert test_vcon["uuid"] in vcon_ids
+        print("Ingress list contains vCon ID: {}".format(test_vcon["uuid"]))
