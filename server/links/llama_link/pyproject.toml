@@ -1,0 +1,27 @@
+[tool.poetry]
+name = "llama-link"
+version = "0.1.0"
+description = "Local LLM inference using llama.cpp for conversation analysis"
+authors = ["Thomas McCarthy-Howe <ghostofbasho@gmail.com>"]
+packages = [
+    { include = "server", from = "../../.." }
+]
+
+[tool.poetry.dependencies]
+python = "^3.7"
+llama-cpp-python = "^0.2.0"
+
+[tool.poetry.group.test.dependencies]
+pytest = "^7.0.0"
+pytest-asyncio = "^0.21.0"
+pytest-cov = "^4.1.0"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: marks tests as integration tests",
+]
+pythonpath = ["../../.."] 
