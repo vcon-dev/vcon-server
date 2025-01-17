@@ -1,6 +1,7 @@
 from server.lib.vcon_redis import VconRedis
 from lib.logging_utils import init_logger
-from llama_cpp import Llama
+from transformers import AutoModelForCausalLM, AutoTokenizer
+import torch
 
 logger = init_logger(__name__)
 
@@ -13,6 +14,41 @@ default_options = {
     "n_gpu_layers": -1,  # Automatically use all layers that fit on GPU
     "prompt_template": "Below is a conversation transcript. Please analyze it:\n\n{text}\n\nAnalysis:",
 }
+
+
+def setup_model(model_name, token=None):
+    # Load the specified model
+    logger.info(f"Loading tokenizer and model for {model_name}...")
+    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+    model = AutoModelForCausalLM.from_pretrained(model_name, trust_remote_code=True)
+    return tokenizer, model
+
+
+def generate_completion(prompt, tokenizer, model, max_length=200):
+    # Format the prompt for chat
+    chat_format = f"<|system|>You are a helpful AI assistant.<|user|>{prompt}<|assistant|>"
+
+    # Prepare the input text
+    inputs = tokenizer(chat_format, return_tensors="pt")
+
+    # Generate text
+    with torch.no_grad():
+        outputs = model.generate(
+            inputs.input_ids,
+            max_length=max_length,
+            num_return_sequences=1,
+            temperature=0.7,
+            top_p=0.95,
+            do_sample=True,
+            pad_token_id=tokenizer.eos_token_id,
+            eos_token_id=tokenizer.eos_token_id,
+        )
+
+    # Decode and clean up the generated text
+    generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
+    # Remove the system and user prompts to get just the assistant's response
+    response = generated_text.split("<|assistant|>")[-1].strip()
+    return response
 
 
 def run(
@@ -31,11 +67,11 @@ def run(
     vcon_redis = VconRedis()
     vCon = vcon_redis.get_vcon(vcon_uuid)
 
-    # Initialize Llama model
+    # Initialize Hugging Face model and tokenizer
     try:
-        llm = Llama(model_path=opts["model_path"], n_ctx=opts["context_window"], n_gpu_layers=opts["n_gpu_layers"])
+        tokenizer, model = setup_model(opts["model_path"])
     except Exception as e:
-        logger.error("Failed to initialize Llama model: %s", e)
+        logger.error("Failed to initialize Hugging Face model: %s", e)
         return vcon_uuid
 
     for index, dialog in enumerate(vCon.dialog):
@@ -56,13 +92,13 @@ def run(
         # Check if analysis already exists
         analysis_exists = False
         for analysis in vCon.analysis:
-            if analysis.get("dialog") == index and analysis.get("vendor") == "llama_cpp":
+            if analysis.get("dialog") == index and analysis.get("vendor") == "huggingface_transformers":
                 analysis_exists = True
                 break
 
         if analysis_exists:
             logger.info(
-                "Dialog %s already analyzed by llama_cpp in vCon: %s",
+                "Dialog %s already analyzed by huggingface_transformers in vCon: %s",
                 index,
                 vCon.uuid,
             )
@@ -73,17 +109,13 @@ def run(
 
         try:
             # Generate analysis
-            response = llm(
-                prompt, max_tokens=opts["max_tokens"], temperature=opts["temperature"], top_p=opts["top_p"], echo=False
-            )
-
-            analysis_text = response["choices"][0]["text"].strip()
+            analysis_text = generate_completion(prompt, tokenizer, model, max_length=opts["max_tokens"])
 
             # Add analysis to vCon
             vCon.add_analysis(
                 type="llm_analysis",
                 dialog=index,
-                vendor="llama_cpp",
+                vendor="huggingface_transformers",
                 body=analysis_text,
                 extra={
                     "vendor_schema": {
@@ -97,7 +129,7 @@ def run(
             )
 
             logger.info(
-                "Successfully added llama_cpp analysis for dialog %s in vCon: %s",
+                "Successfully added Hugging Face analysis for dialog %s in vCon: %s",
                 index,
                 vCon.uuid,
             )

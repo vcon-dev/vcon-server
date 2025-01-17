@@ -32,6 +32,8 @@ pycose= "^1.0.1"
 ecdsa= "^0.18.0"
 python-dotenv = "^1.0.1"
 starlette = ">=0.40.0"
+transformers = "^4.48.0"
+torch = "^2.5.1"
 
 
 [tool.poetry.group.dev.dependencies]
