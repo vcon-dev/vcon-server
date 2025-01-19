@@ -402,7 +402,6 @@ async def post_vcon(inbound_vcon: Vcon):
     of 500 and a detail key containing the error message.
     """
     try:
-        print(type(inbound_vcon))
         dict_vcon = inbound_vcon.model_dump()
         dict_vcon["uuid"] = str(inbound_vcon.uuid)
         key = f"vcon:{str(dict_vcon['uuid'])}"
@@ -411,7 +410,7 @@ async def post_vcon(inbound_vcon: Vcon):
 
         # Store the vcon in redis
         logger.debug(
-            "Posting vcon  {} len {}".format(inbound_vcon.uuid, len(dict_vcon))
+            "Posting vcon {} len {}".format(inbound_vcon.uuid, len(dict_vcon))
         )
         await redis_async.json().set(key, "$", dict_vcon)
         # Add the vcon to the sorted set
@@ -422,12 +421,12 @@ async def post_vcon(inbound_vcon: Vcon):
         logger.debug("Adding vcon {} to parties sets".format(inbound_vcon.uuid))
         await index_vcon(inbound_vcon.uuid)
 
+        return JSONResponse(content=dict_vcon, status_code=201)
+
     except Exception:
         # Print all of the details of the exception
         logger.info(traceback.format_exc())
-        return None
-    logger.debug("Posted vcon  {} len {}".format(inbound_vcon.uuid, len(dict_vcon)))
-    return JSONResponse(content=dict_vcon, status_code=201)
+        return JSONResponse(content={"error": "Failed to store vCon"}, status_code=500)
 
 
 @api_router.delete(
