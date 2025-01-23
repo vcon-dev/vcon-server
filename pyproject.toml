@@ -34,6 +34,9 @@ python-dotenv = "^1.0.1"
 starlette = ">=0.40.0"
 transformers = "^4.48.0"
 trio = "^0.28.0"
+pytest = "^8.3.4"
+mocker = "^1.1.1"
+pytest-mock = "^3.14.0"
 
 
 [tool.poetry.group.dev.dependencies]
