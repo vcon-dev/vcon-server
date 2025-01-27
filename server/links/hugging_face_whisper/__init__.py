@@ -70,15 +70,8 @@ def get_file_content(dialog: dict) -> bytes:
         Exception: If file cannot be retrieved or verified
     """
     if "body" in dialog:
-        # Handle inline file
-        if dialog.get("encoding") == "base64url":
-            return base64.urlsafe_b64decode(dialog["body"])
-        elif dialog.get("encoding") == "none":
-            return dialog["body"].encode('utf-8')
-        elif dialog.get("encoding") == "json":
-            return str(dialog["body"]).encode('utf-8')
-        else:
-            raise Exception(f"Unsupported encoding: {dialog.get('encoding')}")
+        # body contains the base64 encoded content. Decode and return
+        return base64.b64decode(dialog["body"])
 
     elif "url" in dialog:
         # Handle external file
@@ -126,18 +119,17 @@ def transcribe_hugging_face_whisper(dialog: dict, opts: dict) -> Optional[dict]:
     content = get_file_content(dialog)
 
     # Write content to temporary file
-    with tempfile.NamedTemporaryFile(suffix='.flac', delete=True) as temp_file:
-        temp_file.write(content)
-        temp_file.flush()
+    # with tempfile.NamedTemporaryFile(suffix='.flac', delete=True) as temp_file:
+    #     temp_file.write(content)
+    #     temp_file.flush()
 
-        headers = {
-            "Accept": "application/json",
-            "Authorization": f"Bearer {opts['API_KEY']}",
-            "Content-Type": f"{opts['Content-Type']}",
-        }
-
-        with open(temp_file.name, "rb") as f:
-            response = requests.post(opts["API_URL"], headers=headers, data=f)
+    headers = {
+        "Accept": "application/json",
+        "Authorization": "Bearer " + opts['API_KEY'],
+        "Content-Type": opts['Content-Type'],
+    }
+    response = requests.post(opts["API_URL"], headers=headers, data=content)
+    # with open(temp_file.name, "rb") as f:
 
     return response.json()
 
@@ -184,15 +176,6 @@ def run(
             )
             continue
 
-        # Skip dialogs without URLs
-        if not dialog["url"]:
-            logger.info(
-                "whisper plugin: skipping no URL dialog %s in vCon: %s",
-                index,
-                vCon.uuid,
-            )
-            continue
-
         # Skip short recordings
         if int(dialog["duration"]) < opts["minimum_duration"]:
             logger.info("Skipping short recording dialog %s in vCon: %s", index, vCon.uuid)
@@ -206,6 +189,7 @@ def run(
         try:
             # Attempt transcription with timing metrics
             start = time.time()
+            logger.debug("Transcribing dialog %s in vCon: %s", index, vCon.uuid)
             result = transcribe_hugging_face_whisper(dialog, opts)
             stats_gauge("conserver.link.hugging_face_whisper.transcription_time", time.time() - start)
         except (RetryError, Exception) as e:
@@ -218,10 +202,8 @@ def run(
             stats_count("conserver.link.hugging_face_whisper.transcription_failures")
             break
 
-        # Track confidence metrics
-        stats_gauge("conserver.link.hugging_face_whisper.confidence", result["confidence"])
-
         logger.info("Transcribed vCon: %s", vCon.uuid)
+        logger.info(result)
 
         # Prepare vendor schema without sensitive data
         vendor_schema = {"opts": {k: v for k, v in opts.items() if k != "API_KEY"}}
