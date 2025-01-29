@@ -11,7 +11,7 @@ logger = init_logger(__name__)
 
 # Increment for any API/attribute changes
 link_type = "DataTrails"
-link_version = "0.2.0"
+link_version = "0.3.0"
 
 # NOTE: Once DataTrails removes the dependency for assets,
 #       "asset_attributes" will be removed
@@ -25,6 +25,7 @@ link_version = "0.2.0"
 
 default_options = {
     "api_url": "https://app.datatrails.ai/archivist/v2",
+    "api_url_v1": "https://app.datatrails.ai/archivist/v1",
     "auth_url": "https://app.datatrails.ai/archivist/iam/v1/appidp/token",
     "asset_attributes": {"arc_display_type": "vcon_droid", "conserver_link_version": link_version},
 }
@@ -203,6 +204,38 @@ def create_event(opts: dict, asset_id: str, auth: DataTrailsAuth, event_attribut
     return response.json()
 
 
+def create_new_event(opts: dict, auth: DataTrailsAuth, attributes: dict, trails) -> dict:
+    """
+    Create a new DataTrails Non-Asset Event, mapping to a SCITT Envelope
+
+    Args:
+        opts (dict): Configuration, including the base URL for the DataTrails API.
+        auth (DataTrailsAuth): Authentication object for DataTrails API.
+        attributes (dict): Attributes of the event.
+        trails (array): A collection of strings used for trails
+
+    Returns:
+        dict: Data of the created Event
+
+    Raises:
+        requests.HTTPError: If the API request fails
+    """
+    headers = {
+        "Authorization": f"Bearer {auth.get_token()}",
+        "DataTrails-User-Agent": "oss/conserverlink/" + link_version,
+        "DataTrails-Partner-ID": opts["partner_id"],
+        "Content-Type": "application/json",
+    }
+    api_url = opts["api_url_v1"]
+    # event_attributes will map to SCITT headers and
+    # a cose-meta-map draft (https://github.com/SteveLasker/draft-lasker-cose-meta-map)
+    payload = {"attributes": {**attributes}, "trails": trails}
+    response = requests.post(f"{api_url}/events", headers=headers, json=payload)
+
+    response.raise_for_status()
+    return response.json()
+
+
 def run(vcon_uuid: str, link_name: str, opts: dict = default_options) -> str:
     """
     Main function to run the DataTrails asset link.
@@ -233,6 +266,7 @@ def run(vcon_uuid: str, link_name: str, opts: dict = default_options) -> str:
         raise HTTPException(
             status_code=HTTP_501_NOT_IMPLEMENTED, detail='Auth improperly configured. Unable to find opt["auth"]'
         )
+
     if auth_type.lower() == "oidc-client-credentials":
         auth = DataTrailsAuth(opts["auth"]["token_endpoint"], opts["auth"]["client_id"], opts["auth"]["client_secret"])
     else:
@@ -329,6 +363,12 @@ def run(vcon_uuid: str, link_name: str, opts: dict = default_options) -> str:
         "vcon_draft_version": "01",
         "vcon_operation": vcon_operation,
     }
+    # Asset-Free Events support a collection of Trails for indexing
+    # Add the primary paths by which a vCon consumer would need to index
+    trails = [
+        subject,
+        vcon_operation
+    ]
 
     # TODO: Should we set the public url for the vCon
     #       from https://datatracker.ietf.org/doc/draft-steele-cose-hash-envelope
@@ -342,6 +382,18 @@ def run(vcon_uuid: str, link_name: str, opts: dict = default_options) -> str:
     event = create_event(opts, asset_id, auth, event_attributes)
     event_id = event["identity"]
     logger.info(f"DataTrails: Event Created: {event_id}")
+
+    # Asset Free Events
+    try:
+        # during preview, Asset-free events are for DataTrails testing
+        # wrapped in a try/catch to avoid errors bubbling up to the conserver
+
+        event = create_new_event(opts, auth, event_attributes, trails)
+        event_id = event["identity"]
+        logger.info(f"DataTrails: New Event Created: {event_id}")
+    except:
+        logger.info(f"DataTrails: New Event Creation Failure")
+
 
     # TODO: may want to store the receipt/transparent statement in the vCon, in the future
 
