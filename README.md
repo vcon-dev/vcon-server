@@ -28,23 +28,8 @@ Secrets for the conserver are kept in the .env file at the root of the vcon\_ser
 ## Example vcon-server/.env file
 
 ```bash
-AWS_BUCKET=vcon-storage
-AWS_KEY_ID=xxxxx
-AWS_SECRET_KEY=xxxxx
-DEEPGRAM_KEY=xxxxx
-ENV=dev
 
-# CORE DEPENDENCIES
-ENV=dev
-HOSTNAME=http://0.0.0.0:8000
-HOST=0.0.0.0
-PORT=8000
 REDIS_URL=redis://redis
-
-# Overriding these on pairing so they don't conflict with django port etc
-REDIS_EXTERNAL_PORT=8001
-CONSERVER_EXTERNAL_PORT=8000
-
 CONSERVER_API_TOKEN=1111111
 CONSERVER_CONFIG_FILE=./config.yml
 ```
