@@ -24,8 +24,7 @@ link_version = "0.3.0"
 #       Why droid_id: "these are not the droids your're looking for"
 
 default_options = {
-    "api_url": "https://app.datatrails.ai/archivist/v2",
-    "api_url_v1": "https://app.datatrails.ai/archivist/v1",
+    "api_url": "https://app.datatrails.ai/archivist",
     "auth_url": "https://app.datatrails.ai/archivist/iam/v1/appidp/token",
     "asset_attributes": {"arc_display_type": "vcon_droid", "conserver_link_version": link_version},
 }
@@ -120,7 +119,7 @@ def get_asset_by_attributes(opts: dict, auth: DataTrailsAuth, attributes: dict) 
     for param in attributes:
         params.update({f"attributes.{param}": f"{attributes[param]}"})
 
-    response = requests.get(f"{api_url}/assets", params=params, headers=headers)
+    response = requests.get(f"{api_url}/v2/assets", params=params, headers=headers)
     response.raise_for_status()
     return response.json()
 
@@ -160,10 +159,10 @@ def create_asset(opts: dict, auth: DataTrailsAuth, attributes: dict) -> dict:
     }
     payload = {
         "behaviours": ["RecordEvidence"],
-        "attributes": {"arc_display_type": "Publish", **attributes},
+        "attributes": {**attributes},
         "public": False,
     }
-    response = requests.post(f"{api_url}/assets", headers=headers, json=payload)
+    response = requests.post(f"{api_url}/v2/assets", headers=headers, json=payload)
     if response.status_code == 429:
         logger.info(f"response.raw: {response.raw}")
 
@@ -171,7 +170,7 @@ def create_asset(opts: dict, auth: DataTrailsAuth, attributes: dict) -> dict:
     return response.json()
 
 
-def create_event(opts: dict, asset_id: str, auth: DataTrailsAuth, event_attributes: dict) -> dict:
+def create_asset_event(opts: dict, asset_id: str, auth: DataTrailsAuth, event_attributes: dict) -> dict:
     """
     Create a new DataTrails Event, mapping to a SCITT Envelope
 
@@ -198,15 +197,15 @@ def create_event(opts: dict, asset_id: str, auth: DataTrailsAuth, event_attribut
     # a cose-meta-map draft (https://github.com/SteveLasker/draft-lasker-cose-meta-map)
     payload = {"operation": "Record", "behaviour": "RecordEvidence", "event_attributes": {**event_attributes}}
     # logger.info(f"payload: {payload}")
-    response = requests.post(f"{api_url}/{asset_id}/events", headers=headers, json=payload)
+    response = requests.post(f"{api_url}/v2/{asset_id}/events", headers=headers, json=payload)
 
     response.raise_for_status()
     return response.json()
 
 
-def create_new_event(opts: dict, auth: DataTrailsAuth, attributes: dict, trails) -> dict:
+def create_event(opts: dict, auth: DataTrailsAuth, attributes: dict, trails) -> dict:
     """
-    Create a new DataTrails Non-Asset Event, mapping to a SCITT Envelope
+    Create a new DataTrails Non-Asset based Event, mapping to a SCITT Envelope
 
     Args:
         opts (dict): Configuration, including the base URL for the DataTrails API.
@@ -226,11 +225,11 @@ def create_new_event(opts: dict, auth: DataTrailsAuth, attributes: dict, trails)
         "DataTrails-Partner-ID": opts["partner_id"],
         "Content-Type": "application/json",
     }
-    api_url = opts["api_url_v1"]
+    api_url = opts["api_url"]
     # event_attributes will map to SCITT headers and
     # a cose-meta-map draft (https://github.com/SteveLasker/draft-lasker-cose-meta-map)
     payload = {"attributes": {**attributes}, "trails": trails}
-    response = requests.post(f"{api_url}/events", headers=headers, json=payload)
+    response = requests.post(f"{api_url}/v1/events", headers=headers, json=payload)
 
     response.raise_for_status()
     return response.json()
@@ -352,6 +351,7 @@ def run(vcon_uuid: str, link_name: str, opts: dict = default_options) -> str:
 
     event_attributes = {
         "arc_display_type": vcon_operation,
+        "arc_event_type": vcon_operation,
         "conserver_link": link_type,
         "conserver_link_name": link_name,
         "conserver_link_version": link_version,
@@ -366,8 +366,7 @@ def run(vcon_uuid: str, link_name: str, opts: dict = default_options) -> str:
     # Asset-Free Events support a collection of Trails for indexing
     # Add the primary paths by which a vCon consumer would need to index
     trails = [
-        subject,
-        vcon_operation
+        subject
     ]
 
     # TODO: Should we set the public url for the vCon
@@ -379,7 +378,7 @@ def run(vcon_uuid: str, link_name: str, opts: dict = default_options) -> str:
     #     }
     # )
 
-    event = create_event(opts, asset_id, auth, event_attributes)
+    event = create_asset_event(opts, asset_id, auth, event_attributes)
     event_id = event["identity"]
     logger.info(f"DataTrails: Event Created: {event_id}")
 
@@ -388,7 +387,7 @@ def run(vcon_uuid: str, link_name: str, opts: dict = default_options) -> str:
         # during preview, Asset-free events are for DataTrails testing
         # wrapped in a try/catch to avoid errors bubbling up to the conserver
 
-        event = create_new_event(opts, auth, event_attributes, trails)
+        event = create_event(opts, auth, event_attributes, trails)
         event_id = event["identity"]
         logger.info(f"DataTrails: New Event Created: {event_id}")
     except:
