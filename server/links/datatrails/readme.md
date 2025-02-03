@@ -100,9 +100,11 @@ For each chain completion, the hash of the vCon will be placed on the ledger, wi
 
 For each vCon Chain:
 
-1. A [DataTrails Event]() will be recorded, integrity protecting each vCon, setting the `subject` to `vcon://<vcon_uuid>` for correlation of events to each vCon
+1. A [DataTrails Event](https://docs.datatrails.ai/developers/api-reference/events-api/) will be recorded, integrity protecting each vCon, setting the `subject` to `vcon://<vcon_uuid>` for correlation of events to each vCon.
 1. If no DataTrails Asset exists for the vCon, a new asset will be created.  
-   _**Note:** this is a temporary solution as Assets are being deprecated._
+   _**Note:** this is a temporary solution as Assets are being deprecated._  
+   In this latest version `0.3.0`, an early preview of Asset-Free events has been added.  
+   This workflow is additional, and non-blocking for parallel testing by the DataTrails platform.
 
 ## Configuration
 
@@ -118,7 +120,7 @@ links:
   datatrails-created:
     module: links.datatrails
     options:
-      api_url: "https://app.datatrails.ai/archivist/v2"
+      api_url: "https://app.datatrails.ai/archivist"
       vcon_operation: "vcon_created"
       auth:
         type: "OIDC-client-credentials"
@@ -128,7 +130,7 @@ links:
   datatrails_consent_revoked:
     module: links.datatrails
     options:
-      api_url: "https://app.datatrails.ai/archivist/v2"
+      api_url: "https://app.datatrails.ai/archivist"
       vcon_operation: "vcon_consent_revoked"
       auth:
         type: "OIDC-client-credentials"
@@ -211,6 +213,22 @@ Please follow these steps:
   See [Creating Access Tokens Using a Custom Integration][datatrails-tokens]
 - Check the conserver logs for any error messages related to the DataTrails Link.
 - Verify that your vCons contain the expected data and tags.
+
+## Version History
+
+### `0.3.0`
+
+_**Note: BREAKING CHANGE**_
+
+- Configuration for DataTrails has changed
+- This version adds a preview of [Asset-free Events](https://docs.datatrails.ai/developers/api-reference/events-api/), as a non-blocking addition for parallel testing in the DataTrails platform.
+- Asset-free events uses version 1 `/v1/events` to differentiate from the `/v2/assets` APIs.  
+  This change required a change to the `api_url` configuration.  
+  Your configuration will have:  
+  `api_url: "https://app.datatrails.ai/archivist/v2"`  
+  **WHICH HAS BEEN CHANGED** to  
+  `api_url: "https://app.datatrails.ai/archivist"`  
+  moving `/v2` to the asset call, and uses `v1/events` for the new Asset Free events.
 
 ## Support
 
