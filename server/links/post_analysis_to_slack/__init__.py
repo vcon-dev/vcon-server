@@ -1,6 +1,5 @@
 from server.lib.vcon_redis import VconRedis
 from lib.logging_utils import init_logger
-import json
 from slack_sdk.web import WebClient
 
 logger = init_logger(__name__)
@@ -71,6 +70,7 @@ def post_blocks_to_channel(token, channel_name, abstract, url, opts):
             text=f"The channel name doesn't exist - {channel_name}",
         )
         logger.error(f"An error occurred posting to {channel_name}: {e}")
+        raise e
 
 
 def run(vcon_id, link_name, opts=default_options):
@@ -109,9 +109,7 @@ def run(vcon_id, link_name, opts=default_options):
             abstract = abstract + f" #{dealer_name}"
             post_blocks_to_channel(opts["token"], channel_name, abstract, url, opts)
 
-        post_blocks_to_channel(
-            opts["token"], opts["default_channel_name"], abstract, url, opts
-        )
+        post_blocks_to_channel(opts["token"], opts["default_channel_name"], abstract, url, opts)
         a["was_posted_to_slack"] = True
 
     vcon_redis.store_vcon(vcon)
