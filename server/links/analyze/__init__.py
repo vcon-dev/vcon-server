@@ -7,7 +7,6 @@ from tenacity import (
     stop_after_attempt,
     wait_exponential,
     before_sleep_log,
-    RetryError,
 )  # for exponential backoff
 from lib.metrics import init_metrics, stats_gauge, stats_count
 import time
@@ -51,7 +50,7 @@ def generate_analysis(transcript, prompt, model, temperature, client) -> str:
     ]
     # logger.info(f"messages: {messages}")
     # logger.info(f"MODEL: {model}")
-    
+
     sentiment_result = client.chat.completions.create(model=model, messages=messages, temperature=temperature)
     return sentiment_result.choices[0].message.content
 
@@ -89,9 +88,7 @@ def run(
             continue
         source_text = navigate_dict(source, text_location)
         if not source_text:
-            logger.warning(
-                "No source_text found at %s for vCon: %s", text_location, vCon.uuid
-            )
+            logger.warning("No source_text found at %s for vCon: %s", text_location, vCon.uuid)
             continue
         analysis = get_analysys_for_type(vCon, index, opts["analysis_type"])
 
@@ -110,8 +107,8 @@ def run(
             index,
             {k: v for k, v in opts.items() if k != "OPENAI_API_KEY"},
         )
+        start = time.time()
         try:
-            start = time.time()
             analysis = generate_analysis(
                 transcript=source_text,
                 prompt=opts["prompt"],
@@ -119,12 +116,7 @@ def run(
                 temperature=opts["temperature"],
                 client=client,
             )
-            stats_gauge(
-                "conserver.link.openai.analysis_time",
-                time.time() - start,
-                tags=[f"analysis_type:{opts['analysis_type']}"],
-            )
-        except (RetryError, Exception) as e:
+        except Exception as e:
             logger.error(
                 "Failed to generate analysis for vCon %s after multiple retries: %s",
                 vcon_uuid,
@@ -134,7 +126,14 @@ def run(
                 "conserver.link.openai.analysis_failures",
                 tags=[f"analysis_type:{opts['analysis_type']}"],
             )
-            break
+            raise e
+
+        stats_gauge(
+            "conserver.link.openai.analysis_time",
+            time.time() - start,
+            tags=[f"analysis_type:{opts['analysis_type']}"],
+        )
+
         vendor_schema = {}
         vendor_schema["model"] = opts["model"]
         vendor_schema["prompt"] = opts["prompt"]

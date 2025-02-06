@@ -18,7 +18,14 @@ default_options = {
 }
 
 
-def do_vcon_parts_indexing(*, es, part, index_name, id, common_attributes,):
+def do_vcon_parts_indexing(
+    *,
+    es,
+    part,
+    index_name,
+    id,
+    common_attributes,
+):
     new_part = {**part, **common_attributes}
     try:
         es.index(
@@ -27,9 +34,7 @@ def do_vcon_parts_indexing(*, es, part, index_name, id, common_attributes,):
             document=new_part,
         )
     except Exception as e:
-        logger.error(
-            f"Elasticsearch storage plugin: failed to insert: {new_part}, error: {e} ", exc_info=True
-        )
+        logger.error(f"Elasticsearch storage plugin: failed to insert: {new_part}, error: {e} ", exc_info=True)
 
 
 def save(
@@ -42,7 +47,7 @@ def save(
                 cloud_id=opts["cloud_id"],
                 api_key=opts["api_key"],
             )
-        else:                
+        else:
             url = opts["url"]
             username = opts["username"]
             password = opts["password"]
@@ -56,7 +61,7 @@ def save(
         vcon_dict = vcon.to_dict()
 
         started_at = vcon_dict["dialog"][0]["start"]
-        
+
         common_attributes = {
             "vcon_id": vcon_uuid,
             "started_at": started_at,
@@ -75,24 +80,26 @@ def save(
             role = party.get("role")
             do_vcon_parts_indexing(
                 es=es,
-                part=party, 
-                index_name=f"vcon_parties_{role}" if role else "vcon_parties", 
-                id=f"{vcon_uuid}_{ind}", 
-                common_attributes=common_attributes
+                part=party,
+                index_name=f"vcon_parties_{role}" if role else "vcon_parties",
+                id=f"{vcon_uuid}_{ind}",
+                common_attributes=common_attributes,
             )
 
         # Index the attachments, separated by 'type' - id=f"{vcon_uuid}_{attachment_index}"
         for ind, attachment in enumerate(vcon_dict["attachments"]):
-            attachment_type = attachment.get("type").lower()  # TODO this might be "purpose" in some of the attachments!!
+            attachment_type = attachment.get(
+                "type"
+            ).lower()  # TODO this might be "purpose" in some of the attachments!!
             encoding = attachment.get("encoding", "none")
             if encoding == "json":  # TODO may be we need handle different encodings
                 attachment["body"] = json.loads(attachment["body"])
             do_vcon_parts_indexing(
                 es=es,
-                part=attachment, 
-                index_name=f"vcon_attachments_{attachment_type}", 
-                id=f"{vcon_dict['uuid']}_{ind}", 
-                common_attributes=common_attributes
+                part=attachment,
+                index_name=f"vcon_attachments_{attachment_type}",
+                id=f"{vcon_dict['uuid']}_{ind}",
+                common_attributes=common_attributes,
             )
 
         # Index the analysis, separated by 'type' - id=f"{vcon_uuid}_{analysis_index}"
@@ -103,10 +110,10 @@ def save(
                     analysis["body"] = json.loads(analysis["body"])
             do_vcon_parts_indexing(
                 es=es,
-                part=analysis, 
-                index_name=f"vcon_analysis_{analysis_type}", 
-                id=f"{vcon_dict['uuid']}_{ind}", 
-                common_attributes=common_attributes
+                part=analysis,
+                index_name=f"vcon_analysis_{analysis_type}",
+                id=f"{vcon_dict['uuid']}_{ind}",
+                common_attributes=common_attributes,
             )
 
         # Index the dialog - id=f"{vcon_uuid}_{dialog_index}"
@@ -114,12 +121,11 @@ def save(
         for ind, dialog in enumerate(vcon_dict["dialog"]):
             do_vcon_parts_indexing(
                 es=es,
-                part=dialog, 
-                index_name="vcon_dialog", 
-                id=f"{vcon_dict['uuid']}_{ind}", 
-                common_attributes=common_attributes
+                part=dialog,
+                index_name="vcon_dialog",
+                id=f"{vcon_dict['uuid']}_{ind}",
+                common_attributes=common_attributes,
             )
     except Exception as e:
-        logger.error(
-            f"Elasticsearch storage plugin: failed to insert vCon: {vcon_uuid}, error: {e} ", exc_info=True
-        )
+        logger.error(f"Elasticsearch storage plugin: failed to insert vCon: {vcon_uuid}, error: {e} ", exc_info=True)
+        raise e

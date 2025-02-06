@@ -6,7 +6,6 @@ from tenacity import (
     retry,
     stop_after_attempt,
     wait_exponential,
-    RetryError,
     before_sleep_log,
 )  # for exponential backoff
 from server.lib.vcon_redis import VconRedis
@@ -82,9 +81,7 @@ def run(
             continue
 
         if dialog["duration"] < opts["minimum_duration"]:
-            logger.info(
-                "Skipping short recording dialog %s in vCon: %s", index, vCon.uuid
-            )
+            logger.info("Skipping short recording dialog %s in vCon: %s", index, vCon.uuid)
             continue
 
         # See if it was already transcibed
@@ -93,18 +90,14 @@ def run(
             continue
 
         dg_client = DeepgramClient(opts["DEEPGRAM_KEY"])
+        start = time.time()
         try:
-            start = time.time()
             result = transcribe_dg(dg_client, dialog, opts["api"])
-            stats_gauge(
-                "conserver.link.deepgram.transcription_time", time.time() - start
-            )
-        except (RetryError, Exception) as e:
-            logger.error(
-                "Failed to transcribe vCon %s after multiple retries: %s", vcon_uuid, e
-            )
+        except Exception as e:
+            logger.error("Failed to transcribe vCon %s after multiple retries: %s", vcon_uuid, e)
             stats_count("conserver.link.deepgram.transcription_failures")
-            break
+            raise e
+        stats_gauge("conserver.link.deepgram.transcription_time", time.time() - start)
 
         if not result:
             logger.warning("No transcription generated for vCon %s", vcon_uuid)
@@ -116,9 +109,7 @@ def run(
 
         # If the confidence is too low, don't store the transcript since it probably garbage
         if result["confidence"] < 0.5:
-            logger.warning(
-                "Low confidence result for vCon %s: %s", vcon_uuid, result["confidence"]
-            )
+            logger.warning("Low confidence result for vCon %s: %s", vcon_uuid, result["confidence"])
             stats_count("conserver.link.deepgram.transcription_failures")
             break
 
