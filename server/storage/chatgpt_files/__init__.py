@@ -2,7 +2,7 @@ from lib.logging_utils import init_logger
 import json
 import os
 import redis_mgr
-from openai import OpenAI, APIError
+from openai import OpenAI
 
 logger = init_logger(__name__)
 
@@ -16,14 +16,12 @@ default_options = {
 }
 
 
-def save(
-    vcon_uuid: str, options: dict = default_options
-) -> None:
+def save(vcon_uuid: str, options: dict = default_options) -> None:
     """Save a vCon to ChatGPT files.
 
     Args:
         vcon_uuid (str): The UUID of the vCon to be saved.
-        options (dict, optional): Dictionary containing organization and project keys, API key, 
+        options (dict, optional): Dictionary containing organization and project keys, API key,
         vector store ID, and purpose. Defaults to default_options.
     """
     try:
@@ -38,11 +36,6 @@ def save(
         )
         file = client.files.create(file=open(file_name, "rb"), purpose=options["purpose"])
         os.remove(file_name)
-        client.beta.vector_stores.files.create(
-            vector_store_id=options["vector_store_id"], file_id=file.id
-        )
-    except APIError as error:
-        raise error
+        client.beta.vector_stores.files.create(vector_store_id=options["vector_store_id"], file_id=file.id)
     except Exception as error:
         raise error
-    

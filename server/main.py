@@ -105,9 +105,8 @@ class VconChainRequest:
         try:
             Storage(storage_name).save(self.vcon_id)
         except Exception as e:
-            logger.error(
-                "Error saving vCon %s to storage %s: %s", self.vcon_id, storage_name, e
-            )
+            logger.error("Error saving vCon %s to storage %s: %s", self.vcon_id, storage_name, e)
+            raise e
 
     def _process_link(self, link_name):
         logger.info("Started processing link %s for vCon: %s", link_name, self.vcon_id)
@@ -160,11 +159,9 @@ def main():
             logger.info("Importing module %s from %s", module_name, module_path)
             imported_modules[module_name] = importlib.import_module(module_path)
         except Exception as e:
-            logger.error(
-                "Error importing module %s from %s: %s", module_name, module_path, e
-            )
+            logger.error("Error importing module %s from %s: %s", module_name, module_path, e)
     follower.start_followers()
-   
+
     while not shutdown_requested:
         config = get_config()
         ingress_chain_map = get_ingress_chain_map()
@@ -176,12 +173,8 @@ def main():
             continue
 
         ingress_list, vcon_id = popped_item
-        if (
-            shutdown_requested
-        ):  # we got something from the queue but we're shutting down
-            r.lpush(
-                ingress_list, vcon_id
-            )  # push it back into the queue so we don't lose it
+        if shutdown_requested:  # we got something from the queue but we're shutting down
+            r.lpush(ingress_list, vcon_id)  # push it back into the queue so we don't lose it
             break
 
         log_llen(ingress_list)

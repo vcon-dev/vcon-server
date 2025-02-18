@@ -52,18 +52,15 @@ def save(
             "created_at": vcon.created_at,
             "updated_at": datetime.now(),
             "subject": vcon.subject,
-            "vcon_json": vcon.to_dict()
+            "vcon_json": vcon.to_dict(),
         }
-        Vcons.insert(**vcon_data).on_conflict(
-            conflict_target=(Vcons.id), update=vcon_data
-        ).execute()
+        Vcons.insert(**vcon_data).on_conflict(conflict_target=(Vcons.id), update=vcon_data).execute()
 
         db.close()
         logger.info("Finished the Postgres storage for vCon: %s", vcon_uuid)
     except Exception as e:
-        logger.error(
-            f"postgres storage plugin: failed to insert vCon: {vcon_uuid}, error: {e} "
-        )
+        logger.error(f"postgres storage plugin: failed to insert vCon: {vcon_uuid}, error: {e} ")
+        raise e
     finally:
         db.close()
 
@@ -103,8 +100,6 @@ def get(
 
         return vcon.vcon_json if vcon else None
     except Exception as e:
-        logger.error(
-            f"Postgres storage plugin: failed to get vCon: {vcon_uuid}, error: {e} "
-        )
+        logger.error(f"Postgres storage plugin: failed to get vCon: {vcon_uuid}, error: {e} ")
     finally:
         db.close()
