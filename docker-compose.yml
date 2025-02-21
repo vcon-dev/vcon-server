@@ -47,8 +47,8 @@ services:
     image: "redis/redis-stack:latest"
     ports:
       - "${REDIS_EXTERNAL_PORT:-8001}:8001"
-    environment:
-      REDIS_ARGS: --save 20 1
+    # environment:
+    #   REDIS_ARGS: --save 20 1
     mem_limit: 1gb # <===== IMPORTANT!!!! We're overriding this in the docker-compose.override.yml file
     volumes:
        - ./.data:/data

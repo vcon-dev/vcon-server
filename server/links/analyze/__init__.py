@@ -1,6 +1,8 @@
 from lib.vcon_redis import VconRedis
 from lib.logging_utils import init_logger
 import logging
+import json
+
 from openai import OpenAI
 from tenacity import (
     retry,
@@ -20,13 +22,15 @@ logger = init_logger(__name__)
 default_options = {
     "prompt": "Summarize this transcript in a few sentences.",
     "analysis_type": "summary",
-    "model": "gpt-3.5-turbo-16k",
+    "model": "gpt-4o-mini",
     "sampling_rate": 1,
     "temperature": 0,
     "source": {
         "analysis_type": "transcript",
         "text_location": "body.paragraphs.transcript",
     },
+    "output_format": "text",
+    "system_prompt": "You are a helpful assistant.",
 }
 
 
@@ -42,20 +46,32 @@ def get_analysys_for_type(vcon, index, analysis_type):
     stop=stop_after_attempt(6),
     before_sleep=before_sleep_log(logger, logging.INFO),
 )
-def generate_analysis(transcript, prompt, model, temperature, client) -> str:
-    # logger.info(f"TRANSCRIPT: {transcript}")
-    # logger.info(f"PROMPT: {prompt}")
+def generate_analysis(transcript, prompt, model, temperature, client, system_prompt, output_format) -> str:
+    if output_format == 'json':
+        system_prompt += " Please provide output in JSON format."
+        response_format = { "type": "json_object" }
+    elif output_format == 'text':
+        response_format = { "type": "text" }
+    else:
+        raise ValueError(f"Invalid output_format: {output_format})")
+        
     messages = [
-        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "system", "content": system_prompt},
         {"role": "user", "content": prompt + "\n\n" + transcript},
     ]
-    # logger.info(f"messages: {messages}")
-    # logger.info(f"MODEL: {model}")
     
-    sentiment_result = client.chat.completions.create(model=model, messages=messages, temperature=temperature)
-    return sentiment_result.choices[0].message.content
-
-
+    sentiment_result = client.chat.completions.create(model=model, messages=messages, temperature=temperature, response_format=response_format)
+    output = sentiment_result.choices[0].message.content
+    
+    # Check if the output is in JSON format
+    if output_format == 'json':
+        try:
+            output = json.loads(output)
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to decode JSON output: {output}")
+            raise e
+    return output
+    
 def run(
     vcon_uuid,
     link_name,
@@ -118,6 +134,8 @@ def run(
                 model=opts["model"],
                 temperature=opts["temperature"],
                 client=client,
+                system_prompt=opts["system_prompt"],
+                output_format=opts["output_format"],
             )
             stats_gauge(
                 "conserver.link.openai.analysis_time",
@@ -148,6 +166,9 @@ def run(
                 "vendor_schema": vendor_schema,
             },
         )
+    logger.info(f"vCon: {vcon_uuid} - {vCon}")
+    logger.info(json.dumps(vCon.to_dict(), indent=2))
+    
     vcon_redis.store_vcon(vCon)
     logger.info(f"Finished analyze - {module_name}:{link_name} plugin for: {vcon_uuid}")
 
