@@ -35,6 +35,7 @@ starlette = ">=0.40.0"
 pytest = "^8.3.4"
 anyio = "^4.8.0"
 faker = "^33.3.1"
+jq = "^1.8.0"
 
 
 [tool.poetry.group.dev.dependencies]
