@@ -18,6 +18,8 @@ import traceback
 from typing import Dict, List, Optional
 from uuid import UUID
 import logging
+from datetime import datetime
+import traceback
 
 import yaml
 from fastapi import FastAPI, HTTPException, Query, Security, APIRouter
@@ -137,7 +139,7 @@ class Vcon(BaseModel):
     model_config = ConfigDict(extra='allow')
     vcon: str
     uuid: UUID
-    created_at: datetime.datetime
+    created_at: datetime
     subject: Optional[str] = None
     redacted: dict = {}
     appended: Optional[dict] = None
@@ -456,7 +458,7 @@ async def post_vcon(
         dict_vcon = inbound_vcon.model_dump()
         dict_vcon["uuid"] = str(inbound_vcon.uuid)
         key = f"vcon:{str(dict_vcon['uuid'])}"
-        created_at = datetime.datetime.fromisoformat(str(dict_vcon["created_at"]))
+        created_at = datetime.fromisoformat(str(dict_vcon["created_at"]))
         dict_vcon["created_at"] = created_at.isoformat()
         timestamp = int(created_at.timestamp())
 
@@ -693,7 +695,7 @@ async def index_vcon(uuid: UUID) -> None:
     """
     key = f"vcon:{uuid}"
     vcon = await redis_async.json().get(key)
-    created_at = datetime.datetime.fromisoformat(vcon["created_at"])
+    created_at = datetime.fromisoformat(vcon["created_at"])
     timestamp = int(created_at.timestamp())
     vcon_uuid = vcon["uuid"]
     await add_vcon_to_set(key, timestamp)
