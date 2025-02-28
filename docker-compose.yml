@@ -48,10 +48,10 @@ services:
     ports:
       - "${REDIS_EXTERNAL_PORT:-8001}:8001"
     environment:
-      REDIS_ARGS: --save 20 1 --notify-keyspace-events Ex
+      REDIS_ARGS: --save 20 1 --notify-keyspace-events Ex --dir /data --appendonly yes
     mem_limit: 1gb # <===== IMPORTANT!!!! We're overriding this in the docker-compose.override.yml file
     volumes:
-       - ./.data:/data
+      - ./.data:/data
     healthcheck:
       test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
       interval: 30s
