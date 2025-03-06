@@ -3,17 +3,28 @@ import os
 import base64
 from pathlib import Path
 from server.links.hugging_face_whisper import transcribe_hugging_face_whisper
-from server.config import Config
+from server.config import Configuration
 
 
+# Check if the TEST_HF_API_KEY environment variable is defined
+SKIP_TESTS = os.environ.get("TEST_HF_API_KEY") is None
+SKIP_REASON = "TEST_HF_API_KEY environment variable not defined"
+
+
+@unittest.skipIf(SKIP_TESTS, SKIP_REASON)
 class TestHuggingFaceWhisperIntegration(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        # Skip class setup if the environment variable is not set
+        if SKIP_TESTS:
+            raise unittest.SkipTest(SKIP_REASON)
+            
         # Load config and API credentials
-        config = Config()
+        config = Configuration.get_config()
         cls.api_options = {
             "API_URL": config.get("links.hugging_face_whisper.API_URL"),
-            "API_KEY": config.get("links.hugging_face_whisper.API_KEY"),
+            # Use the environment variable as priority, fallback to config
+            "API_KEY": os.environ.get("TEST_HF_API_KEY") or config.get("links.hugging_face_whisper.API_KEY"),
             "Content-Type": "audio/flac",
         }
 

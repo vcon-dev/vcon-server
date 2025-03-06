@@ -3,14 +3,25 @@ from unittest.mock import patch, MagicMock
 import json
 import base64
 import tempfile
+import os
 from server.links.hugging_face_whisper import transcribe_hugging_face_whisper, get_file_content
 
 
+# Check if the TEST_HF_API_KEY environment variable is defined
+SKIP_TESTS = os.environ.get("TEST_HF_API_KEY") is None
+SKIP_REASON = "TEST_HF_API_KEY environment variable not defined"
+
+
+@unittest.skipIf(SKIP_TESTS, SKIP_REASON)
 class TestHuggingFaceWhisper(unittest.TestCase):
     def setUp(self):
+        # Skip individual tests if the environment variable is not set
+        if SKIP_TESTS:
+            self.skipTest(SKIP_REASON)
+            
         self.test_options = {
             "API_URL": "https://test-api.huggingface.cloud",
-            "API_KEY": "test_key",
+            "API_KEY": os.environ.get("TEST_HF_API_KEY", "test_key"),
             "Content-Type": "audio/flac",
         }
 
