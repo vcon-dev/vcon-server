@@ -66,10 +66,12 @@ def save(vcon_uuid: str, options: Dict[str, str] = None) -> str:
         # Convert vCon object to dictionary
         vcon_dict = vcon.to_dict()
         
-        # Create a temporary file for the vCon data - explicitly using text mode
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.vcon.json', delete=False) as temp_file:
-            file_path = temp_file.name
-            logger.debug(f"Writing vCon data to temporary file: {file_path}")
+        # Create a temporary file with vCon UUID in the filename
+        temp_dir = tempfile.gettempdir()
+        file_path = os.path.join(temp_dir, f"{vcon_uuid}.vcon.json")
+        logger.debug(f"Writing vCon data to file: {file_path}")
+        
+        with open(file_path, 'w') as temp_file:
             json.dump(vcon_dict, temp_file)
         
         try:
