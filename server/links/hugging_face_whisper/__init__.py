@@ -96,7 +96,7 @@ def get_file_content(dialog: dict) -> bytes:
 
 
 @retry(
-    wait=wait_exponential(multiplier=2, min=1, max=65),  # Will wait 1, 2, 4, 8, 16, 32 seconds between retries
+    wait=wait_exponential(multiplier=2, min=12, max=100),  # Will wait 12, 24, 48, 96, 192 seconds between retries
     stop=stop_after_attempt(6),
     before_sleep=before_sleep_log(logger, logging.INFO),
 )
