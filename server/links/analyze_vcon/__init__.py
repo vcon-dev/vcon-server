@@ -42,10 +42,22 @@ def get_analysis_for_type(vcon, analysis_type):
     before_sleep=before_sleep_log(logger, logging.INFO),
 )
 def generate_analysis(vcon_data, prompt, system_prompt, model, temperature, client) -> str:
+    # Convert vcon_data to a JSON string
+    vcon_data_json = json.dumps(vcon_data)
+
+    # Check and replace the system_prompt in the JSON string
+    if system_prompt in vcon_data_json:
+        vcon_data_json = vcon_data_json.replace(system_prompt, "")
+        # Log that the system_prompt was found and replaced
+        logger.info(f"Replaced system_prompt in vcon_data for vcon_uuid: {vcon_uuid}")
+
+
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": prompt + "\n\n" + json.dumps(vcon_data)},
     ]
+
+    
 
     response = client.chat.completions.create(
         model=model, 
