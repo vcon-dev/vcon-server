@@ -5,7 +5,7 @@ import time
 import traceback
 from functools import wraps
 from typing import Dict, List, Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 
 # Third-party imports
 from fastapi import APIRouter, FastAPI, HTTPException, Query, Request, Response, Security
@@ -72,7 +72,7 @@ api_key_header = APIKeyHeader(name=CONSERVER_HEADER_NAME, auto_error=False)
 # Middleware for request/response logging
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
-    request_id = str(UUID())
+    request_id = str(uuid4())
     start_time = time.time()
     
     # Log request details
@@ -195,7 +195,9 @@ if VCON_STORAGE:
 async def add_vcon_to_set(vcon_uuid: UUID, timestamp: int):
     logger.debug(f"Adding vCon {vcon_uuid} to sorted set with timestamp {timestamp}")
     try:
-        result = await redis_async.zadd(VCON_SORTED_SET_NAME, {vcon_uuid: timestamp})
+        # Convert UUID to string since Redis can't handle UUID objects directly
+        vcon_uuid_str = str(vcon_uuid)
+        result = await redis_async.zadd(VCON_SORTED_SET_NAME, {vcon_uuid_str: timestamp})
         logger.debug(f"Added vCon {vcon_uuid} to sorted set: result={result}")
         return result
     except Exception as e:
@@ -396,6 +398,17 @@ async def search_vcons(
     mailto: Optional[str] = Query(None, description="Email address to search for"),
     name: Optional[str] = Query(None, description="Name of the party to search for"),
 ):
+    # Clean and normalize search parameters
+    if tel:
+        # Strip whitespace but preserve the + prefix
+        original_tel = tel
+        tel = tel.strip()
+        logger.debug(f"Telephone search parameter: original='{original_tel}', after strip='{tel}'")
+    if mailto:
+        mailto = mailto.strip()
+    if name:
+        name = name.strip()
+        
     search_params = {k: v for k, v in {'tel': tel, 'mailto': mailto, 'name': name}.items() if v is not None}
     logger.info(f"Searching vCons with parameters: {search_params}")
     
@@ -411,11 +424,31 @@ async def search_vcons(
 
         if tel:
             search_terms += 1
+            # Use the exact tel value for Redis key
             tel_key = f"tel:{tel}"
-            logger.debug(f"Getting vCons with telephone: {tel}")
+            logger.debug(f"Getting vCons with telephone: {tel}, redis key: {tel_key}")
             uuids = await redis_async.smembers(tel_key)
             tel_keys.update(f"vcon:{uuid}" for uuid in uuids)
             logger.debug(f"Found {len(tel_keys)} vCons with telephone: {tel}")
+
+            # If no results found and plus sign might have been encoded, try without the plus
+            if not tel_keys and tel.startswith('+'):
+                # Try without the plus sign as it might be encoded in the URL
+                alt_tel = tel[1:]  # Remove the plus sign
+                alt_tel_key = f"tel:{alt_tel}"
+                logger.debug(f"No results found. Trying alternative telephone: {alt_tel}, redis key: {alt_tel_key}")
+                alt_uuids = await redis_async.smembers(alt_tel_key)
+                tel_keys.update(f"vcon:{uuid}" for uuid in alt_uuids)
+                logger.debug(f"Found {len(tel_keys)} vCons with alternative telephone: {alt_tel}")
+                
+                # If still no results, try with URL-encoded plus sign
+                if not tel_keys:
+                    encoded_tel = "%2B" + tel[1:]
+                    encoded_tel_key = f"tel:{encoded_tel}"
+                    logger.debug(f"Still no results. Trying URL-encoded telephone: {encoded_tel}, redis key: {encoded_tel_key}")
+                    encoded_uuids = await redis_async.smembers(encoded_tel_key)
+                    tel_keys.update(f"vcon:{uuid}" for uuid in encoded_uuids)
+                    logger.debug(f"Found {len(tel_keys)} vCons with URL-encoded telephone: {encoded_tel}")
 
         if mailto:
             search_terms += 1
@@ -608,15 +641,16 @@ async def post_vcon_ingress(vcon_uuids: List[str], ingress_list: str):
 
 
 @api_router.get(
-    "/vcon/count",
-    status_code=204,
+    "/vcons/count",
+    status_code=200,
     summary="Returns the number of vCons at the end of a chain",
     description="Returns the number of vCons at the end of a chain.",
     tags=["chain"],
 )
 @log_performance
-async def get_vcon_count(egress_list: str):
-    logger.info(f"Getting vCon count for egress list: {egress_list}")
+async def get_vcon_count(egress_list: str = Query(..., description="The name of the egress list to count vCons from")):
+    # Add debug logging for tracing
+    logger.info(f"get_vcon_count called with egress_list: {egress_list}")
     
     try:
         count = await redis_async.llen(egress_list)
@@ -774,7 +808,7 @@ async def index_vcon(uuid):
         vcon_uuid = vcon["uuid"]
         
         # Add to sorted set
-        await add_vcon_to_set(key, timestamp)
+        await add_vcon_to_set(vcon_uuid, timestamp)
         
         # Index parties information
         indexed_fields = []
@@ -849,6 +883,39 @@ async def index_vcons():
         logger.error(f"Error during vCon reindexing: {str(e)}")
         logger.exception(e)
         raise HTTPException(status_code=500, detail=f"Error during vCon reindexing: {str(e)}")
+
+
+@api_router.post(
+    "/testing/clear_list",
+    status_code=204,
+    summary="[TEST ONLY] Clear a Redis list",
+    description="Testing endpoint to clear a Redis list. Only available in development/testing.",
+    tags=["testing"],
+)
+@log_performance
+async def clear_list_for_testing(list_name: str = Query(..., description="The name of the Redis list to clear")):
+    """
+    Testing endpoint to clear a Redis list.
+    This endpoint is only intended for testing purposes and should not be used in production.
+    """
+    # Check if we're in a testing environment
+    env = os.getenv("CONSERVER_ENV", "development")
+    if env not in ["development", "test"]:
+        raise HTTPException(
+            status_code=403, 
+            detail="This endpoint is only available in development/testing environments"
+        )
+    
+    logger.info(f"Clearing Redis list for testing: {list_name}")
+    try:
+        # Delete the list directly
+        await redis_async.delete(list_name)
+        logger.info(f"Successfully cleared Redis list: {list_name}")
+        return Response(status_code=204)
+    except Exception as e:
+        logger.error(f"Error clearing Redis list {list_name}: {str(e)}")
+        logger.exception(e)
+        raise HTTPException(status_code=500, detail=f"Error clearing Redis list: {str(e)}")
 
 
 # Apply API router with API key security
