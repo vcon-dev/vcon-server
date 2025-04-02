@@ -35,7 +35,7 @@ storages:
   mongo:
     module: storage.mongo
     options:
-      MONGO_URL: mongodb://localhost:27017/
+      url: mongodb://root:example@mongo:27017/
       database: conserver
       collection: vcons
   postgres:
