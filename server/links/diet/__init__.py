@@ -5,6 +5,8 @@ import requests
 from typing import Dict, List, Any, Optional
 
 logger = init_logger(__name__)
+logger.info("MDO THIS SHOULD PRINT")
+
 
 # Default options that control which elements to remove
 default_options = {
@@ -16,11 +18,14 @@ default_options = {
 }
 
 def run(vcon_uuid, link_name, opts=default_options):
-    logger.debug("Starting diet::run")
+    logger.info("Starting diet::run")
     
     # Merge provided options with defaults
     options = {**default_options, **opts}
     
+    for key, value in options.items():
+        logger.info(f"diet::{key}: {value}")
+
     # Load vCon from Redis using JSON.GET
     vcon = redis.json().get(f"vcon:{vcon_uuid}")
     if not vcon:
@@ -28,11 +33,14 @@ def run(vcon_uuid, link_name, opts=default_options):
         return vcon_uuid
     
     # No need for json.loads since JSON.GET returns Python objects directly
-    
+
     # Process dialogs
-    if "dialogs" in vcon:
+    if "dialog" in vcon:
+        logger.info("diet::got dialogs")
         for dialog in vcon["dialog"]:
+            logger.info("diet::got dialog")
             if options["remove_dialog_body"] and "body" in dialog:
+                logger.info("diet::remove_dialog_body AND body")
                 if options["post_media_to_url"] and dialog.get("body"):
                     try:
                         # Post the body content to the specified URL
@@ -55,6 +63,7 @@ def run(vcon_uuid, link_name, opts=default_options):
                         logger.error(f"Exception posting media: {e}")
                         dialog["body"] = ""
                 else:
+                    logger.info("diet::REMOVING BODY ONLY")
                     dialog["body"] = ""
     
     # Remove analysis if specified
