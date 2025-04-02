@@ -7,7 +7,7 @@ from server.links.diet import run, default_options, remove_system_prompts_recurs
 @pytest.fixture
 def sample_vcon():
     return {
-        "dialogs": [
+        "dialog": [
             {
                 "id": "dialog1",
                 "body": "This is dialog content that should be removed",
@@ -47,33 +47,45 @@ def sample_vcon():
 @patch('server.links.diet.redis')
 def test_nonexistent_vcon(mock_redis):
     # Test handling of nonexistent vCon
-    mock_redis.get.return_value = None
+    # Set up mock for redis.json().get
+    mock_json = MagicMock()
+    mock_redis.json.return_value = mock_json
+    mock_json.get.return_value = None
     
     result = run("nonexistent-uuid", "diet")
     
-    mock_redis.get.assert_called_once_with("vcon:nonexistent-uuid")
+    # Assert that redis.json().get was called
+    mock_json.get.assert_called_once_with("vcon:nonexistent-uuid")
     assert result == "nonexistent-uuid"
 
 @patch('server.links.diet.redis')
 def test_remove_dialog_body(mock_redis, sample_vcon):
     # Test removing dialog bodies
-    mock_redis.get.return_value = json.dumps(sample_vcon)
+    # Set up mock for redis.json()
+    mock_json = MagicMock()
+    mock_redis.json.return_value = mock_json
+    mock_json.get.return_value = sample_vcon
     
     run("test-vcon-123", "diet", {"remove_dialog_body": True})
     
-    # Get the saved vCon
-    args, kwargs = mock_redis.set.call_args
-    saved_vcon = json.loads(args[1])
+    # Verify JSON.SET was called with the correct parameters
+    mock_json.set.assert_called_once()
+    # Get the saved vCon from the call arguments
+    args, kwargs = mock_json.set.call_args
+    saved_vcon = args[2]  # The vcon is the third argument to json().set()
     
     # Check if dialog bodies were removed
-    assert saved_vcon["dialogs"][0]["body"] == ""
-    assert saved_vcon["dialogs"][1]["body"] == ""
+    assert saved_vcon["dialog"][0]["body"] == ""
+    assert saved_vcon["dialog"][1]["body"] == ""
 
 @patch('server.links.diet.redis')
 @patch('server.links.diet.requests.post')
 def test_post_media_to_url(mock_post, mock_redis, sample_vcon):
     # Test posting media to URL
-    mock_redis.get.return_value = json.dumps(sample_vcon)
+    # Set up mock for redis.json()
+    mock_json = MagicMock()
+    mock_redis.json.return_value = mock_json
+    mock_json.get.return_value = sample_vcon
     
     # Mock the post response
     mock_response = MagicMock()
@@ -86,13 +98,15 @@ def test_post_media_to_url(mock_post, mock_redis, sample_vcon):
         "post_media_to_url": "https://upload.example.com"
     })
     
-    # Get the saved vCon
-    args, kwargs = mock_redis.set.call_args
-    saved_vcon = json.loads(args[1])
+    # Verify JSON.SET was called with the correct parameters
+    mock_json.set.assert_called_once()
+    # Get the saved vCon from the call arguments
+    args, kwargs = mock_json.set.call_args
+    saved_vcon = args[2]  # The vcon is the third argument to json().set()
     
     # Check if dialog bodies were replaced with URLs
-    assert saved_vcon["dialogs"][0]["body"] == "https://media.example.com/dialog1"
-    assert saved_vcon["dialogs"][0]["body_type"] == "url"
+    assert saved_vcon["dialog"][0]["body"] == "https://media.example.com/dialog1"
+    assert saved_vcon["dialog"][0]["body_type"] == "url"
     
     # Verify both dialogs were posted. Use call_args_list to check all calls.
     assert len(mock_post.call_args_list) == 2
@@ -115,7 +129,10 @@ def test_post_media_to_url(mock_post, mock_redis, sample_vcon):
 @patch('server.links.diet.requests.post')
 def test_post_media_failure(mock_post, mock_redis, sample_vcon):
     # Test handling failed media post
-    mock_redis.get.return_value = json.dumps(sample_vcon)
+    # Set up mock for redis.json()
+    mock_json = MagicMock()
+    mock_redis.json.return_value = mock_json
+    mock_json.get.return_value = sample_vcon
     
     # Mock the post response as a failure
     mock_response = MagicMock()
@@ -127,23 +144,30 @@ def test_post_media_failure(mock_post, mock_redis, sample_vcon):
         "post_media_to_url": "https://upload.example.com"
     })
     
-    # Get the saved vCon
-    args, kwargs = mock_redis.set.call_args
-    saved_vcon = json.loads(args[1])
+    # Verify JSON.SET was called with the correct parameters
+    mock_json.set.assert_called_once()
+    # Get the saved vCon from the call arguments
+    args, kwargs = mock_json.set.call_args
+    saved_vcon = args[2]  # The vcon is the third argument to json().set()
     
     # Check if dialog bodies were emptied due to failure
-    assert saved_vcon["dialogs"][0]["body"] == ""
+    assert saved_vcon["dialog"][0]["body"] == ""
 
 @patch('server.links.diet.redis')
 def test_remove_analysis(mock_redis, sample_vcon):
     # Test removing analysis
-    mock_redis.get.return_value = json.dumps(sample_vcon)
+    # Set up mock for redis.json()
+    mock_json = MagicMock()
+    mock_redis.json.return_value = mock_json
+    mock_json.get.return_value = sample_vcon
     
     run("test-vcon-123", "diet", {"remove_analysis": True})
     
-    # Get the saved vCon
-    args, kwargs = mock_redis.set.call_args
-    saved_vcon = json.loads(args[1])
+    # Verify JSON.SET was called with the correct parameters
+    mock_json.set.assert_called_once()
+    # Get the saved vCon from the call arguments
+    args, kwargs = mock_json.set.call_args
+    saved_vcon = args[2]  # The vcon is the third argument to json().set()
     
     # Check if analysis was removed
     assert "analysis" not in saved_vcon
@@ -151,13 +175,18 @@ def test_remove_analysis(mock_redis, sample_vcon):
 @patch('server.links.diet.redis')
 def test_remove_attachment_types(mock_redis, sample_vcon):
     # Test removing attachments by type
-    mock_redis.get.return_value = json.dumps(sample_vcon)
+    # Set up mock for redis.json()
+    mock_json = MagicMock()
+    mock_redis.json.return_value = mock_json
+    mock_json.get.return_value = sample_vcon
     
     run("test-vcon-123", "diet", {"remove_attachment_types": ["image/jpeg", "audio/mp3"]})
     
-    # Get the saved vCon
-    args, kwargs = mock_redis.set.call_args
-    saved_vcon = json.loads(args[1])
+    # Verify JSON.SET was called with the correct parameters
+    mock_json.set.assert_called_once()
+    # Get the saved vCon from the call arguments
+    args, kwargs = mock_json.set.call_args
+    saved_vcon = args[2]  # The vcon is the third argument to json().set()
     
     # Check if attachments were filtered correctly
     assert len(saved_vcon["attachments"]) == 1
@@ -167,13 +196,18 @@ def test_remove_attachment_types(mock_redis, sample_vcon):
 @patch('server.links.diet.redis')
 def test_remove_system_prompts(mock_redis, sample_vcon):
     # Test removing system_prompt keys
-    mock_redis.get.return_value = json.dumps(sample_vcon)
+    # Set up mock for redis.json()
+    mock_json = MagicMock()
+    mock_redis.json.return_value = mock_json
+    mock_json.get.return_value = sample_vcon
     
     run("test-vcon-123", "diet", {"remove_system_prompts": True})
     
-    # Get the saved vCon
-    args, kwargs = mock_redis.set.call_args
-    saved_vcon = json.loads(args[1])
+    # Verify JSON.SET was called with the correct parameters
+    mock_json.set.assert_called_once()
+    # Get the saved vCon from the call arguments
+    args, kwargs = mock_json.set.call_args
+    saved_vcon = args[2]  # The vcon is the third argument to json().set()
     
     # Check if system_prompt was removed from analysis
     assert "system_prompt" not in saved_vcon["analysis"]
@@ -211,7 +245,10 @@ def test_remove_system_prompts_recursive_function():
 @patch('server.links.diet.redis')
 def test_combined_options(mock_redis, sample_vcon):
     # Test all options together
-    mock_redis.get.return_value = json.dumps(sample_vcon)
+    # Set up mock for redis.json()
+    mock_json = MagicMock()
+    mock_redis.json.return_value = mock_json
+    mock_json.get.return_value = sample_vcon
     
     run("test-vcon-123", "diet", {
         "remove_dialog_body": True,
@@ -220,13 +257,15 @@ def test_combined_options(mock_redis, sample_vcon):
         "remove_system_prompts": True
     })
     
-    # Get the saved vCon
-    args, kwargs = mock_redis.set.call_args
-    saved_vcon = json.loads(args[1])
+    # Verify JSON.SET was called with the correct parameters
+    mock_json.set.assert_called_once()
+    # Get the saved vCon from the call arguments
+    args, kwargs = mock_json.set.call_args
+    saved_vcon = args[2]  # The vcon is the third argument to json().set()
     
     # Check that all transformations were applied
-    assert saved_vcon["dialogs"][0]["body"] == ""
-    assert saved_vcon["dialogs"][1]["body"] == ""
+    assert saved_vcon["dialog"][0]["body"] == ""
+    assert saved_vcon["dialog"][1]["body"] == ""
     assert "analysis" not in saved_vcon
     assert len(saved_vcon["attachments"]) == 2
     assert saved_vcon["attachments"][0]["id"] == "att2"
