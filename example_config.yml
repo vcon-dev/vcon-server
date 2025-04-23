@@ -52,6 +52,18 @@ storages:
       aws_access_key_id: some_key
       aws_secret_access_key: some_secret
       aws_bucket: some_bucket
+  milvus:
+    module: storage.milvus
+    options:
+      host: "localhost"
+      port: "19530"
+      collection_name: "vcons"
+      embedding_model: "text-embedding-3-small"
+      embedding_dim: 1536
+      api_key: "your-openai-api-key"
+      organization: ""
+      create_collection_if_missing: true
+      skip_if_exists: true
 chains:
   sample_chain:
     links:
@@ -65,6 +77,7 @@ chains:
     - mongo
     - postgres
     - s3
+    - milvus
     egress_lists:
     - test_output
     enabled: 1
