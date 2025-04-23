@@ -19,7 +19,7 @@ def sample_vcon():
     vcon = Vcon.build_new()
     
     # Add metadata
-    vcon.metadata = {
+    vcon.vcon_dict["metadata"] = {
         "title": "Test Call",
         "description": "This is a test call",
         "created_at": "2023-01-01T12:00:00.000Z"
@@ -45,6 +45,7 @@ def sample_vcon():
     # Add analysis - transcript
     vcon.add_analysis(
         type="transcript",
+        dialog=0,  # Add dialog index for the first dialog
         vendor="test",
         body={"text": "This is a transcript of the conversation."}
     )
@@ -52,6 +53,7 @@ def sample_vcon():
     # Add analysis - summary
     vcon.add_analysis(
         type="summary",
+        dialog=0,  # Add dialog index for the first dialog
         vendor="test",
         body="This is a summary of the call between an agent and a customer."
     )
@@ -174,41 +176,47 @@ def test_check_vcon_exists(mock_milvus):
 @patch('server.storage.milvus.extract_text_from_vcon')
 @patch('server.storage.milvus.extract_party_id')
 @patch('server.storage.milvus.get_embedding')
-def test_save(mock_get_embedding, mock_extract_party_id, mock_extract_text, 
-              mock_vcon_redis, mock_milvus, mock_openai, sample_vcon):
+def test_save(mock_get_embedding, mock_extract_party_id, mock_extract_text,
+              mock_milvus, mock_openai, mock_vcon_redis, sample_vcon):
     """Test saving a vCon to Milvus."""
     # Setup mocks
     mock_extract_text.return_value = "Extracted text content"
     mock_extract_party_id.return_value = "tel:+1234567890"
     mock_get_embedding.return_value = [0.1] * 1536
+
+    # Configure mock Redis to return sample_vcon for test-uuid
+    mock_instance = mock_vcon_redis.return_value
+    mock_instance.get_vcon.return_value = sample_vcon
     
-    # Test options
-    test_options = {
-        "host": "localhost",
-        "port": "19530",
-        "collection_name": "vcons",
-        "embedding_model": "text-embedding-3-small",
-        "embedding_dim": 1536,
-        "api_key": "test-api-key",
-        "organization": "test-org"
-    }
-    
-    # Call save
-    save("test-uuid", test_options)
-    
-    # Verify milvus operations
-    mock_milvus['collection'].load.assert_called()
-    mock_milvus['collection'].insert.assert_called()
-    mock_milvus['collection'].flush.assert_called()
-    
-    # Verify data passed to insert
-    insert_args = mock_milvus['collection'].insert.call_args[0][0]
-    assert len(insert_args) == 1
-    assert insert_args[0]["vcon_uuid"] == "test-uuid"
-    assert insert_args[0]["party_id"] == "tel:+1234567890"
-    assert insert_args[0]["text"] == "Extracted text content"
-    assert len(insert_args[0]["embedding"]) == 1536
-    
+    # Also patch VconRedis to ensure our mock is used
+    with patch('server.storage.milvus.VconRedis', return_value=mock_instance):
+        # Test options
+        test_options = {
+            "host": "localhost",
+            "port": "19530",
+            "collection_name": "vcons",
+            "embedding_model": "text-embedding-3-small",
+            "embedding_dim": 1536,
+            "api_key": "test-api-key",
+            "organization": "test-org"
+        }
+
+        # Call save
+        save("test-uuid", test_options)
+        
+        # Verify milvus operations
+        mock_milvus['collection'].load.assert_called()
+        mock_milvus['collection'].insert.assert_called()
+        mock_milvus['collection'].flush.assert_called()
+        
+        # Verify data passed to insert
+        insert_args = mock_milvus['collection'].insert.call_args[0][0]
+        assert len(insert_args) == 1
+        assert insert_args[0]["vcon_uuid"] == "test-uuid"
+        assert insert_args[0]["party_id"] == "tel:+1234567890"
+        assert insert_args[0]["text"] == "Extracted text content"
+        assert len(insert_args[0]["embedding"]) == 1536
+
 @patch('server.storage.milvus.ensure_milvus_connection')
 def test_get_vcon_from_milvus(mock_ensure_connection, mock_milvus):
     """Test retrieving a vCon from Milvus."""
