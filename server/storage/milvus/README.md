@@ -29,16 +29,83 @@ storages:
   milvus:
     module: storage.milvus
     options:
+      # Connection settings
       host: "localhost"                  # Milvus server host
       port: "19530"                      # Milvus server port
       collection_name: "vcons"           # Name of the collection in Milvus
+      
+      # Embedding settings
       embedding_model: "text-embedding-3-small"  # OpenAI embedding model
       embedding_dim: 1536                # Dimensions for the chosen model
       api_key: "your-openai-api-key"     # Your OpenAI API key
       organization: "your-org-id"        # Optional: Your OpenAI organization ID
+      
+      # Operation settings
       create_collection_if_missing: true # Whether to create collection if it doesn't exist
       skip_if_exists: true               # Skip storing vCons that already exist
+      
+      # Vector index settings (optional, shown are defaults)
+      index_type: "IVF_FLAT"             # Vector index type
+      metric_type: "L2"                  # Distance metric type
+      nlist: 128                         # Number of clusters for IVF indexes
 ```
+
+### Vector Index Types
+
+The module supports different vector index types with appropriate parameters:
+
+#### IVF_FLAT (Default)
+Good balance of search accuracy and speed. Uses more storage but gives exact results within each cluster.
+
+```yaml
+index_type: "IVF_FLAT"  
+metric_type: "L2"       # Or "IP" for inner product, or "COSINE"
+nlist: 128              # Number of clusters, higher values = faster search but less accurate
+```
+
+#### IVF_SQ8
+Similar to IVF_FLAT but with scalar quantization (8-bit) to reduce memory usage. Good for large datasets.
+
+```yaml
+index_type: "IVF_SQ8"
+metric_type: "L2"
+nlist: 128
+```
+
+#### IVF_PQ
+Product Quantization for maximum memory optimization. Sacrifices some accuracy for much smaller index size.
+
+```yaml
+index_type: "IVF_PQ"
+metric_type: "L2"
+nlist: 128
+pq_m: 8                 # Number of sub-quantizers
+pq_nbits: 8             # Bit depth per quantizer
+```
+
+#### HNSW
+Hierarchical Navigable Small World graph index. Very fast for searching, especially with smaller datasets.
+
+```yaml
+index_type: "HNSW"
+metric_type: "L2"
+m: 16                   # Number of edges per node
+ef_construction: 200    # Size of the dynamic candidate list during construction
+```
+
+#### FLAT
+The simplest index that compares to every vector. Most accurate but slowest for large datasets.
+
+```yaml
+index_type: "FLAT"
+metric_type: "L2"
+```
+
+### Distance Metrics
+
+- `L2`: Euclidean distance (default). Good for most embeddings including OpenAI embeddings.
+- `IP`: Inner product. Use when vectors are normalized and you want to measure closeness.
+- `COSINE`: Cosine similarity. Good for measuring the angle between vectors regardless of magnitude.
 
 ## Searching vCons in Milvus
 

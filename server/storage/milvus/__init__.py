@@ -33,6 +33,11 @@ default_options = {
     "organization": None,  # OpenAI organization ID
     "create_collection_if_missing": False,  # Whether to create collection if it doesn't exist
     "skip_if_exists": True,  # Skip storing vCons that already exist in Milvus
+    "index_type": "IVF_FLAT",  # Vector index type: IVF_FLAT, IVF_SQ8, IVF_PQ, HNSW, ANNOY, etc.
+    "metric_type": "L2",   # Distance metric: L2 (Euclidean), IP (Inner Product), COSINE
+    "nlist": 128,          # Number of clusters for IVF indexes
+    "m": 16,               # HNSW parameter: number of edges per node
+    "ef_construction": 200, # HNSW parameter: size of the dynamic candidate list during construction
 }
 
 def ensure_milvus_connection(host: str, port: str) -> bool:
@@ -266,13 +271,14 @@ def extract_party_id(vcon: dict) -> str:
     logger.debug("No usable party identifier found")
     return "unknown_party"
 
-def create_collection(collection_name: str, embedding_dim: int) -> Union[Collection, None]:
+def create_collection(collection_name: str, embedding_dim: int, opts: dict) -> Union[Collection, None]:
     """
     Create a new Milvus collection for vCons.
     
     Args:
         collection_name: Name for the new collection
         embedding_dim: Dimension of the embedding vectors
+        opts: Configuration options including index parameters
         
     Returns:
         Collection or None: The created collection or None if failed
@@ -301,15 +307,53 @@ def create_collection(collection_name: str, embedding_dim: int) -> Union[Collect
         # Create collection
         collection = Collection(name=collection_name, schema=schema)
         
-        # Create an IVF_FLAT index for fast vector search
+        # Prepare index parameters based on the selected index type
+        index_type = opts.get("index_type", "IVF_FLAT")
+        metric_type = opts.get("metric_type", "L2")
+        
+        # Configure index parameters based on index type
+        if index_type.startswith("IVF"):  # IVF_FLAT, IVF_SQ8, IVF_PQ
+            params = {"nlist": opts.get("nlist", 128)}
+            
+            # Additional params for IVF_PQ
+            if index_type == "IVF_PQ":
+                # For PQ, m is typically set to 8 or 12
+                params["m"] = opts.get("pq_m", 8)
+                # nbits is typically 8
+                params["nbits"] = opts.get("pq_nbits", 8)
+                
+        elif index_type == "HNSW":
+            params = {
+                "M": opts.get("m", 16),  # Number of edges per node
+                "efConstruction": opts.get("ef_construction", 200)  # Size of the dynamic candidate list during construction
+            }
+            
+        elif index_type == "ANNOY":
+            params = {
+                "n_trees": opts.get("n_trees", 50)  # Number of trees for ANNOY
+            }
+            
+        elif index_type == "FLAT":
+            # FLAT index doesn't need additional parameters
+            params = {}
+            
+        else:
+            # Default to IVF_FLAT if index type is not recognized
+            logger.warning(f"Unrecognized index type {index_type}, defaulting to IVF_FLAT")
+            index_type = "IVF_FLAT"
+            params = {"nlist": opts.get("nlist", 128)}
+        
+        # Create the index
         index_params = {
-            "metric_type": "L2",
-            "index_type": "IVF_FLAT",
-            "params": {"nlist": 128}
+            "metric_type": metric_type,
+            "index_type": index_type,
+            "params": params
         }
+        
+        logger.info(f"Creating index of type {index_type} with metric {metric_type}")
         collection.create_index(field_name="embedding", index_params=index_params)
         
-        logger.info(f"Created collection '{collection_name}' successfully")
+        logger.info(f"Created collection '{collection_name}' successfully with {index_type} index")
         return collection
     except Exception as e:
         logger.error(f"Failed to create collection: {e}")
@@ -368,7 +412,7 @@ def save(vcon_uuid: str, opts=default_options) -> None:
     if not utility.has_collection(collection_name):
         if opts["create_collection_if_missing"]:
             logger.info(f"Collection {collection_name} does not exist, creating...")
-            collection = create_collection(collection_name, opts["embedding_dim"])
+            collection = create_collection(collection_name, opts["embedding_dim"], opts)
             if not collection:
                 error_msg = f"Failed to create collection {collection_name}"
                 logger.error(error_msg)
