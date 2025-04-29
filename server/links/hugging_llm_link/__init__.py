@@ -155,8 +155,9 @@ class LocalHuggingFaceLLM(BaseLLM):
     def __init__(self, config: LLMConfig):
         super().__init__(config)
         logger.info(f"Initializing local model: {self.config.model}")
-        device = "cuda" if transformers.is_torch_available() else "cpu"
+        device = "cpu"  # Always use CPU for local models
         logger.info(f"Using device: {device}")
+        logger.info("Using local model")
         self.pipeline = transformers.pipeline(
             "text-generation",
             model=self.config.model,
