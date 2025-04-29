@@ -268,3 +268,44 @@ vcon-server-conserver-1  | {"asctime": "2024-08-23 17:27:22,240", "levelname": "
 ```
 
 The [vCon admin program](https://github.com/vcon-dev/vcon-admin) is a nice tool for managing the conserver.&#x20;
+
+## Storage Modules
+
+### Milvus Vector Database Storage
+
+The vcon-server includes support for storing vCons in Milvus, a vector database that enables semantic search across vCon content. This is particularly useful for finding conversations based on meaning rather than exact keyword matches.
+
+To set up Milvus storage:
+
+1. Install the required packages:
+   ```bash
+   poetry add pymilvus>=2.3.0 openai>=1.54.3 python-dateutil
+   ```
+
+2. Add Milvus storage configuration to your config.yml:
+   ```yaml
+   storages:
+     milvus:
+       module: storage.milvus
+       options:
+         host: "localhost"                  # Milvus server host
+         port: "19530"                      # Milvus server port
+         collection_name: "vcons"           # Name of collection in Milvus
+         embedding_model: "text-embedding-3-small"  # OpenAI embedding model
+         embedding_dim: 1536                # Dimensions for the embedding model
+         api_key: "your-openai-api-key"     # Your OpenAI API key
+         organization: "your-org-id"        # Optional: Your OpenAI organization ID
+         create_collection_if_missing: true # Auto-create collection if needed
+   ```
+
+3. Include the Milvus storage in your processing chain:
+   ```yaml
+   chains:
+     main_chain:
+       # ... other configuration ...
+       storages:
+         - milvus
+         # ... other storages ...
+   ```
+
+See the [Milvus Storage Module README](server/storage/milvus/README.md) for more details on configuration and usage.
