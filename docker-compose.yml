@@ -72,6 +72,8 @@ services:
 
   datadog-agent:
     image: "datadog/agent:latest"
+    profiles:
+      - datadog
     environment:
       - DD_API_KEY=${DD_API_KEY}
       - DD_SITE=${DD_SITE:-datadoghq.com}
