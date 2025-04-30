@@ -1,6 +1,7 @@
 import os
 import paramiko
-
+import json
+from typing import Optional
 
 from lib.logging_utils import init_logger
 from datetime import datetime
@@ -56,3 +57,41 @@ def save(
     finally:
         sftp.close()
         transport.close()
+
+def get(vcon_uuid: str, opts=default_options) -> Optional[dict]:
+    """Get a vCon from SFTP storage by UUID."""
+    try:
+        transport = paramiko.Transport((opts["url"], opts["port"]))
+        transport.connect(username=opts["username"], password=opts["password"])
+        sftp = paramiko.SFTPClient.from_transport(transport)
+
+        try:
+            # List files in the directory
+            files = sftp.listdir(opts["path"])
+            
+            # Filter files matching our pattern
+            base_name = opts["filename"]
+            ext = opts["extension"]
+            matching_files = [f for f in files if f.startswith(base_name) and f.endswith(f".{ext}")]
+            
+            if not matching_files:
+                return None
+                
+            # Get the most recent file
+            latest_file = max(matching_files)
+            
+            # Create a temporary file to store the content
+            import tempfile
+            with tempfile.NamedTemporaryFile() as temp_file:
+                sftp.get(os.path.join(opts["path"], latest_file), temp_file.name)
+                with open(temp_file.name, 'r') as f:
+                    return json.loads(f.read())
+                    
+        finally:
+            sftp.close()
+            transport.close()
+            
+    except Exception as e:
+        logger.error(f"sftp storage plugin: failed to get vCon: {vcon_uuid}, error: {e}")
+        return None
+

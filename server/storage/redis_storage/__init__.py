@@ -1,3 +1,5 @@
+import json
+from typing import Optional
 from redis_mgr import redis
 from server.lib.vcon_redis import VconRedis
 from lib.logging_utils import init_logger
@@ -27,3 +29,14 @@ def save(
             f"redis storage plugin: failed to insert vCon: {vcon_uuid}, error: {e} "
         )
         raise e
+
+def get(vcon_uuid: str, opts=default_options) -> Optional[dict]:
+    """Get a vCon from Redis by UUID."""
+    try:
+        data = redis.get(f"{opts['prefix']}:{vcon_uuid}")
+        if data:
+            return json.loads(data)
+        return None
+    except Exception as e:
+        logger.error(f"redis storage plugin: failed to get vCon: {vcon_uuid}, error: {e}")
+        return None

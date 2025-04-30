@@ -4,6 +4,7 @@ import logging
 import elasticsearch
 import json
 import os
+from typing import Optional
 
 
 logger = init_logger(__name__)

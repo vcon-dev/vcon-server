@@ -1,3 +1,7 @@
+import os
+import json
+from glob import glob
+from typing import Optional
 from lib.logging_utils import init_logger
 from server.lib.vcon_redis import VconRedis
 from datetime import datetime
@@ -35,3 +39,28 @@ def save(
             f"file storage plugin: failed to insert vCon: {vcon_uuid}, error: {e} "
         )
         raise e
+
+def get(vcon_uuid: str, opts=default_options) -> Optional[dict]:
+    """Get a vCon from file storage by UUID."""
+    try:
+        # Since files are saved with timestamps, we need to find the latest file
+        base_path = opts['path']
+        base_name = opts['filename']
+        ext = opts['extension']
+        
+        # Look for files matching the pattern
+        pattern = f"{base_path}/{base_name}*.{ext}"
+        matching_files = glob(pattern)
+        
+        if not matching_files:
+            return None
+            
+        # Get the most recent file
+        latest_file = max(matching_files, key=os.path.getctime)
+        
+        with open(latest_file, 'r') as f:
+            return json.loads(f.read())
+            
+    except Exception as e:
+        logger.error(f"file storage plugin: failed to get vCon: {vcon_uuid}, error: {e}")
+        return None

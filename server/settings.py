@@ -31,5 +31,11 @@ VCON_SORTED_SET_NAME = os.getenv("VCON_SORTED_SET_NAME", "vcons")
 # Index expiration time in seconds (default 1 day)
 VCON_INDEX_EXPIRY = int(os.getenv("VCON_INDEX_EXPIRY", 86400))
 
+# Redis expiration time in seconds (default 1 hour)
+# When a vCon is fetched from a storage backend because it's not in Redis,
+# it will be stored back in Redis with this expiration time.
+# This improves performance for subsequent requests for the same vCon.
+VCON_REDIS_EXPIRY = int(os.getenv("VCON_REDIS_EXPIRY", 3600))
+
 CONSERVER_CONFIG_FILE = os.getenv("CONSERVER_CONFIG_FILE", "./example_config.yml")
 API_ROOT_PATH = os.getenv("API_ROOT_PATH", "/api")

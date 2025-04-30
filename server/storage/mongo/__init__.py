@@ -1,6 +1,6 @@
 import pymongo
 from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 from lib.logging_utils import init_logger
 from server.lib.vcon_redis import VconRedis
@@ -189,4 +189,14 @@ def exists(vcon_uuid: str, opts: Dict[str, str] = default_options) -> bool:
             exc_info=True
         )
         raise
+
+
+def get(vcon_uuid: str, opts: Dict[str, str] = default_options) -> Optional[dict]:
+    """Get a vCon from MongoDB by UUID."""
+    try:
+        vcon = fetch(vcon_uuid, opts)
+        return vcon.to_dict() if vcon else None
+    except Exception as e:
+        logger.error(f"mongodb storage plugin: failed to get vCon: {vcon_uuid}, error: {e}")
+        return None
 
