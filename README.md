@@ -1,42 +1,116 @@
+# 🐰 vCon Server
 
-# 🐰 Conserver Quick Start
+vCon Server is a powerful conversation processing and storage system that enables advanced analysis and management of conversation data. It provides a flexible pipeline for processing, storing, and analyzing conversations through various modules and integrations.
 
-## Ubuntu Install&#x20;
+## Table of Contents
+- [🐰 vCon Server](#-vcon-server)
+  - [Table of Contents](#table-of-contents)
+  - [Prerequisites](#prerequisites)
+  - [Quick Start](#quick-start)
+  - [Installation](#installation)
+    - [Manual Installation](#manual-installation)
+    - [Automated Installation](#automated-installation)
+  - [Configuration](#configuration)
+    - [Environment Variables](#environment-variables)
+    - [Configuration File](#configuration-file)
+  - [Deployment](#deployment)
+    - [Docker Deployment](#docker-deployment)
+    - [Scaling](#scaling)
+  - [Storage Modules](#storage-modules)
+    - [PostgreSQL Storage](#postgresql-storage)
+    - [S3 Storage](#s3-storage)
+    - [Elasticsearch Storage](#elasticsearch-storage)
+    - [Milvus Vector Database Storage](#milvus-vector-database-storage)
+  - [Monitoring and Logging](#monitoring-and-logging)
+  - [Troubleshooting](#troubleshooting)
+  - [License](#license)
 
-Based on a digital ocean install, to keep it vanilla. Created a 4 GB Memory / 2 Intel vCPUs / 120 GB Disk / NYC3 - Ubuntu 23.04 x64 droplet, logged in.
+## Prerequisites
+
+- Docker and Docker Compose
+- Git
+- Python 3.12 or higher (for local development)
+- Poetry (for local development)
+
+## Quick Start
+
+For a quick start using the automated installation script:
 
 ```bash
-snap install docker
-git clone https://github.com/vcon-dev/vcon.git
-cd vcon/
-git submodule sync
-git submodule update --init --recursive
+# Download the installation script
+curl -O https://raw.githubusercontent.com/vcon-dev/vcon-server/main/scripts/install_conserver.sh
+chmod +x install_conserver.sh
+
+# Run the installation script
+sudo ./install_conserver.sh --domain your-domain.com --email your-email@example.com
 ```
 
-Create an \~/vcon/.env file for some of the global environmental stuff.  See example .env below.
+## Installation
 
-## Conserver Start
+### Manual Installation
 
-The conserver repo can be downloaded directly, but is also included in the vcon repo as a sub-repo in the von-server directory.
-
+1. Clone the repository:
 ```bash
+git clone https://github.com/vcon-dev/vcon-server.git
 cd vcon-server
 ```
 
-Secrets for the conserver are kept in the .env file at the root of the vcon\_server directory.&#x20;
-
-## Example vcon-server/.env file
-
+2. Create and configure the environment file:
 ```bash
-
-REDIS_URL=redis://redis
-CONSERVER_API_TOKEN=1111111
-CONSERVER_CONFIG_FILE=./config.yml
+cp .env.example .env
+# Edit .env with your configuration
 ```
 
-Create a new config file in the server directory
+3. Create the Docker network:
+```bash
+docker network create conserver
+```
 
-## Example vcon-server/config.yml
+4. Build and start the services:
+```bash
+docker compose build
+docker compose up -d
+```
+
+### Automated Installation
+
+The repository includes an automated installation script that handles the complete setup process. The script:
+
+- Installs required dependencies
+- Sets up Docker and Docker Compose
+- Configures the environment
+- Deploys the services
+- Sets up monitoring
+
+To use the automated installation:
+
+```bash
+./scripts/install_conserver.sh --domain your-domain.com --email your-email@example.com [--token YOUR_API_TOKEN]
+```
+
+Options:
+- `--domain`: Your domain name (required)
+- `--email`: Email for DNS registration (required)
+- `--token`: API token (optional, generates random token if not provided)
+
+## Configuration
+
+### Environment Variables
+
+Create a `.env` file in the root directory with the following variables:
+
+```bash
+REDIS_URL=redis://redis
+CONSERVER_API_TOKEN=your_api_token
+CONSERVER_CONFIG_FILE=./config.yml
+GROQ_API_KEY=your_groq_api_key
+DNS_HOST=your-domain.com
+DNS_REGISTRATION_EMAIL=your-email@example.com
+```
+
+### Configuration File
+
+The `config.yml` file defines the processing pipeline, storage options, and chain configurations. Here's an example configuration:
 
 ```yaml
 links:
@@ -45,267 +119,173 @@ links:
     options:
       webhook-urls:
         - https://example.com/conserver
-  expire_vcon:
-    module: links.expire_vcon
-    options:
-      seconds: 604800
-  expire_vcon_in_10_minutes:
-    module: links.expire_vcon
-    options:
-      seconds: 600 
   deepgram:
     module: links.deepgram
     options:
-      DEEPGRAM_KEY: xxxxxxxxxxxx
+      DEEPGRAM_KEY: your_deepgram_key
       minimum_duration: 30
       api:
         model: "nova-2"
-        smart_format: true  
+        smart_format: true
         detect_language: true
   summarize:
     module: links.analyze
     options:
-      OPENAI_API_KEY: xxxxx
-      prompt: "Summarize this transcript in a few sentences, identify the purpose and the parties of the conversation. Mention if there was a voicemail or if the customer and agent spoke."
+      OPENAI_API_KEY: your_openai_key
+      prompt: "Summarize this transcript..."
       analysis_type: summary
-      model: 'gpt-4o-mini'
-  sentiment:
-    module: links.analyze
-    options:
-      OPENAI_API_KEY: xxxx
-      prompt: "Based on this transcript - if the customer complained, if the customer said they were angry or disappointed, if the customer threatened or used profanity, respond with only the words 'NEEDS REVIEW', otherwise respond 'NO REVIEW NEEDED'."
-      analysis_type: customer_frustration
-      model: 'gpt-4o-mini'
-  diarize:
-    module: links.analyze
-    options:
-      OPENAI_API_KEY: xxxx
-      prompt: "Go step by step: 1. Diarize the conversation and also identify the Agent and the Customer and show the names along with it like Agent(Agent Name) and output in markdown and label each speaker in bold. Don't add any extra information except for the speakers. Don't add the word markdown. 2. If it's only one speaker, return the transcript. 3. If you can't diarize the transcript, return an empty string."
-      analysis_type: diarized
-      model: 'gpt-4o'
-  send_frustration_for_review:
-    module: links.post_analysis_to_slack
-    options:
-      token: xoxb-739777144080-xxxxxxxxxxx
-      default_channel_name: team-rainbow-alerts
-      url: "https:/www.moredetails.com/ca8ae4f5-0423-4b02-9975-42ed4e3eb155/latest"
-      analysis_to_post: summary
-      only_if: 
-        analysis_type: customer_frustration
-        includes: NEEDS REVIEW
+      model: 'gpt-4'
+
 storages:
   postgres:
     module: storage.postgres
     options:
       user: postgres
-      password: xxxxxxxx
-      host: xxxxxx.us-east-1.rds.amazonaws.com
+      password: your_password
+      host: your_host
       port: "5432"
       database: postgres
   s3:
     module: storage.s3
     options:
-      aws_access_key_id: xxxxx
-      aws_secret_access_key: xxxx
-      aws_bucket: vcons
-  elasticsearch:
-    module: storage.elasticsearch
-    options:
-      cloud_id: "xxxxx:xxxx=="
-      api_key: "xxxxxxx=="
-      index: vcon_index
+      aws_access_key_id: your_key
+      aws_secret_access_key: your_secret
+      aws_bucket: your_bucket
 
 chains:
-  bria_chain:
+  main_chain:
     links:
       - deepgram
       - summarize
-      - sentiment
-      - diarize
-      - agent_note
       - webhook_store_call_log
-      - send_frustration_for_review
-      - expire_vcon
-    ingress_lists:
-      - default_ingress
     storages:
       - postgres
       - s3
-      - elasticsearch
-    egress_lists:
-      - default_egress
     enabled: 1
-
-  volie_chain:
-    links:
-      - expire_vcon
-    ingress_lists:
-      - volie_ingress
-    storages:
-      - postgres
-      - s3
-    egress_lists:
-      - volie_egress
-    enabled: 1
-
-  elastic_only:
-    links:
-      - expire_vcon
-    ingress_lists:
-      - elastic_ingress
-    storages:
-      - elasticsearch
-
-  # This is to fix some old vcons (incorrect lead attachments and etc)
-  store_and_expire:
-    links:
-      - expire_vcon_in_10_minutes
-    ingress_lists:
-      - store_and_expire_ingress
-    storages:
-      - postgres
-      - s3
-      - elasticsearch
 ```
 
-### Start the Conserver
+## Deployment
+
+### Docker Deployment
+
+The system is containerized using Docker and can be deployed using Docker Compose:
 
 ```bash
-docker network create conserver
+# Build the containers
 docker compose build
+
+# Start the services
 docker compose up -d
+
+# Scale the conserver service
 docker compose up --scale conserver=4 -d
 ```
 
-## Troubleshooting and Checking
+### Scaling
 
-You can validate that the conserver is running on the command line using `docker ps`.
-In the example below, we can see four instances running.
+The system is designed to scale horizontally. The conserver service can be scaled to handle increased load:
 
-```output
-root@partner-demo:~/vcon/vcon-server# docker ps
-CONTAINER ID   IMAGE                      COMMAND                  CREATED         STATUS                   PORTS                                                 NAMES
-21bc6e3aacd7   vcon-server-conserver      "/app/docker/wait_fo…"   4 minutes ago   Up 4 minutes                                                                   vcon-server-conserver-4
-2e3a0341043d   vcon-server-conserver      "/app/docker/wait_fo…"   4 minutes ago   Up 4 minutes                                                                   vcon-server-conserver-2
-9c699287f035   vcon-server-conserver      "/app/docker/wait_fo…"   4 minutes ago   Up 4 minutes                                                                   vcon-server-conserver-3
-ffe6f68941c8   vcon-server-conserver      "/app/docker/wait_fo…"   5 minutes ago   Up 5 minutes                                                                   vcon-server-conserver-1
-8136e15912c5   vcon-server-api            "/app/docker/wait_fo…"   5 minutes ago   Up 5 minutes             0.0.0.0:8000->8000/tcp, :::8000->8000/tcp             vcon-server-api-1
-e3388b5f23be   redis/redis-stack:latest   "/entrypoint.sh"         5 minutes ago   Up 5 minutes (healthy)   6379/tcp, 0.0.0.0:8001->8001/tcp, :::8001->8001/tcp   vcon-server-redis-1
-root@partner-demo:~/vcon/vcon-server# 
+```bash
+docker compose up --scale conserver=4 -d
 ```
-
-You can see the operational logs using `docker compose logs -f`.
-Here's a typical log:
-
-```output
-vcon-server-redis-1      | 9:C 23 Aug 2024 17:27:20.581 # WARNING Memory overcommit must be enabled! Without it, a background save or replication may fail under low memory condition. Being disabled, it can also cause failures without low memory condition, see https://github.com/jemalloc/jemalloc/issues/1328. To fix this issue add 'vm.overcommit_memory = 1' to /etc/sysctl.conf and then reboot or run the command 'sysctl vm.overcommit_memory=1' for this to take effect.
-vcon-server-redis-1      | 9:C 23 Aug 2024 17:27:20.582 * oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
-vcon-server-redis-1      | 9:C 23 Aug 2024 17:27:20.582 * Redis version=7.4.0, bits=64, commit=00000000, modified=0, pid=9, just started
-vcon-server-redis-1      | 9:C 23 Aug 2024 17:27:20.582 * Configuration loaded
-vcon-server-redis-1      | 9:M 23 Aug 2024 17:27:20.582 * Increased maximum number of open files to 10032 (it was originally set to 1024).
-vcon-server-redis-1      | 9:M 23 Aug 2024 17:27:20.583 * monotonic clock: POSIX clock_gettime
-vcon-server-redis-1      | 9:M 23 Aug 2024 17:27:20.584 * Running mode=standalone, port=6379.
-vcon-server-redis-1      | 9:M 23 Aug 2024 17:27:20.586 * Module 'RedisCompat' loaded from /opt/redis-stack/lib/rediscompat.so
-vcon-server-redis-1      | 9:M 23 Aug 2024 17:27:20.614 * <search> Redis version found by RedisSearch : 7.4.0 - oss
-vcon-server-redis-1      | 9:M 23 Aug 2024 17:27:20.616 * <search> RediSearch version 2.10.5 (Git=2.10-e2f28a9)
-vcon-server-redis-1      | 9:M 23 Aug 2024 17:27:20.616 * <search> Low level api version 1 initialized successfully
-vcon-server-redis-1      | 9:M 23 Aug 2024 17:27:20.617 * <search> gc: ON, prefix min length: 2, min word length to stem: 4, prefix max expansions: 200, query timeout (ms): 500, timeout policy: return, cursor read size: 1000, cursor max idle (ms): 300000, max doctable size: 1000000, max number of search results:  10000, 
-vcon-server-redis-1      | 9:M 23 Aug 2024 17:27:20.620 * <search> Initialized thread pools!
-vcon-server-redis-1      | 9:M 23 Aug 2024 17:27:20.621 * <search> Enabled role change notification
-vcon-server-redis-1      | 9:M 23 Aug 2024 17:27:20.621 * Module 'search' loaded from /opt/redis-stack/lib/redisearch.so
-vcon-server-redis-1      | 9:M 23 Aug 2024 17:27:20.630 * <timeseries> RedisTimeSeries version 11202, git_sha=5643fd4d6fcb1e9cf084fb2deb9285b08f4a6672
-vcon-server-redis-1      | 9:M 23 Aug 2024 17:27:20.631 * <timeseries> Redis version found by RedisTimeSeries : 7.4.0 - oss
-vcon-server-redis-1      | 9:M 23 Aug 2024 17:27:20.631 * <timeseries> loaded default CHUNK_SIZE_BYTES policy: 4096
-vcon-server-redis-1      | 9:M 23 Aug 2024 17:27:20.631 * <timeseries> loaded server DUPLICATE_POLICY: block
-vcon-server-redis-1      | 9:M 23 Aug 2024 17:27:20.631 * <timeseries> loaded default IGNORE_MAX_TIME_DIFF: 0
-vcon-server-redis-1      | 9:M 23 Aug 2024 17:27:20.631 * <timeseries> loaded default IGNORE_MAX_VAL_DIFF: 0.000000
-vcon-server-redis-1      | 9:M 23 Aug 2024 17:27:20.631 * <timeseries> Setting default series ENCODING to: compressed
-vcon-server-redis-1      | 9:M 23 Aug 2024 17:27:20.631 * <timeseries> Detected redis oss
-vcon-server-redis-1      | 9:M 23 Aug 2024 17:27:20.631 * Module 'timeseries' loaded from /opt/redis-stack/lib/redistimeseries.so
-vcon-server-redis-1      | 9:M 23 Aug 2024 17:27:20.639 * <ReJSON> Created new data type 'ReJSON-RL'
-vcon-server-redis-1      | 9:M 23 Aug 2024 17:27:20.639 * <ReJSON> version: 20803 git sha: unknown branch: unknown
-vcon-server-redis-1      | 9:M 23 Aug 2024 17:27:20.639 * <ReJSON> Exported RedisJSON_V1 API
-vcon-server-redis-1      | 9:M 23 Aug 2024 17:27:20.639 * <ReJSON> Exported RedisJSON_V2 API
-vcon-server-redis-1      | 9:M 23 Aug 2024 17:27:20.639 * <ReJSON> Exported RedisJSON_V3 API
-vcon-server-redis-1      | 9:M 23 Aug 2024 17:27:20.639 * <ReJSON> Exported RedisJSON_V4 API
-vcon-server-redis-1      | 9:M 23 Aug 2024 17:27:20.639 * <ReJSON> Exported RedisJSON_V5 API
-vcon-server-redis-1      | 9:M 23 Aug 2024 17:27:20.639 * <ReJSON> Enabled diskless replication
-vcon-server-redis-1      | 9:M 23 Aug 2024 17:27:20.639 * Module 'ReJSON' loaded from /opt/redis-stack/lib/rejson.so
-vcon-server-redis-1      | 9:M 23 Aug 2024 17:27:20.639 * <search> Acquired RedisJSON_V5 API
-vcon-server-redis-1      | 9:M 23 Aug 2024 17:27:20.641 * <bf> RedisBloom version 2.8.2 (Git=unknown)
-vcon-server-redis-1      | 9:M 23 Aug 2024 17:27:20.641 * Module 'bf' loaded from /opt/redis-stack/lib/redisbloom.so
-vcon-server-redis-1      | 9:M 23 Aug 2024 17:27:20.648 * <redisgears_2> Created new data type 'GearsType'
-vcon-server-redis-1      | 9:M 23 Aug 2024 17:27:20.650 * <redisgears_2> Detected redis oss
-vcon-server-redis-1      | 9:M 23 Aug 2024 17:27:20.652 # <redisgears_2> could not initialize RedisAI_InitError
-vcon-server-redis-1      | 
-vcon-server-redis-1      | 
-vcon-server-redis-1      | 9:M 23 Aug 2024 17:27:20.652 * <redisgears_2> Failed loading RedisAI API.
-vcon-server-redis-1      | 9:M 23 Aug 2024 17:27:20.652 * <redisgears_2> RedisGears v2.0.20, sha='9b737886bf825fe29ddc2f8da81f73cbe0b4e858', build_type='release', built_for='Linux-ubuntu22.04.x86_64', redis_version:'7.4.0', enterprise:'false'.
-vcon-server-redis-1      | 9:M 23 Aug 2024 17:27:20.657 * <redisgears_2> Registered backend: js.
-vcon-server-redis-1      | 9:M 23 Aug 2024 17:27:20.657 * Module 'redisgears_2' loaded from /opt/redis-stack/lib/redisgears.so
-vcon-server-redis-1      | 9:M 23 Aug 2024 17:27:20.657 * Server initialized
-vcon-server-redis-1      | 9:M 23 Aug 2024 17:27:20.657 * Ready to accept connections tcp
-vcon-server-conserver-2  | Redis is ready!
-vcon-server-conserver-2  | Redis is ready. Starting the dependent service...
-vcon-server-conserver-2  | {"asctime": "2024-08-23 17:28:24,696", "levelname": "INFO", "name": "__main__", "message": "Starting main loop", "taskName": null}
-vcon-server-conserver-4  | Redis is ready!
-vcon-server-conserver-4  | Redis is ready. Starting the dependent service...
-vcon-server-conserver-4  | {"asctime": "2024-08-23 17:28:24,545", "levelname": "INFO", "name": "__main__", "message": "Starting main loop", "taskName": null}
-vcon-server-conserver-3  | Redis is ready!
-vcon-server-conserver-3  | Redis is ready. Starting the dependent service...
-vcon-server-conserver-3  | {"asctime": "2024-08-23 17:28:25,041", "levelname": "INFO", "name": "__main__", "message": "Starting main loop", "taskName": null}
-vcon-server-api-1        | Redis is ready!
-vcon-server-api-1        | Redis is ready. Starting the dependent service...
-vcon-server-api-1        | Skipping virtualenv creation, as specified in config file.
-vcon-server-api-1        | {"asctime": "2024-08-23 17:27:24,198", "levelname": "INFO", "name": "server.api", "message": "Api starting up", "taskName": "Task-1"}
-vcon-server-api-1        | {"asctime": "2024-08-23 17:27:24,226", "levelname": "INFO", "name": "uvicorn.error", "message": "Started server process [1]", "taskName": "Task-1", "color_message": "Started server process [\u001b[36m%d\u001b[0m]"}
-vcon-server-api-1        | {"asctime": "2024-08-23 17:27:24,226", "levelname": "INFO", "name": "uvicorn.error", "message": "Waiting for application startup.", "taskName": "Task-1"}
-vcon-server-api-1        | {"asctime": "2024-08-23 17:27:24,227", "levelname": "INFO", "name": "uvicorn.error", "message": "Application startup complete.", "taskName": "Task-1"}
-vcon-server-api-1        | {"asctime": "2024-08-23 17:27:24,227", "levelname": "INFO", "name": "uvicorn.error", "message": "Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)", "taskName": "Task-1", "color_message": "Uvicorn running on \u001b[1m%s://%s:%d\u001b[0m (Press CTRL+C to quit)"}
-vcon-server-conserver-1  | Redis is ready!
-vcon-server-conserver-1  | Redis is ready. Starting the dependent service...
-vcon-server-conserver-1  | {"asctime": "2024-08-23 17:27:22,240", "levelname": "INFO", "name": "__main__", "message": "Starting main loop", "taskName": null}
-```
-
-The [vCon admin program](https://github.com/vcon-dev/vcon-admin) is a nice tool for managing the conserver.&#x20;
 
 ## Storage Modules
 
+### PostgreSQL Storage
+
+```yaml
+storages:
+  postgres:
+    module: storage.postgres
+    options:
+      user: postgres
+      password: your_password
+      host: your_host
+      port: "5432"
+      database: postgres
+```
+
+### S3 Storage
+
+```yaml
+storages:
+  s3:
+    module: storage.s3
+    options:
+      aws_access_key_id: your_key
+      aws_secret_access_key: your_secret
+      aws_bucket: your_bucket
+```
+
+### Elasticsearch Storage
+
+```yaml
+storages:
+  elasticsearch:
+    module: storage.elasticsearch
+    options:
+      cloud_id: "your_cloud_id"
+      api_key: "your_api_key"
+      index: vcon_index
+```
+
 ### Milvus Vector Database Storage
 
-The vcon-server includes support for storing vCons in Milvus, a vector database that enables semantic search across vCon content. This is particularly useful for finding conversations based on meaning rather than exact keyword matches.
+For semantic search capabilities:
 
-To set up Milvus storage:
+```yaml
+storages:
+  milvus:
+    module: storage.milvus
+    options:
+      host: "localhost"
+      port: "19530"
+      collection_name: "vcons"
+      embedding_model: "text-embedding-3-small"
+      embedding_dim: 1536
+      api_key: "your-openai-api-key"
+      organization: "your-org-id"
+      create_collection_if_missing: true
+```
 
-1. Install the required packages:
-   ```bash
-   poetry add pymilvus>=2.3.0 openai>=1.54.3 python-dateutil
-   ```
+## Monitoring and Logging
 
-2. Add Milvus storage configuration to your config.yml:
-   ```yaml
-   storages:
-     milvus:
-       module: storage.milvus
-       options:
-         host: "localhost"                  # Milvus server host
-         port: "19530"                      # Milvus server port
-         collection_name: "vcons"           # Name of collection in Milvus
-         embedding_model: "text-embedding-3-small"  # OpenAI embedding model
-         embedding_dim: 1536                # Dimensions for the embedding model
-         api_key: "your-openai-api-key"     # Your OpenAI API key
-         organization: "your-org-id"        # Optional: Your OpenAI organization ID
-         create_collection_if_missing: true # Auto-create collection if needed
-   ```
+The system includes built-in monitoring through Datadog. Configure monitoring by setting the following environment variables:
 
-3. Include the Milvus storage in your processing chain:
-   ```yaml
-   chains:
-     main_chain:
-       # ... other configuration ...
-       storages:
-         - milvus
-         # ... other storages ...
-   ```
+```bash
+DD_API_KEY=your_datadog_api_key
+DD_SITE=datadoghq.com
+```
 
-See the [Milvus Storage Module README](server/storage/milvus/README.md) for more details on configuration and usage.
+View logs using:
+```bash
+docker compose logs -f
+```
+
+## Troubleshooting
+
+Common issues and solutions:
+
+1. Redis Connection Issues:
+   - Check if Redis container is running: `docker ps | grep redis`
+   - Verify Redis URL in .env file
+   - Check Redis logs: `docker compose logs redis`
+
+2. Service Scaling Issues:
+   - Ensure sufficient system resources
+   - Check network connectivity between containers
+   - Verify Redis connection for all instances
+
+3. Storage Module Issues:
+   - Verify credentials and connection strings
+   - Check storage service availability
+   - Review storage module logs
+
+For additional help, check the logs:
+```bash
+docker compose logs -f [service_name]
+```
+
+## License
+
+This project is licensed under the terms specified in the LICENSE file.
