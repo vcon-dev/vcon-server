@@ -1,22 +1,49 @@
-import datetime
-import logging
+"""FastAPI server implementation for the vCon API.
+
+This module implements a REST API for managing vCon (Voice Conversation) records.
+It provides endpoints for CRUD operations on vCons, chain management, configuration,
+and dead letter queue (DLQ) handling. The API uses Redis for primary storage and
+supports PostgreSQL as a secondary storage option.
+
+The API includes features for:
+- vCon management (create, read, update, delete)
+- Chain ingress/egress operations
+- Configuration management
+- Dead letter queue handling
+- Search functionality for vCons by various criteria
+"""
+
 import os
 import time
 import traceback
 from functools import wraps
 from typing import Dict, List, Optional
+<<<<<<< HEAD
 from uuid import UUID, uuid4
 
 # Third-party imports
 from fastapi import APIRouter, FastAPI, HTTPException, Query, Request, Response, Security
+=======
+from uuid import UUID
+import logging
+from datetime import datetime
+import traceback
+
+import yaml
+from fastapi import FastAPI, HTTPException, Query, Security, APIRouter
+>>>>>>> main
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security.api_key import APIKeyHeader
 from peewee import CharField, Model
-from playhouse.postgres_ext import BinaryJSONField, DateTimeField, PostgresqlExtDatabase, UUIDField
+from playhouse.postgres_ext import (
+    BinaryJSONField,
+    DateTimeField,
+    PostgresqlExtDatabase,
+    UUIDField,
+)
 from pydantic import BaseModel, ConfigDict
 from starlette.status import HTTP_403_FORBIDDEN
-import yaml
 
 # Local imports
 from config import Configuration
@@ -24,15 +51,17 @@ from dlq_utils import get_ingress_list_dlq_name
 from lib.logging_utils import init_logger
 import redis_mgr
 from settings import (
-    API_ROOT_PATH,
-    CONSERVER_API_TOKEN,
-    CONSERVER_API_TOKEN_FILE,
-    CONSERVER_HEADER_NAME,
     VCON_SORTED_SET_NAME,
     VCON_STORAGE,
+    CONSERVER_API_TOKEN,
+    CONSERVER_HEADER_NAME,
+    CONSERVER_API_TOKEN_FILE,
+    API_ROOT_PATH,
+    VCON_INDEX_EXPIRY,
 )
 from storage.base import Storage
 
+<<<<<<< HEAD
 # Initialize logger
 logger = init_logger(__name__)
 logger.setLevel(logging.INFO)
@@ -65,10 +94,17 @@ def log_performance(func):
             raise
     
     return wrapper
+=======
+# Initialize logging
+logger = init_logger(__name__)
+logger.info("API starting up")
+>>>>>>> main
 
+# Initialize FastAPI app with CORS middleware
 app = FastAPI(root_path=API_ROOT_PATH)
 api_key_header = APIKeyHeader(name=CONSERVER_HEADER_NAME, auto_error=False)
 
+<<<<<<< HEAD
 # Middleware for request/response logging
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
@@ -92,12 +128,16 @@ async def log_requests(request: Request, call_next):
         logger.exception(e)
         raise
 
+=======
+# Setup API key authentication
+>>>>>>> main
 api_keys = []
 if CONSERVER_API_TOKEN:
     api_keys.append(CONSERVER_API_TOKEN)
     logger.info("Adding CONSERVER_API_TOKEN to api_keys")
 
 if CONSERVER_API_TOKEN_FILE:
+<<<<<<< HEAD
     logger.info(f"Loading API keys from file: {CONSERVER_API_TOKEN_FILE}")
     try:
         # read the api keys from the file, one key per line
@@ -120,6 +160,33 @@ async def get_api_key(api_key_header: str = Security(api_key_header)):
     if not api_keys:
         logger.debug("Authentication skipped - no API keys configured")
         return
+=======
+    logger.info("Adding CONSERVER_API_TOKEN_FILE to api_keys")
+    # Read the API keys from file, one key per line
+    with open(CONSERVER_API_TOKEN_FILE, 'r') as file:
+        for line in file:
+            api_keys.append(line.strip())
+                    
+if not api_keys:
+    logger.info("No API keys found, skipping authentication")
+
+async def get_api_key(api_key_header: str = Security(api_key_header)) -> Optional[str]:
+    """Validate the API key from the request header.
+    
+    Args:
+        api_key_header: The API key from the request header
+        
+    Returns:
+        The validated API key if valid
+        
+    Raises:
+        HTTPException: If the API key is invalid
+    """
+    # If no API keys configured, skip authentication
+    if not api_keys:
+        logger.info("Skipping authentication")
+        return None
+>>>>>>> main
 
     if api_key_header not in api_keys:
         logger.warning(f"Authentication failed - invalid API key attempt from client")
@@ -129,6 +196,7 @@ async def get_api_key(api_key_header: str = Security(api_key_header)):
     return api_key_header
 
 
+<<<<<<< HEAD
 async def on_startup():
     logger.info("Server starting up - initializing services")
     try:
@@ -148,10 +216,24 @@ async def on_shutdown():
         logger.info("Redis connection closed successfully")
     except Exception as e:
         logger.error(f"Error during shutdown: {str(e)}")
+=======
+async def on_startup() -> None:
+    """Initialize Redis client on application startup."""
+    global redis_async
+    redis_async = await redis_mgr.get_async_client()
 
 
+async def on_shutdown() -> None:
+    """Close Redis client on application shutdown."""
+    await redis_async.close()
+>>>>>>> main
+
+
+# Register startup/shutdown handlers
 app.add_event_handler("startup", on_startup)
 app.add_event_handler("shutdown", on_shutdown)
+
+# Configure CORS middleware
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"]
 )
@@ -160,10 +242,25 @@ api_router = APIRouter()
 
 
 class Vcon(BaseModel):
+    """Pydantic model representing a vCon (Voice Conversation) record.
+    
+    Attributes:
+        vcon: The vCon version identifier
+        uuid: Unique identifier for the vCon
+        created_at: Timestamp when the vCon was created
+        subject: Optional subject/title of the conversation
+        redacted: Dictionary of redacted content
+        appended: Optional dictionary of appended content
+        group: List of group metadata
+        parties: List of conversation participants
+        dialog: List of conversation entries
+        analysis: List of analysis results
+        attachments: List of attached files/content
+    """
     model_config = ConfigDict(extra='allow')
     vcon: str
     uuid: UUID
-    created_at: datetime.datetime
+    created_at: datetime
     subject: Optional[str] = None
     redacted: dict = {}
     appended: Optional[dict] = None
@@ -175,8 +272,19 @@ class Vcon(BaseModel):
 
 
 if VCON_STORAGE:
-
     class VConPeeWee(Model):
+        """Peewee model for PostgreSQL storage of vCons.
+        
+        Attributes:
+            id: Primary key UUID
+            vcon: vCon version identifier
+            uuid: vCon UUID
+            created_at: Creation timestamp
+            updated_at: Last update timestamp
+            subject: Conversation subject
+            vcon_json: Full vCon JSON content
+            type: vCon type identifier
+        """
         id = UUIDField(primary_key=True)
         vcon = CharField()
         uuid = UUIDField()
@@ -191,6 +299,7 @@ if VCON_STORAGE:
             database = PostgresqlExtDatabase(VCON_STORAGE)
 
 
+<<<<<<< HEAD
 @log_performance
 async def add_vcon_to_set(vcon_uuid: UUID, timestamp: int):
     logger.debug(f"Adding vCon {vcon_uuid} to sorted set with timestamp {timestamp}")
@@ -203,6 +312,16 @@ async def add_vcon_to_set(vcon_uuid: UUID, timestamp: int):
     except Exception as e:
         logger.error(f"Failed to add vCon {vcon_uuid} to sorted set: {str(e)}")
         raise
+=======
+async def add_vcon_to_set(vcon_uuid: UUID, timestamp: int) -> None:
+    """Add a vCon to the sorted set in Redis.
+    
+    Args:
+        vcon_uuid: UUID of the vCon to add
+        timestamp: Unix timestamp to use as score
+    """
+    await redis_async.zadd(VCON_SORTED_SET_NAME, {vcon_uuid: timestamp})
+>>>>>>> main
 
 
 @api_router.get(
@@ -219,10 +338,32 @@ async def add_vcon_to_set(vcon_uuid: UUID, timestamp: int):
 )
 @log_performance
 async def get_vcons_uuids(
+<<<<<<< HEAD
     page: int = 1, size: int = 50, since: Optional[datetime.datetime] = None, until: Optional[datetime.datetime] = None
 ):
     logger.info(f"Getting vCon UUIDs - Page: {page}, Size: {size}, Since: {since}, Until: {until}")
     
+=======
+    page: int = Query(1, description="Page number for pagination"),
+    size: int = Query(50, description="Number of items per page"),
+    since: Optional[datetime] = Query(None, description="Filter vCons created after this date"),
+    until: Optional[datetime] = Query(None, description="Filter vCons created before this date")
+) -> List[str]:
+    """Get a paginated list of vCon UUIDs with optional date filtering.
+
+    Args:
+        page: The page number to retrieve (1-indexed)
+        size: Number of items per page
+        since: Optional datetime to filter vCons created after
+        until: Optional datetime to filter vCons created before
+
+    Returns:
+        List of vCon UUIDs as strings
+
+    Note:
+        Results are sorted in descending order by timestamp
+    """
+>>>>>>> main
     until_timestamp = "+inf"
     since_timestamp = "-inf"
 
@@ -231,6 +372,7 @@ async def get_vcons_uuids(
         logger.debug(f"Since timestamp: {since_timestamp}")
     if until:
         until_timestamp = int(until.timestamp())
+<<<<<<< HEAD
         logger.debug(f"Until timestamp: {until_timestamp}")
         
     offset = (page - 1) * size
@@ -255,22 +397,56 @@ async def get_vcons_uuids(
         logger.error(f"Error retrieving vCon UUIDs: {str(e)}")
         logger.exception(e)
         raise
+=======
+    
+    offset = (page - 1) * size
+    vcon_uuids = await redis_async.zrevrangebyscore(
+        VCON_SORTED_SET_NAME,
+        until_timestamp,
+        since_timestamp,
+        start=offset,
+        num=size,
+    )
+    logger.info(f"Returning {len(vcon_uuids)} vcon_uuids")
+
+    # Convert the vcon_uuids to strings and strip the vcon: prefix
+    return [vcon.split(":")[1] for vcon in vcon_uuids]
+>>>>>>> main
 
 
 @api_router.get(
     "/vcon/egress",
     status_code=204,
-    summary="Removes one or more vCon UUIDs from the output of a chain (egress)",
+    summary="Removes vCon UUIDs from a chain output",
     description="Removes one or more vCon UUIDs from the output of a chain (egress)",
     tags=["chain"],
 )
+<<<<<<< HEAD
 @log_performance
 async def get_vcon_egress(egress_list: str, limit: int = 1) -> JSONResponse:
     logger.info(f"Processing egress for list '{egress_list}' with limit {limit}")
     
+=======
+async def get_vcon_egress(
+    egress_list: str = Query(..., description="Name of the egress list to pop from"),
+    limit: int = Query(1, description="Maximum number of UUIDs to remove")
+) -> JSONResponse:
+    """Remove and return vCon UUIDs from a chain's egress list.
+
+    Args:
+        egress_list: Name of the Redis list to pop from
+        limit: Maximum number of UUIDs to remove (defaults to 1)
+
+    Returns:
+        JSONResponse containing list of removed vCon UUIDs
+
+    Raises:
+        HTTPException: If there is an error accessing Redis
+    """
+>>>>>>> main
     try:
         vcon_uuids = []
-        for i in range(limit):
+        for _ in range(limit):
             vcon_uuid = await redis_async.rpop(egress_list)
             if vcon_uuid:
                 vcon_uuids.append(vcon_uuid)
@@ -283,18 +459,24 @@ async def get_vcon_egress(egress_list: str, limit: int = 1) -> JSONResponse:
         return JSONResponse(content=vcon_uuids)
 
     except Exception as e:
+<<<<<<< HEAD
         logger.error(f"Error processing egress for list '{egress_list}': {str(e)}")
         logger.exception(e)
         raise HTTPException(status_code=500, detail=f"Error processing egress: {str(e)}")
+=======
+        logger.error(f"Error in get_vcon_egress: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to pop from egress list")
+>>>>>>> main
 
 
 @api_router.get(
     "/vcon/{vcon_uuid}",
     response_model=Vcon,
-    summary="Gets a particular vCon by UUID",
-    description="How to get a particular vCon by UUID",
+    summary="Gets a vCon by UUID",
+    description="Retrieve a specific vCon by its UUID",
     tags=["vcon"],
 )
+<<<<<<< HEAD
 @log_performance
 async def get_vcon(vcon_uuid: UUID):
     logger.info(f"Getting vCon with UUID: {vcon_uuid}")
@@ -329,15 +511,44 @@ async def get_vcon(vcon_uuid: UUID):
         logger.error(f"Error retrieving vCon {vcon_uuid}: {str(e)}")
         logger.exception(e)
         raise HTTPException(status_code=500, detail=f"Error retrieving vCon: {str(e)}")
+=======
+async def get_vcon(vcon_uuid: UUID) -> JSONResponse:
+    """Get a specific vCon by its UUID.
+
+    First attempts to retrieve from Redis, then falls back to configured storages
+    if not found in Redis.
+
+    Args:
+        vcon_uuid: UUID of the vCon to retrieve
+
+    Returns:
+        JSONResponse containing the vCon data if found
+
+    Raises:
+        HTTPException: If vCon is not found (404)
+    """
+    vcon = await redis_async.json().get(f"vcon:{str(vcon_uuid)}")
+    if not vcon:
+        for storage_name in Configuration.get_storages():
+            vcon = Storage(storage_name=storage_name).get(vcon_uuid)
+            if vcon:
+                break
+
+    if not vcon:
+        raise HTTPException(status_code=404, detail="vCon not found")
+        
+    return JSONResponse(content=vcon)
+>>>>>>> main
 
 
 @api_router.get(
     "/vcons",
-    response_model=Vcon,
-    summary="Gets vCons by UUIDs",
-    description="Get multiple vCons by UUIDs",
+    response_model=List[Vcon],
+    summary="Gets multiple vCons by UUIDs",
+    description="Retrieve multiple vCons by their UUIDs",
     tags=["vcon"],
 )
+<<<<<<< HEAD
 @log_performance
 async def get_vcons(vcon_uuids: List[UUID] = Query(None)):
     if not vcon_uuids:
@@ -383,13 +594,42 @@ async def get_vcons(vcon_uuids: List[UUID] = Query(None)):
         logger.error(f"Error retrieving multiple vCons: {str(e)}")
         logger.exception(e)
         raise HTTPException(status_code=500, detail=f"Error retrieving vCons: {str(e)}")
+=======
+async def get_vcons(
+    vcon_uuids: List[UUID] = Query(None, description="List of vCon UUIDs to retrieve")
+) -> JSONResponse:
+    """Get multiple vCons by their UUIDs.
 
+    First attempts to retrieve from Redis, then falls back to configured storages
+    for any vCons not found in Redis.
+
+    Args:
+        vcon_uuids: List of UUIDs of the vCons to retrieve
+
+    Returns:
+        JSONResponse containing a list of found vCons
+    """
+    keys = [f"vcon:{vcon_uuid}" for vcon_uuid in vcon_uuids]
+    vcons = await redis_async.json().mget(keys=keys, path=".")
+
+    results = []
+    for vcon_uuid, vcon in zip(vcon_uuids, vcons):
+        if not vcon:
+            # Fallback to storages if vCon not found in Redis
+            for storage_name in Configuration.get_storages():
+                vcon = Storage(storage_name=storage_name).get(vcon_uuid)
+                if vcon:
+                    break
+        results.append(vcon)
+
+    return JSONResponse(content=results, status_code=200)
+>>>>>>> main
 
 @api_router.get(
     "/vcons/search",
     response_model=List[UUID],
-    summary="Search vCons based on various parameters",
-    description="Search for vCons using personal identifiers and metadata.",
+    summary="Search vCons by metadata",
+    description="Search for vCons using personal identifiers and metadata",
     tags=["vcon"],
 )
 @log_performance
@@ -397,6 +637,7 @@ async def search_vcons(
     tel: Optional[str] = Query(None, description="Phone number to search for"),
     mailto: Optional[str] = Query(None, description="Email address to search for"),
     name: Optional[str] = Query(None, description="Name of the party to search for"),
+<<<<<<< HEAD
 ):
     # Clean and normalize search parameters
     if tel:
@@ -414,6 +655,26 @@ async def search_vcons(
     
     if not search_params:
         logger.warning("Search operation attempted without search parameters")
+=======
+) -> List[str]:
+    """Search for vCons using personal identifiers and metadata.
+
+    At least one search parameter must be provided. If multiple parameters are provided,
+    results will include only vCons that match all criteria (AND operation).
+
+    Args:
+        tel: Phone number to search for
+        mailto: Email address to search for
+        name: Name of party to search for
+
+    Returns:
+        List of matching vCon UUIDs
+
+    Raises:
+        HTTPException: If no search parameters are provided
+    """
+    if tel is None and mailto is None and name is None:
+>>>>>>> main
         raise HTTPException(status_code=400, detail="At least one search parameter must be provided")
 
     try:
@@ -468,6 +729,7 @@ async def search_vcons(
 
         # If multiple search criteria, perform intersection
         if search_terms > 1:
+<<<<<<< HEAD
             logger.info(f"Performing intersection search with {search_terms} criteria")
             named_sets = []
             if name_keys:
@@ -480,8 +742,18 @@ async def search_vcons(
             logger.debug(f"Intersection of {len(named_sets)} sets")
             keys = set.intersection(*named_sets)
             logger.info(f"Found {len(keys)} vCons matching all criteria")
+=======
+            # Take intersection of all non-empty sets
+            logger.debug(f"Search terms: tel={tel}, mailto={mailto}, name={name}")
+            named_sets = [s for s in [name_keys, tel_keys, mailto_keys] if s]
+            logger.debug(f"Named sets: {named_sets}")
+            keys = set.intersection(*named_sets)
+            logger.debug(f"Intersection result: {len(keys)} matches")
+>>>>>>> main
         else:
+            # Single search term - use the one non-empty set
             keys = tel_keys | mailto_keys | name_keys
+<<<<<<< HEAD
             logger.info(f"Found {len(keys)} vCons matching single criterion")
 
         if not keys:
@@ -492,6 +764,15 @@ async def search_vcons(
         logger.debug(f"Returning vCon UUIDs: {result}")
         return result
 
+=======
+            
+        if not keys:
+            return []   
+
+        # Strip vcon: prefix from keys
+        return [key.split(":")[1] for key in keys]
+    
+>>>>>>> main
     except Exception as e:
         logger.error(f"Error in search_vcons: {str(e)}")
         logger.exception(e)
@@ -501,10 +782,12 @@ async def search_vcons(
 @api_router.post(
     "/vcon",
     response_model=Vcon,
-    summary="Inserts a vCon into the database",
-    description="How to insert a vCon into the database.",
+    status_code=201,
+    summary="Create a new vCon",
+    description="Store a new vCon in the system",
     tags=["vcon"],
 )
+<<<<<<< HEAD
 @log_performance
 async def post_vcon(inbound_vcon: Vcon, ingress_lists: Optional[List[str]] = Query(None)):
     logger.info(f"Storing new vCon with UUID: {inbound_vcon.uuid}")
@@ -547,15 +830,66 @@ async def post_vcon(inbound_vcon: Vcon, ingress_lists: Optional[List[str]] = Que
         logger.error(f"Error storing vCon {inbound_vcon.uuid}: {str(e)}")
         logger.exception(e)
         return None
+=======
+async def post_vcon(
+    inbound_vcon: Vcon,
+    ingress_lists: Optional[List[str]] = Query(None, description="Optional list of ingress queues to add the vCon to")
+) -> JSONResponse:
+    """Store a new vCon in the system.
+
+    Stores the vCon in Redis and indexes it for searching. The vCon is added to a sorted
+    set for timestamp-based retrieval and indexed by party information for searching.
+    Optionally adds the vCon UUID to specified ingress lists for immediate processing.
+
+    Args:
+        inbound_vcon: The vCon to store
+        ingress_lists: Optional list of ingress queue names to add the vCon to
+
+    Returns:
+        JSONResponse containing the stored vCon data
+
+    Raises:
+        HTTPException: If there is an error storing the vCon
+    """
+    try:
+        dict_vcon = inbound_vcon.model_dump()
+        dict_vcon["uuid"] = str(inbound_vcon.uuid)
+        key = f"vcon:{str(dict_vcon['uuid'])}"
+        created_at = datetime.fromisoformat(str(dict_vcon["created_at"]))
+        dict_vcon["created_at"] = created_at.isoformat()
+        timestamp = int(created_at.timestamp())
+
+        logger.debug(f"Storing vCon {inbound_vcon.uuid} ({len(dict_vcon)} bytes)")
+        await redis_async.json().set(key, "$", dict_vcon)
+        
+        logger.debug(f"Adding vCon {inbound_vcon.uuid} to sorted set")
+        await add_vcon_to_set(key, timestamp)
+
+        logger.debug(f"Indexing vCon {inbound_vcon.uuid}")
+        await index_vcon(inbound_vcon.uuid)
+
+        # Add to ingress lists if specified
+        if ingress_lists:
+            for ingress_list in ingress_lists:
+                logger.debug(f"Adding vCon {inbound_vcon.uuid} to ingress list {ingress_list}")
+                await redis_async.rpush(ingress_list, str(inbound_vcon.uuid))
+
+        return JSONResponse(content=dict_vcon, status_code=201)
+
+    except Exception as e:
+        logger.error(f"Error storing vCon: {str(e)}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail="Failed to store vCon")
+>>>>>>> main
 
 
 @api_router.delete(
     "/vcon/{vcon_uuid}",
     status_code=204,
-    summary="Deletes a particular vCon by UUID",
-    description="How to remove a vCon from the conserver.",
+    summary="Delete a vCon",
+    description="Remove a vCon from the system",
     tags=["vcon"],
 )
+<<<<<<< HEAD
 @log_performance
 async def delete_vcon(vcon_uuid: UUID):
     logger.info(f"Deleting vCon with UUID: {vcon_uuid}")
@@ -608,23 +942,59 @@ async def delete_vcon(vcon_uuid: UUID):
         logger.error(f"Error deleting vCon {vcon_uuid}: {str(e)}")
         logger.exception(e)
         raise HTTPException(status_code=500, detail=f"Error deleting vCon: {str(e)}")
+=======
+async def delete_vcon(vcon_uuid: UUID) -> None:
+    """Delete a vCon from the system.
+
+    Args:
+        vcon_uuid: UUID of the vCon to delete
+
+    Raises:
+        HTTPException: If there is an error deleting the vCon
+    """
+    try:
+        await redis_async.json().delete(f"vcon:{str(vcon_uuid)}")
+    except Exception:
+        # Print all of the details of the exception
+        logger.info(traceback.format_exc())
+        raise HTTPException(status_code=500)
+>>>>>>> main
 
 
+# Ingress and egress endpoints for vCon IDs
+# Create an endpoint to push vcon IDs to one or more redis lists
 @api_router.post(
     "/vcon/ingress",
     status_code=204,
-    summary="Inserts a vCon UUID into one or more chains",
-    description="Inserts a vCon UUID into one or more chains.",
+    summary="Add vCons to a chain",
+    description="Insert vCon UUIDs into a processing chain",
     tags=["chain"],
 )
+<<<<<<< HEAD
 @log_performance
 async def post_vcon_ingress(vcon_uuids: List[str], ingress_list: str):
     logger.info(f"Adding {len(vcon_uuids)} vCon UUIDs to ingress list: {ingress_list}")
     logger.debug(f"vCon UUIDs: {vcon_uuids}")
     
+=======
+async def post_vcon_ingress(
+    vcon_uuids: List[str],
+    ingress_list: str = Query(..., description="Name of ingress list to add to")
+) -> None:
+    """Add vCon UUIDs to a processing chain's ingress list.
+
+    Args:
+        vcon_uuids: List of vCon UUIDs to add
+        ingress_list: Name of the Redis list to add the UUIDs to
+
+    Raises:
+        HTTPException: If there is an error adding to the ingress list
+    """
+>>>>>>> main
     try:
         success_count = 0
         for vcon_id in vcon_uuids:
+<<<<<<< HEAD
             try:
                 await redis_async.rpush(ingress_list, vcon_id)
                 success_count += 1
@@ -652,33 +1022,82 @@ async def get_vcon_count(egress_list: str = Query(..., description="The name of 
     # Add debug logging for tracing
     logger.info(f"get_vcon_count called with egress_list: {egress_list}")
     
+=======
+            await redis_async.rpush(ingress_list, vcon_id)
+    except Exception as e:
+        logger.error(f"Error adding to ingress list: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to add to ingress list")
+
+
+@api_router.get(
+    "/vcon/count",
+    status_code=200,
+    summary="Count vCons in chain",
+    description="Count the number of vCons in a chain's output",
+    tags=["chain"],
+)
+async def get_vcon_count(
+    egress_list: str = Query(..., description="Name of egress list to count")
+) -> JSONResponse:
+    """Count the number of vCons in a chain's egress list.
+
+    Args:
+        egress_list: Name of the Redis list to count
+
+    Returns:
+        JSONResponse containing the count
+
+    Raises:
+        HTTPException: If there is an error accessing the list
+    """
+>>>>>>> main
     try:
         count = await redis_async.llen(egress_list)
         logger.info(f"Found {count} vCons in egress list: {egress_list}")
         return JSONResponse(content=count)
     except Exception as e:
+<<<<<<< HEAD
         logger.error(f"Error getting vCon count for egress list {egress_list}: {str(e)}")
         logger.exception(e)
         raise HTTPException(status_code=500, detail=f"Error getting vCon count: {str(e)}")
+=======
+        logger.error(f"Error counting egress list: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to count egress list")
+>>>>>>> main
 
 
 @api_router.get(
     "/config",
     status_code=200,
-    summary="Returns the config file for the conserver",
-    description="Returns the config file for the conserver",
+    summary="Get system config",
+    description="Get the current system configuration",
     tags=["config"],
 )
+<<<<<<< HEAD
 @log_performance
 async def get_config():
     config_path = os.getenv("CONSERVER_CONFIG_FILE")
     logger.info(f"Getting conserver config from: {config_path}")
     
+=======
+async def get_config() -> JSONResponse:
+    """Get the current system configuration.
+
+    Reads and returns the configuration from the file specified in CONSERVER_CONFIG_FILE.
+
+    Returns:
+        JSONResponse containing the configuration
+
+    Raises:
+        HTTPException: If there is an error reading the config file
+    """
+>>>>>>> main
     try:
         with open(config_path, "r") as f:
             config = yaml.safe_load(f)
         logger.debug(f"Successfully loaded config with {len(config) if config else 0} entries")
         return JSONResponse(content=config)
+<<<<<<< HEAD
     except FileNotFoundError:
         logger.error(f"Config file not found: {config_path}")
         raise HTTPException(status_code=404, detail=f"Config file not found: {config_path}")
@@ -689,21 +1108,40 @@ async def get_config():
         logger.error(f"Error getting config from {config_path}: {str(e)}")
         logger.exception(e)
         raise HTTPException(status_code=500, detail=f"Error getting config: {str(e)}")
+=======
+    except Exception as e:
+        logger.error(f"Error reading config: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to read configuration")
+>>>>>>> main
 
 
 @api_router.post(
     "/config",
     status_code=204,
-    summary="Updates the config file for the conserver",
-    description="Updates the config file for the conserver",
+    summary="Update system config",
+    description="Update the system configuration",
     tags=["config"],
 )
+<<<<<<< HEAD
 @log_performance
 async def post_config(config: Dict):
     config_path = os.getenv("CONSERVER_CONFIG_FILE")
     logger.info(f"Updating conserver config at: {config_path}")
     logger.debug(f"New config has {len(config) if config else 0} entries")
     
+=======
+async def post_config(config: Dict) -> None:
+    """Update the system configuration.
+
+    Writes the provided configuration to the file specified in CONSERVER_CONFIG_FILE.
+
+    Args:
+        config: New configuration to store
+
+    Raises:
+        HTTPException: If there is an error writing the config file
+    """
+>>>>>>> main
     try:
         # Create backup of existing config
         if os.path.exists(config_path):
@@ -714,6 +1152,7 @@ async def post_config(config: Dict):
         # Write new config
         with open(config_path, "w") as f:
             yaml.dump(config, f)
+<<<<<<< HEAD
             
         logger.info(f"Successfully updated config at: {config_path}")
         return Response(status_code=204)
@@ -731,15 +1170,21 @@ async def post_config(config: Dict):
                 logger.error(f"Failed to restore config backup: {str(restore_e)}")
                 
         raise HTTPException(status_code=500, detail=f"Error updating config: {str(e)}")
+=======
+    except Exception as e:
+        logger.error(f"Error writing config: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to update configuration")
+>>>>>>> main
 
 
 @api_router.post(
     "/dlq/reprocess",
     status_code=200,
-    summary="Reprocess the dead letter queue",
-    description="Move the dead letter queue vcons back to the ingress chain",
+    summary="Reprocess DLQ",
+    description="Move items from dead letter queue back to ingress",
     tags=["dlq"],
 )
+<<<<<<< HEAD
 @log_performance
 async def post_dlq_reprocess(ingress_list: str):
     logger.info(f"Reprocessing dead letter queue for ingress list: {ingress_list}")
@@ -748,10 +1193,29 @@ async def post_dlq_reprocess(ingress_list: str):
     logger.debug(f"DLQ name: {dlq_name}")
     
     try:
+=======
+async def post_dlq_reprocess(
+    ingress_list: str = Query(..., description="Name of ingress list to reprocess to")
+) -> JSONResponse:
+    """Move items from a dead letter queue back to the ingress list.
+
+    Args:
+        ingress_list: Name of the ingress list to move items to
+
+    Returns:
+        JSONResponse containing count of items moved
+
+    Raises:
+        HTTPException: If there is an error reprocessing the DLQ
+    """
+    try:
+        dlq_name = get_ingress_list_dlq_name(ingress_list)
+>>>>>>> main
         counter = 0
         while item := await redis_async.rpop(dlq_name):
             await redis_async.rpush(ingress_list, item)
             counter += 1
+<<<<<<< HEAD
             logger.debug(f"Moved item from DLQ to ingress list: {item}")
             
         logger.info(f"Reprocessed {counter} items from DLQ {dlq_name} to ingress list {ingress_list}")
@@ -760,15 +1224,22 @@ async def post_dlq_reprocess(ingress_list: str):
         logger.error(f"Error reprocessing DLQ {dlq_name}: {str(e)}")
         logger.exception(e)
         raise HTTPException(status_code=500, detail=f"Error reprocessing DLQ: {str(e)}")
+=======
+        return JSONResponse(content=counter)
+    except Exception as e:
+        logger.error(f"Error reprocessing DLQ: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to reprocess DLQ")
+>>>>>>> main
 
 
 @api_router.get(
     "/dlq",
     status_code=200,
-    summary="Get Vcons list from the dead letter queue",
-    description="Get Vcons list from the dead letter queue, returns array of vcons.",
+    summary="Get DLQ contents",
+    description="Get list of vCons in dead letter queue",
     tags=["dlq"],
 )
+<<<<<<< HEAD
 @log_performance
 async def get_dlq_vcons(ingress_list: str):
     logger.info(f"Getting vCons from dead letter queue for ingress list: {ingress_list}")
@@ -845,19 +1316,89 @@ async def index_vcon(uuid):
         logger.error(f"Error indexing vCon {uuid}: {str(e)}")
         logger.exception(e)
         raise
+=======
+async def get_dlq_vcons(
+    ingress_list: str = Query(..., description="Name of ingress list to get DLQ for")
+) -> JSONResponse:
+    """Get all vCons from a dead letter queue.
+
+    Args:
+        ingress_list: Name of the ingress list whose DLQ to read
+
+    Returns:
+        JSONResponse containing list of vCons in the DLQ
+
+    Raises:
+        HTTPException: If there is an error reading the DLQ
+    """
+    try:
+        dlq_name = get_ingress_list_dlq_name(ingress_list)
+        vcons = await redis_async.lrange(dlq_name, 0, -1)
+        return JSONResponse(content=vcons)
+    except Exception as e:
+        logger.error(f"Error reading DLQ: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to read DLQ")
+
+
+async def index_vcon(uuid: UUID) -> None:
+    """Index a vCon for searching.
+
+    Adds the vCon to the sorted set and indexes it by party information
+    (tel, mailto, name) for searching. All indexed keys will expire after
+    VCON_INDEX_EXPIRY seconds.
+
+    Args:
+        uuid: UUID of the vCon to index
+    """
+    key = f"vcon:{uuid}"
+    vcon = await redis_async.json().get(key)
+    created_at = datetime.fromisoformat(vcon["created_at"])
+    timestamp = int(created_at.timestamp())
+    vcon_uuid = vcon["uuid"]
+    await add_vcon_to_set(key, timestamp)
+
+    # Index by party information with expiration
+    for party in vcon["parties"]:
+        if party.get("tel"):
+            tel_key = f"tel:{party['tel']}"
+            await redis_async.sadd(tel_key, vcon_uuid)
+            await redis_async.expire(tel_key, VCON_INDEX_EXPIRY)
+        if party.get("mailto"):
+            mailto_key = f"mailto:{party['mailto']}"
+            await redis_async.sadd(mailto_key, vcon_uuid)
+            await redis_async.expire(mailto_key, VCON_INDEX_EXPIRY)
+        if party.get("name"):
+            name_key = f"name:{party['name']}"
+            await redis_async.sadd(name_key, vcon_uuid)
+            await redis_async.expire(name_key, VCON_INDEX_EXPIRY)
+>>>>>>> main
 
 
 @api_router.get(
     "/index_vcons",
     status_code=200,
-    summary="Forces a reset of the vcon search list",
-    description="Forces a reset of the vcon search list, returns the number of vCons indexed.",
+    summary="Rebuild search index",
+    description="Rebuild the vCon search index",
     tags=["config"],
 )
+<<<<<<< HEAD
 @log_performance
 async def index_vcons():
     logger.info("Starting reindexing of all vCons")
     
+=======
+async def index_vcons() -> JSONResponse:
+    """Rebuild the vCon search index.
+
+    Iterates through all vCons and rebuilds their search indices.
+
+    Returns:
+        JSONResponse containing count of vCons indexed
+
+    Raises:
+        HTTPException: If there is an error rebuilding the index
+    """
+>>>>>>> main
     try:
         # Get all vCon keys
         vcon_keys = await redis_async.keys("vcon:*")
@@ -868,6 +1409,7 @@ async def index_vcons():
         
         # Process each vCon
         for key in vcon_keys:
+<<<<<<< HEAD
             try:
                 uuid = key.split(":")[1]
                 logger.debug(f"Reindexing vCon: {uuid}")
@@ -912,14 +1454,26 @@ async def clear_list_for_testing(list_name: str = Query(..., description="The na
         await redis_async.delete(list_name)
         logger.info(f"Successfully cleared Redis list: {list_name}")
         return Response(status_code=204)
+=======
+            uuid = key.split(":")[1]
+            await index_vcon(uuid)
+        return JSONResponse(content=len(vcon_keys))
+>>>>>>> main
     except Exception as e:
         logger.error(f"Error clearing Redis list {list_name}: {str(e)}")
         logger.exception(e)
         raise HTTPException(status_code=500, detail=f"Error clearing Redis list: {str(e)}")
 
+<<<<<<< HEAD
 
 # Apply API router with API key security
 app.include_router(api_router, dependencies=[Security(get_api_key, scopes=[])])
 
 # Log that API is ready
 logger.info("API router configured and ready to serve requests")
+=======
+app.include_router(
+    api_router,
+    dependencies=[Security(get_api_key, scopes=[])]
+)
+>>>>>>> main
