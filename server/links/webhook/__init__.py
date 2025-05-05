@@ -7,8 +7,6 @@ logger = init_logger(__name__)
 
 default_options = {
     "webhook-urls": ["https://eo91qivu6evxsty.m.pipedream.net"],
-    "auth_header": "Bearer ThompsonsClamBar",
-    "api_token": "default-api-token",
 }
 
 
@@ -30,11 +28,7 @@ def run(
         logger.info(
             f"webhook plugin: posting vcon {vcon_uuid} to webhook url: {url}"
         )
-        headers = {
-            "Authorization": opts.get("auth_header"),
-            "x-conserver-api-token": opts.get("api_token"),
-        }
-        resp = requests.post(url, json=json_dict, headers=headers)
+        resp = requests.post(url, json=json_dict)
         logger.info(
             f"webhook plugin response for {vcon_uuid}: {resp.status_code} {resp.text}"
         )

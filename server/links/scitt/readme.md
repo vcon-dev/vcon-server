@@ -1,96 +1,6 @@
 # SCITT Link
 
-The SCITT (Supply Chain Integrity, Transparency, and Trust) link is a specialized plugin that provides integrity and inclusion protection for vCon objects by creating and registering signed statements on a SCITT Transparency Service. It ensures that vCons can be verified as authentic and complete, protecting against tampering and deletion.
-
-## Features
-
-- Creates signed statements based on vCon data
-- Registers statements on a SCITT Transparency Service
-- Supports different vCon operations (create, update, delete)
-- Configurable signing keys and authentication
-- Integration with DataTrails SCITT implementation
-- Hash-based payload verification
-- OIDC authentication support
-
-## Configuration Options
-
-```python
-default_options = {
-    "client_id": "<set-in-config.yml>",  # DataTrails client ID
-    "client_secret": "<set-in-config.yml>",  # DataTrails client secret
-    "scrapi_url": "https://app.datatrails.ai/archivist/v2",  # SCITT Reference API URL
-    "auth_url": "https://app.datatrails.ai/archivist/iam/v1/appidp/token",  # Authentication URL
-    "signing_key_path": None,  # Path to the signing key file
-    "issuer": "ANONYMOUS CONSERVER",  # Issuer identifier
-    "vcon_operation": "vcon-create",  # Operation type to record
-    "key_id": None,  # Key ID for signing
-    "OIDC_flow": "client-credentials"  # OIDC authentication flow
-}
-```
-
-### Options Description
-
-- `client_id`: Your DataTrails client ID
-- `client_secret`: Your DataTrails client secret
-- `scrapi_url`: URL for the SCITT Reference API
-- `auth_url`: URL for authentication
-- `signing_key_path`: Path to the signing key file
-- `issuer`: Identifier for the statement issuer
-- `vcon_operation`: Type of vCon operation being recorded
-- `key_id`: Key ID for signing the statement
-- `OIDC_flow`: OIDC authentication flow to use
-
-## Usage
-
-The link processes vCons by:
-1. Retrieving the vCon from Redis
-2. Creating a signed statement based on the vCon data:
-   - Setting the subject to the vCon identifier
-   - Creating metadata with the vCon operation
-   - Using the vCon hash as the payload
-   - Signing the statement with the provided key
-3. Registering the signed statement on the SCITT service:
-   - Authenticating with the SCITT service
-   - Submitting the signed statement
-   - Receiving an operation ID for tracking
-4. Returning the vCon UUID for further processing
-
-## Signed Statement Format
-
-The signed statement includes:
-- Issuer information
-- Subject (vCon identifier)
-- Metadata (vCon operation)
-- Payload (vCon hash)
-- Signature using the provided key
-- Hash algorithm information
-- Content type information
-
-## Error Handling
-
-- Validates required configuration options
-- Handles missing vCon objects
-- Supports different OIDC authentication flows
-- Logs detailed information about the process
-- Raises appropriate HTTP exceptions for errors
-
-## Dependencies
-
-- Requests library for API communication
-- Custom utilities:
-  - vcon_redis
-  - logging_utils
-  - create_hashed_signed_statement
-  - register_signed_statement
-
-## Requirements
-
-- Python 3.7+
-- Access to a SCITT implementation (e.g., DataTrails)
-- DataTrails API credentials
-- Signing key for statement creation
-- Redis connection for vCon storage
-- Appropriate permissions for vCon access and SCITT service
+While vCons are authored, signed and stored in vCon services, assure integrity and inclusions protection through an implementation of [SCITT][scitt-architecture]
 
 ## Overview
 
@@ -119,6 +29,10 @@ Setting the `vcon_operation` chain configuration, log different types of Events,
    ```bash
    pip install requests
    ```
+
+## Usage
+
+The SCITT Link will automatically process vCons as they pass through the conserver providing integrity protection on the processed vCon.
 
 ## Configuration
 

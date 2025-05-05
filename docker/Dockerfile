@@ -11,9 +11,6 @@ RUN apt-get install -y libsox-fmt-all sox
 RUN apt-get install -y redis-tools
 RUN pip install --upgrade pip
 
-# Install PyTorch for local LLM tests
-RUN pip install torch torchvision torchaudio
-
 WORKDIR /app
 
 # TODO Update to use Poetry

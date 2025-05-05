@@ -45,21 +45,10 @@ def run(vcon_uuid, link_name, opts=default_options):
     try:
         # Apply the jq filter
         # Compile and run the jq program
-        logger.debug(f"Applying jq filter '{opts['filter']}' to vCon {vcon_uuid}")
         program = jq.compile(opts["filter"])
-        results = list(program.input(vcon_dict))
-        
-        # Handle empty results
-        if not results:
-            logger.debug(f"JQ filter returned no results for vCon {vcon_uuid}")
-            matches = False
-        else:
-            matches = bool(results[0])
-            
-        logger.debug(f"JQ filter results: {results}")
+        matches = bool(list(program.input(vcon_dict))[0])
     except Exception as e:
-        logger.error(f"Error applying jq filter '{opts['filter']}' to vCon {vcon_uuid}: {e}")
-        logger.debug(f"vCon content: {vcon_dict}")
+        logger.error(f"Error applying jq filter: {e}")
         return None
 
     # Forward based on matches and forward_matches setting

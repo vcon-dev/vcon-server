@@ -69,7 +69,7 @@ def save(
 
         tenant_attachment = vcon.find_attachment_by_type("tenant")
         if tenant_attachment:
-            if tenant_attachment["encoding"] == "json" and isinstance(tenant_attachment["body"], str):
+            if tenant_attachment["encoding"] == "json":
                 tenant = json.loads(tenant_attachment["body"])
             else:
                 tenant = tenant_attachment["body"]
@@ -92,7 +92,7 @@ def save(
                 "type"
             ).lower()  # TODO this might be "purpose" in some of the attachments!!
             encoding = attachment.get("encoding", "none")
-            if encoding == "json" and isinstance(attachment["body"], str):  # Only parse if it's a string
+            if encoding == "json":  # TODO may be we need handle different encodings
                 attachment["body"] = json.loads(attachment["body"])
             do_vcon_parts_indexing(
                 es=es,
@@ -105,8 +105,9 @@ def save(
         # Index the analysis, separated by 'type' - id=f"{vcon_uuid}_{analysis_index}"
         for ind, analysis in enumerate(vcon_dict["analysis"]):
             analysis_type = analysis.get("type")
-            if analysis["encoding"] == "json" and isinstance(analysis["body"], str):  # Only parse if it's a string
-                analysis["body"] = json.loads(analysis["body"])
+            if analysis["encoding"] == "json":  # TODO may be we need handle different encodings
+                if isinstance(analysis["body"], str):
+                    analysis["body"] = json.loads(analysis["body"])
             do_vcon_parts_indexing(
                 es=es,
                 part=analysis,

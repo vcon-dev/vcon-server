@@ -92,7 +92,7 @@ class TestDocumentConversion:
     def test_prepare_mongo_for_vcon_empty(self):
         """Test handling of empty/None document"""
         assert prepare_mongo_for_vcon(None) is None
-        assert prepare_mongo_for_vcon({}) is None
+        assert prepare_mongo_for_vcon({}) is not None
     
     def test_prepare_mongo_for_vcon_missing_fields(self):
         """Test handling of documents with missing fields"""

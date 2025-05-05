@@ -35,7 +35,7 @@ storages:
   mongo:
     module: storage.mongo
     options:
-      url: mongodb://root:example@mongo:27017/
+      MONGO_URL: mongodb://localhost:27017/
       database: conserver
       collection: vcons
   postgres:
@@ -52,36 +52,6 @@ storages:
       aws_access_key_id: some_key
       aws_secret_access_key: some_secret
       aws_bucket: some_bucket
-  milvus:
-    module: storage.milvus
-    options:
-      # Connection settings
-      host: "localhost"
-      port: "19530"
-      collection_name: "vcons"
-      
-      # Embedding settings
-      embedding_model: "text-embedding-3-small"
-      embedding_dim: 1536
-      api_key: "your-openai-api-key"
-      organization: ""
-      
-      # Operation settings
-      create_collection_if_missing: true
-      skip_if_exists: true
-      
-      # Vector index settings (Default: IVF_FLAT with L2 distance)
-      index_type: "IVF_FLAT"  # Options: IVF_FLAT, IVF_SQ8, IVF_PQ, HNSW, FLAT
-      metric_type: "L2"       # Options: L2, IP, COSINE
-      nlist: 128              # For IVF indexes: number of clusters
-      
-      # Advanced HNSW settings (used only if index_type is HNSW)
-      # m: 16                 # Number of edges per node 
-      # ef_construction: 200  # Size of dynamic candidate list during construction
-      
-      # Advanced IVF_PQ settings (used only if index_type is IVF_PQ)
-      # pq_m: 8               # Number of sub-quantizers
-      # pq_nbits: 8           # Bit depth per quantizer
 chains:
   sample_chain:
     links:
@@ -95,7 +65,6 @@ chains:
     - mongo
     - postgres
     - s3
-    - milvus
     egress_lists:
     - test_output
     enabled: 1

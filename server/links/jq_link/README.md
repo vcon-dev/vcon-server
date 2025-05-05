@@ -1,80 +1,17 @@
-# JQ Link
+# JQ Filter Link
 
-The JQ link is a specialized plugin that filters vCon objects using jq expressions. It provides a powerful way to selectively process vCons based on their content, allowing for complex filtering conditions and flexible forwarding rules.
+The JQ Filter link allows flexible filtering of vCons in a chain using jq expressions. It can be used to either forward or filter out vCons based on their content, enabling complex filtering logic within your vCon processing pipelines.
 
-## Features
+## Overview
 
-- Filter vCons using jq expressions
-- Forward matching or non-matching vCons based on configuration
-- Support for complex JSON path expressions
-- Efficient filtering without modifying vCon content
-- Detailed logging of filter operations and results
-- Simple configuration with minimal dependencies
+This link uses jq expressions to evaluate conditions against vCons. Based on whether the conditions match and the configuration, it will either forward the vCon down the chain or filter it out.
 
-## Configuration Options
+### Key Features
 
-```python
-default_options = {
-    "filter": ".",  # jq filter expression to evaluate
-    "forward_matches": True,  # if True, forward vCons that match the filter
-}
-```
-
-### Options Description
-
-- `filter`: The jq filter expression to evaluate against the vCon
-- `forward_matches`: Boolean flag that determines whether to forward matching or non-matching vCons
-
-## Usage
-
-The link processes vCons by:
-1. Retrieving the vCon from Redis
-2. Converting the vCon to a dictionary for jq processing
-3. Applying the configured jq filter expression
-4. Determining whether to forward the vCon based on the filter results and `forward_matches` setting
-5. Returning the vCon UUID for forwarding or None for filtering
-
-## JQ Filter Examples
-
-Here are some common jq filter expressions:
-
-```jq
-# Match vCons with at least one dialog
-.filter: ".dialog | length > 0"
-
-# Match vCons with a specific participant
-.filter: ".participants[] | select(.name == \"John Doe\")"
-
-# Match vCons with a specific analysis type
-.filter: ".analysis[] | select(.type == \"transcript\")"
-
-# Match vCons with a specific dialog type
-.filter: ".dialog[] | select(.type == \"recording\")"
-
-# Match vCons with a specific duration
-.filter: ".dialog[] | select(.duration > 60)"
-```
-
-## Error Handling
-
-- Logs errors when applying jq filters
-- Returns None (filtering out the vCon) on filter errors
-- Provides detailed debug logging of filter operations
-- Graceful handling of malformed jq expressions
-
-## Dependencies
-
-- jq Python library
-- Redis for vCon storage
-- Custom utilities:
-  - vcon_redis
-  - logging_utils
-
-## Requirements
-
-- Redis connection must be configured
-- Appropriate permissions for vCon access and storage
-- Basic understanding of jq expressions for effective filtering
+- Uses jq expressions for flexible filtering
+- Can forward either matching or non-matching vCons
+- Configurable through standard link options
+- Detailed logging of filter decisions
 
 ## Installation
 

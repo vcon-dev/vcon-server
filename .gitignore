@@ -16,4 +16,3 @@ config.yml
 tmp
 *.pem
 .coverage
-.qodo

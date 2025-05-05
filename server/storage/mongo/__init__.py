@@ -1,8 +1,8 @@
 import pymongo
-from datetime import datetime
-from typing import Dict, Any
 
 from lib.logging_utils import init_logger
+
+from datetime import datetime
 from server.lib.vcon_redis import VconRedis
 from vcon import Vcon
 
@@ -34,7 +34,6 @@ def convert_date_to_mongo_date(date_str) -> datetime:
             logger.error(f"Failed to parse date: {date_str}, error: {e}")
             raise
 
-<<<<<<< HEAD
 def convert_mongo_date_to_string(date_obj) -> str:
     """
     Convert datetime object to ISO 8601 string format.
@@ -44,19 +43,6 @@ def convert_mongo_date_to_string(date_obj) -> str:
     return date_obj.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 def prepare_vcon_for_mongo(vcon: Vcon) -> dict:
-=======
-def prepare_vcon_for_mongo(vcon: Vcon) -> Dict[str, Any]:
-    """
-    Prepare a Vcon object for MongoDB storage by converting dates to datetime objects.
-    
-    Args:
-        vcon (Vcon): The Vcon object to prepare
-        
-    Returns:
-        Dict[str, Any]: MongoDB-ready dictionary representation of the Vcon
-    """
-    logger.debug(f"Preparing vCon {vcon.uuid} for MongoDB storage")
->>>>>>> main
     clean_vcon = vcon.to_dict()
     clean_vcon["_id"] = vcon.uuid
     clean_vcon["created_at"] = convert_date_to_mongo_date(clean_vcon["created_at"])
@@ -93,141 +79,30 @@ def prepare_mongo_for_vcon(mongo_doc) -> dict:
 
 
 def save(
-    vcon_uuid: str,
-    opts: Dict[str, str] = default_options,
-) -> None:
-    """
-    Save a vCon to MongoDB storage.
-    
-    Args:
-        vcon_uuid (str): UUID of the vCon to save
-        opts (Dict[str, str]): MongoDB connection options including:
-            - url: MongoDB connection URL
-            - database: Database name
-            - collection: Collection name
-            
-    Raises:
-        Exception: If there's an error connecting to MongoDB or saving the vCon
-    """
-    logger.info(f"Starting MongoDB storage operation for vCon: {vcon_uuid}")
-    logger.info(f"Options: {opts}")
-    
-    if "url" not in opts:
-        msg = "MongoDB URL not provided in options"
-        logger.error(msg)
-        raise ValueError(msg)
-        
+    vcon_uuid,
+    opts=default_options,
+):
+    logger.info("Starting the mongo storage")
+    client = pymongo.MongoClient(opts["url"])
+    logger.info(f"mongo storage plugin: connected to {opts['url']}")
     try:
-        client = pymongo.MongoClient(opts["url"])
-        logger.debug(f"Successfully connected to MongoDB at {opts['url']}")
-        
         vcon_redis = VconRedis()
         vcon = vcon_redis.get_vcon(vcon_uuid)
         if vcon is None:
             raise ValueError(f"vCon with UUID {vcon_uuid} not found in Redis")
         db = client[opts["database"]]
         collection = db[opts["collection"]]
-        
-        mongo_vcon = prepare_vcon_for_mongo(vcon)
+        # upsert this vCon
         results = collection.update_one(
-            {"_id": vcon_uuid}, {"$set": mongo_vcon}, upsert=True
+            {"_id": vcon_uuid}, {"$set": prepare_vcon_for_mongo(vcon)}, upsert=True
         )
-        
         logger.info(
-            f"Successfully saved vCon {vcon_uuid} to MongoDB. "
-            f"Modified: {results.modified_count}, Upserted: {results.upserted_id is not None}"
+            f"mongo storage plugin: inserted vCon: {vcon_uuid}, results: {results} "
         )
-        
     except Exception as e:
         logger.error(
-            f"Failed to save vCon {vcon_uuid} to MongoDB: {str(e)}",
-            exc_info=True
+            f"mongo storage plugin: failed to insert vCon: {vcon_uuid}, error: {e} "
         )
-        raise
-
-
-def fetch(vcon_uuid: str, opts: Dict[str, str] = default_options) -> Vcon:
-    """
-    Fetch a vCon from MongoDB storage by its UUID.
-    
-    Args:
-        vcon_uuid (str): UUID of the vCon to fetch
-        opts (Dict[str, str]): MongoDB connection options including:
-            - url: MongoDB connection URL
-            - database: Database name
-            - collection: Collection name
-            
-    Returns:
-        Vcon: The fetched vCon object, or None if not found
-    """
-    logger.info(f"Fetching vCon {vcon_uuid} from MongoDB")
-    
-    if "url" not in opts:
-        msg = "MongoDB URL not provided in options"
-        logger.error(msg)
-        raise ValueError(msg)
-    
-    try:
-        client = pymongo.MongoClient(opts["url"])
-        logger.debug(f"Successfully connected to MongoDB at {opts['url']}")
-        
-        db = client[opts["database"]]
-        collection = db[opts["collection"]]
-        
-        result = collection.find_one({"_id": vcon_uuid})
-        if result:
-            logger.info(f"vCon {vcon_uuid} found in MongoDB")
-            return Vcon.from_dict(result)
-        else:
-            logger.info(f"vCon {vcon_uuid} not found in MongoDB")
-            return None
-        
-    except Exception as e:
-        logger.error(
-            f"Failed to fetch vCon {vcon_uuid} from MongoDB: {str(e)}",
-            exc_info=True
-        )
-        raise
-
-
-def exists(vcon_uuid: str, opts: Dict[str, str] = default_options) -> bool:
-    """
-    Check if a vCon exists in MongoDB storage by its UUID.
-    
-    Args:
-        vcon_uuid (str): UUID of the vCon to check
-        opts (Dict[str, str]): MongoDB connection options including:
-            - url: MongoDB connection URL
-            - database: Database name
-            - collection: Collection name
-            
-    Returns:
-        bool: True if the vCon exists, False otherwise
-    """
-    logger.info(f"Checking existence of vCon {vcon_uuid} in MongoDB")
-    
-    if "url" not in opts:
-        msg = "MongoDB URL not provided in options"
-        logger.error(msg)
-        raise ValueError(msg)
-    
-    try:
-        client = pymongo.MongoClient(opts["url"])
-        logger.debug(f"Successfully connected to MongoDB at {opts['url']}")
-        
-        db = client[opts["database"]]
-        collection = db[opts["collection"]]
-        
-        exists = collection.count_documents({"_id": vcon_uuid}, limit=1) > 0
-        logger.info(f"vCon {vcon_uuid} existence: {exists}")
-        return exists
-        
-    except Exception as e:
-        logger.error(
-            f"Failed to check existence of vCon {vcon_uuid} in MongoDB: {str(e)}",
-            exc_info=True
-        )
-<<<<<<< HEAD
         raise e
 
 
@@ -272,7 +147,3 @@ def read(
         raise e
     finally:
         client.close()
-=======
-        raise
-
->>>>>>> main
