@@ -1,1 +1,0 @@
-# mongo storage tests package 
