@@ -70,11 +70,13 @@ save(vcon_uuid, options)
 ## File Storage Details
 
 ### File Format
+
 - Files are stored with the pattern: `{prefix}{uuid}.vcon.json`
 - JSON format for compatibility with OpenAI services
 - Automatic content-type detection
 
 ### Vector Store Integration
+
 - Optional integration with OpenAI's vector stores
 - Enables semantic search capabilities
 - Automatic embedding generation
@@ -133,11 +135,13 @@ python -m pytest server/storage/chatgpt_files/test_init.py
 Common issues and solutions:
 
 1. Authentication Errors
+
    - Verify API key validity
    - Check organization and project IDs
    - Ensure proper permissions
 
 2. File Upload Failures
+
    - Check file size limits
    - Verify file format
    - Check network connectivity
@@ -170,4 +174,4 @@ Common issues and solutions:
 
 ## License
 
-This module is part of the vCon Server project and follows its licensing terms. 
+This module is part of the vCon Server project and follows its licensing terms.

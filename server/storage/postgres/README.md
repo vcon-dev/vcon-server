@@ -41,15 +41,15 @@ POSTGRES_PORT=5432
 
 The module creates a `vcons` table with the following schema:
 
-| Column      | Type          | Description                           |
-|-------------|---------------|---------------------------------------|
-| id          | UUID          | Primary key (same as vCon UUID)      |
-| vcon        | TEXT          | Raw vCon data                        |
-| uuid        | UUID          | vCon UUID (indexed for lookups)      |
-| created_at  | TIMESTAMP     | Creation timestamp                    |
-| updated_at  | TIMESTAMP     | Last update timestamp                |
-| subject     | TEXT          | vCon subject (for quick access)      |
-| vcon_json   | JSONB         | vCon data in queryable JSON format   |
+| Column     | Type      | Description                        |
+| ---------- | --------- | ---------------------------------- |
+| id         | UUID      | Primary key (same as vCon UUID)    |
+| vcon       | TEXT      | Raw vCon data                      |
+| uuid       | UUID      | vCon UUID (indexed for lookups)    |
+| created_at | TIMESTAMP | Creation timestamp                 |
+| updated_at | TIMESTAMP | Last update timestamp              |
+| subject    | TEXT      | vCon subject (for quick access)    |
+| vcon_json  | JSONB     | vCon data in queryable JSON format |
 
 ## Usage
 
@@ -131,11 +131,13 @@ python -m pytest server/storage/postgres/test_postgres.py
 Common issues and solutions:
 
 1. Connection Refused
+
    - Check if PostgreSQL is running
    - Verify port configuration
    - Check firewall settings
 
 2. Authentication Failed
+
    - Verify credentials
    - Check database user permissions
    - Ensure database exists
@@ -154,4 +156,4 @@ Common issues and solutions:
 
 ## License
 
-This module is part of the vCon Server project and follows its licensing terms. 
+This module is part of the vCon Server project and follows its licensing terms.

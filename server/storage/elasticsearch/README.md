@@ -50,12 +50,12 @@ ELASTICSEARCH_CA_PATH=/path/to/ca.crt
 
 The module creates several indices for different vCon components:
 
-| Index Pattern | Description | Example |
-|--------------|-------------|----------|
-| vcon_parties_* | Party information by role | vcon_parties_agent |
-| vcon_attachments_* | Attachments by type | vcon_attachments_transcript |
-| vcon_analysis_* | Analysis results by type | vcon_analysis_summary |
-| vcon_dialog | Dialog entries | vcon_dialog |
+| Index Pattern       | Description               | Example                     |
+| ------------------- | ------------------------- | --------------------------- |
+| vcon*parties*\*     | Party information by role | vcon_parties_agent          |
+| vcon*attachments*\* | Attachments by type       | vcon_attachments_transcript |
+| vcon*analysis*\*    | Analysis results by type  | vcon_analysis_summary       |
+| vcon_dialog         | Dialog entries            | vcon_dialog                 |
 
 ## Usage
 
@@ -101,21 +101,25 @@ save(vcon_uuid, options)
 ## Component Storage
 
 ### Parties
+
 - Stored by role (agent, customer, etc.)
 - Includes metadata and attributes
 - Searchable by role and attributes
 
 ### Attachments
+
 - Stored by type (transcript, metadata, etc.)
 - JSON bodies are parsed if applicable
 - Supports binary and text content
 
 ### Analysis
+
 - Stored by analysis type
 - Includes timestamps and metadata
 - Supports structured and unstructured data
 
 ### Dialog
+
 - Chronologically ordered
 - Includes speaker information
 - Supports rich media content
@@ -175,11 +179,13 @@ python -m pytest server/storage/elasticsearch/test_elasticsearch.py
 Common issues and solutions:
 
 1. Connection Issues
+
    - Verify Elasticsearch is running
    - Check network connectivity
    - Verify SSL/TLS configuration
 
 2. Authentication Problems
+
    - Check credentials
    - Verify API key validity
    - Check role permissions
@@ -214,4 +220,4 @@ Common issues and solutions:
 
 ## License
 
-This module is part of the vCon Server project and follows its licensing terms. 
+This module is part of the vCon Server project and follows its licensing terms.

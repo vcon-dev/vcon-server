@@ -11,8 +11,60 @@ import logging
 import tempfile
 import time
 import os
+import sys
 from typing import Optional, Dict, Any, Union
+import importlib
 
+# -----------------------------------------------------------------------------
+# CRITICAL: Low-level monkey patching to resolve proxy issues
+# -----------------------------------------------------------------------------
+# The issue we're encountering is that httpx is picking up proxy settings from somewhere,
+# and they're being injected into the Groq client initialization.
+# We need to patch httpx before any Groq imports happen.
+
+# Setup minimal logging for startup
+startup_logger = logging.getLogger("server.links.groq_whisper.startup")
+startup_logger.setLevel(logging.INFO)
+handler = logging.StreamHandler()
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+startup_logger.addHandler(handler)
+
+# Clear proxy environment variables
+proxy_env_vars = ['HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'no_proxy']
+for var in proxy_env_vars:
+    if var in os.environ:
+        startup_logger.warning(f"Unsetting proxy environment variable: {var}")
+        del os.environ[var]
+
+# Try to import and patch httpx before any Groq imports happen
+try:
+    import httpx
+    
+    # Store original Client class
+    OriginalClient = httpx.Client
+    
+    # Create a patched Client class
+    class PatchedClient(OriginalClient):
+        def __init__(self, *args, **kwargs):
+            # Remove proxy-related arguments
+            for key in ['proxies', 'proxy']:
+                if key in kwargs:
+                    startup_logger.warning(f"Removing '{key}' from httpx.Client initialization")
+                    del kwargs[key]
+            # Call original init with cleaned kwargs
+            super().__init__(*args, **kwargs)
+    
+    # Replace the httpx.Client with our patched version
+    httpx.Client = PatchedClient
+    startup_logger.info("Successfully patched httpx.Client to ignore proxy settings")
+    
+except ImportError:
+    startup_logger.warning("Could not import httpx for patching")
+except Exception as e:
+    startup_logger.error(f"Failed to patch httpx: {e}")
+
+# Now we can safely import the rest of the dependencies
 import requests
 from tenacity import (
     RetryError,
@@ -21,6 +73,8 @@ from tenacity import (
     stop_after_attempt,
     wait_exponential,
 )
+
+# Import Groq client - should now be safe with patched httpx
 from groq import Groq
 
 from lib.error_tracking import init_error_tracker
@@ -123,20 +177,78 @@ def transcribe_groq_whisper(dialog: dict, opts: dict) -> Union[Dict[str, Any], A
         temp_file.write(content)
         temp_file.flush()
         
-        # Initialize Groq client with the API key
-        client = Groq(api_key=opts['API_KEY'])
+        # Initialize Groq client with API key
+        api_key = opts['API_KEY']
+        client = Groq(api_key=api_key)
         
-        # Open the audio file for the API request
-        with open(temp_file.name, 'rb') as audio_file:
-            # Make the transcription request using the Groq client
-            response = client.audio.transcriptions.create(
-                file=audio_file,
-                model="distil-whisper-large-v3-en",
-                response_format="verbose_json"
-            )
+        # Log client initialization
+        logger.info(f"Initialized Groq client with version: {getattr(client, '__version__', 'unknown')}")
+        
+        # Get file name for the API request
+        file_name = temp_file.name
+        logger.debug(f"Using temporary file: {file_name}")
+        
+        # Log available client attributes to help debugging
+        logger.debug(f"Groq client attributes: {dir(client)}")
+        
+        # Check for audio transcription capabilities
+        if hasattr(client, 'audio') and hasattr(client.audio, 'transcriptions'):
+            logger.info("Using client.audio.transcriptions API")
+            # Open the audio file for the API request
+            with open(file_name, 'rb') as audio_file:
+                # Make the transcription request using the Groq client
+                response = client.audio.transcriptions.create(
+                    file=(file_name, audio_file.read()),
+                    model="whisper-large-v3-turbo",  # Updated model name
+                    response_format="json"
+                )
+                
+                # Return the response
+                return response
+        elif hasattr(client, 'transcriptions'):
+            logger.info("Using client.transcriptions API")
+            # Alternative API structure
+            with open(file_name, 'rb') as audio_file:
+                response = client.transcriptions.create(
+                    file=(file_name, audio_file.read()),
+                    model="whisper-large-v3-turbo",
+                    response_format="json"
+                )
+                return response
+        else:
+            # Fallback for older API versions
+            logger.warning("Could not find audio transcription API in Groq client. Using audio request directly.")
             
-            # Return the response (could be a dict or an object depending on Groq library version)
-            return response
+            # Create custom request to the Groq API endpoint directly
+            url = "https://api.groq.com/openai/v1/audio/transcriptions"
+            headers = {
+                "Authorization": f"Bearer {api_key}"
+            }
+            
+            with open(file_name, 'rb') as audio_file:
+                files = {
+                    "file": (file_name, audio_file, "audio/flac")
+                }
+                data = {
+                    "model": "whisper-large-v3-turbo",
+                    "response_format": "json"
+                }
+                
+                response = requests.post(url, headers=headers, files=files, data=data)
+                response.raise_for_status()  # Raise exception for HTTP errors
+                
+                # Parse the JSON response
+                result = response.json()
+                
+                # Create a simple object with text attribute to match API
+                class TranscriptionResult:
+                    def __init__(self, text):
+                        self.text = text
+                
+                return TranscriptionResult(result.get("text", ""))
+            
+        # Return the response (could be a dict or an object depending on Groq library version)
+        return response
 
 
 def run(
@@ -167,6 +279,23 @@ def run(
     opts = merged_opts
 
     logger.info("Starting whisper plugin for vCon: %s", vcon_uuid)
+    
+    # Add enhanced logging for debugging
+    logger.debug(f"Python version: {sys.version}")
+    logger.debug(f"Environment: {[(k, v) for k, v in os.environ.items() if 'proxy' in k.lower()]}")
+    
+    # Log versions of key dependencies if available
+    try:
+        import groq
+        logger.info(f"Groq version: {getattr(groq, '__version__', 'unknown')}")
+    except ImportError:
+        logger.warning("Groq package not available for version checking")
+    
+    try:
+        import httpx
+        logger.info(f"httpx version: {httpx.__version__}")
+    except ImportError:
+        logger.debug("httpx not available for version checking")
 
     vcon_redis = VconRedis()
     vCon = vcon_redis.get_vcon(vcon_uuid)
@@ -221,18 +350,48 @@ def run(
             break
 
         logger.info("Transcribed vCon: %s", vCon.uuid)
-        logger.info(result)
+        logger.info(f"Transcription result type: {type(result)}")
+        logger.info(f"Transcription result attributes: {dir(result)}")
+        
+        # Check if result is a successful transcription
+        if not hasattr(result, 'text'):
+            logger.warning(f"Unexpected result format: {result}")
+            stats_count("conserver.link.groq_whisper.transcription_failures")
+            break
 
         # Handle different response formats from the Groq API
         # The result could be a dict, an object with model_dump method, or something else
-        transcription_data = result
-        if hasattr(result, 'model_dump'):
-            transcription_data = result.model_dump()
-        elif not isinstance(result, dict):
-            transcription_data = {
-                "text": str(result),
-                "raw_response": str(result)
-            }
+        try:
+            # First log the raw text
+            logger.info(f"Transcription text: {result.text}")
+            
+            # Try to convert to a standard format
+            transcription_data = None
+            if hasattr(result, 'model_dump'):
+                # For pydantic models
+                transcription_data = result.model_dump()
+            elif hasattr(result, '__dict__'):
+                # For custom objects with __dict__
+                transcription_data = vars(result)
+            elif isinstance(result, dict):
+                # Already a dict
+                transcription_data = result
+            else:
+                # Fallback to a simple dict with text
+                transcription_data = {
+                    "text": str(result.text),
+                    "raw_response": str(result)
+                }
+                
+            # Ensure text is included
+            if "text" not in transcription_data and hasattr(result, 'text'):
+                transcription_data["text"] = result.text
+                
+            logger.info(f"Processed transcription data: {transcription_data}")
+        except Exception as e:
+            logger.error(f"Error processing transcription result: {e}")
+            # Fallback to a very simple format
+            transcription_data = {"text": str(getattr(result, 'text', result))}
 
         # Prepare vendor schema without sensitive data
         vendor_schema = {

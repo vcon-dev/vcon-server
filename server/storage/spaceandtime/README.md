@@ -44,13 +44,13 @@ SXT_VCON_TABLE_READ_BISCUIT=read_biscuit
 
 The module expects a table with the following schema:
 
-| Column | Type | Description |
-|--------|------|-------------|
-| UUID | UUID | Primary key |
-| VCON | TEXT | Raw vCon data |
-| CREATED_AT | TIMESTAMP | Creation timestamp |
-| SUBJECT | TEXT | vCon subject |
-| VCON_JSON | JSONB | vCon data in JSON format |
+| Column     | Type      | Description              |
+| ---------- | --------- | ------------------------ |
+| UUID       | UUID      | Primary key              |
+| VCON       | TEXT      | Raw vCon data            |
+| CREATED_AT | TIMESTAMP | Creation timestamp       |
+| SUBJECT    | TEXT      | vCon subject             |
+| VCON_JSON  | JSONB     | vCon data in JSON format |
 
 ## Usage
 
@@ -85,6 +85,7 @@ save(vcon_uuid, options)
 The module supports two authentication methods:
 
 1. API Key Authentication
+
    - Primary authentication method
    - Required for all operations
    - Automatically managed
@@ -117,6 +118,7 @@ All operations are logged using the standard logging framework:
 ## Dependencies
 
 Required packages:
+
 - `spaceandtime`: Official Space and Time Python client
 - `uuid6`: UUID generation
 - `dotenv`: Environment variable management
@@ -148,11 +150,13 @@ python -m server.storage.spaceandtime
 Common issues and solutions:
 
 1. Authentication Issues
+
    - Verify API key validity
    - Check biscuit permissions
    - Verify environment variables
 
 2. Connection Problems
+
    - Check network connectivity
    - Verify service status
    - Check authentication status
@@ -182,10 +186,11 @@ test()
 ```
 
 This will:
+
 1. Create a test vCon
 2. Retrieve the test vCon
 3. Test retrieval of non-existent vCon
 
 ## License
 
-This module is part of the vCon Server project and follows its licensing terms. 
+This module is part of the vCon Server project and follows its licensing terms.

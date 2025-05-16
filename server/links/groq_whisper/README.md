@@ -70,15 +70,39 @@ result = run(
 
 ## Testing
 
-To run the tests:
+To run the unit tests (with mocked API):
 
 ```bash
-# Set a dummy API key for testing
+# Set a dummy API key for testing (not required, will be set by the test automatically)
 export GROQ_API_KEY=test_api_key_for_testing
 
 # Run the tests
-pytest server/links/groq_whisper/test_groq_whisper.py -v
+poetry run pytest server/links/groq_whisper/test_groq_whisper.py -v
 ```
+
+### Integration Testing
+
+The test suite also includes integration tests that make real API calls to Groq if a valid API key is available. By default, these tests are skipped if a valid API key is not provided or if it's the test placeholder.
+
+To run the integration tests:
+
+```bash
+# Set your real Groq API key
+export GROQ_API_KEY=your_actual_groq_api_key
+
+# Run just the integration tests
+poetry run python -m server.links.groq_whisper.test_groq_whisper
+
+# Or run all tests including integration tests
+poetry run pytest server/links/groq_whisper/test_groq_whisper.py -v
+```
+
+**Important Notes:**
+- The GROQ_API_KEY environment variable must be set **before** running the tests
+- If you see "Groq API key not configured" in the test output, it means your key wasn't recognized
+- The key might not be recognized if you set it in a different shell or after running the tests
+- Integration tests create synthetic audio samples which might not yield meaningful transcriptions
+- Running integration tests will use your Groq API quota and may incur charges
 
 ## Response Format
 
