@@ -11,6 +11,13 @@ The API includes features for:
 - Configuration management
 - Dead letter queue handling
 - Search functionality for vCons by various criteria
+
+Redis Caching Behavior:
+When a vCon is not found in Redis but exists in a configured storage backend,
+the API will automatically store it back in Redis with a configurable expiration time
+(VCON_REDIS_EXPIRY, default 1 hour). This improves performance for subsequent requests
+for the same vCon, as they'll be served from Redis instead of having to query the
+storage backend again.
 """
 
 import os
@@ -48,6 +55,7 @@ from settings import (
     CONSERVER_API_TOKEN_FILE,
     API_ROOT_PATH,
     VCON_INDEX_EXPIRY,
+    VCON_REDIS_EXPIRY,
 )
 from storage.base import Storage
 
@@ -289,7 +297,8 @@ async def get_vcon(vcon_uuid: UUID) -> JSONResponse:
     """Get a specific vCon by its UUID.
 
     First attempts to retrieve from Redis, then falls back to configured storages
-    if not found in Redis.
+    if not found in Redis. If found in storage, it will be stored back in Redis
+    with a configurable expiration time (VCON_REDIS_EXPIRY, default 1 hour).
 
     Args:
         vcon_uuid: UUID of the vCon to retrieve
@@ -305,6 +314,12 @@ async def get_vcon(vcon_uuid: UUID) -> JSONResponse:
         for storage_name in Configuration.get_storages():
             vcon = Storage(storage_name=storage_name).get(vcon_uuid)
             if vcon:
+                # Store the vCon back in Redis with expiration
+                await redis_async.json().set(f"vcon:{str(vcon_uuid)}", "$", vcon, ex=VCON_REDIS_EXPIRY)
+                # Add to sorted set for timestamp-based retrieval
+                created_at = datetime.fromisoformat(vcon["created_at"])
+                timestamp = int(created_at.timestamp())
+                await add_vcon_to_set(str(vcon_uuid), timestamp)
                 break
 
     if not vcon:
@@ -326,7 +341,8 @@ async def get_vcons(
     """Get multiple vCons by their UUIDs.
 
     First attempts to retrieve from Redis, then falls back to configured storages
-    for any vCons not found in Redis.
+    for any vCons not found in Redis. If found in storage, they will be stored
+    back in Redis with a configurable expiration time (VCON_REDIS_EXPIRY, default 1 hour).
 
     Args:
         vcon_uuids: List of UUIDs of the vCons to retrieve
@@ -344,6 +360,12 @@ async def get_vcons(
             for storage_name in Configuration.get_storages():
                 vcon = Storage(storage_name=storage_name).get(vcon_uuid)
                 if vcon:
+                    # Store the vCon back in Redis with expiration
+                    await redis_async.json().set(f"vcon:{str(vcon_uuid)}", "$", vcon, ex=VCON_REDIS_EXPIRY)
+                    # Add to sorted set for timestamp-based retrieval
+                    created_at = datetime.fromisoformat(vcon["created_at"])
+                    timestamp = int(created_at.timestamp())
+                    await add_vcon_to_set(str(vcon_uuid), timestamp)
                     break
         results.append(vcon)
 
