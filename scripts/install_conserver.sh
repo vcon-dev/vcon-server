@@ -91,6 +91,9 @@ if ! id "vcon" &>/dev/null; then
     log "Creating user 'vcon'..."
     useradd -m -s /bin/bash vcon
 fi
+# Add vcon user to docker group
+log "Adding user 'vcon' to docker group..."
+usermod -aG docker vcon
 mkdir -p /opt/vcon-admin /opt/vcon-server /opt/vcon-data/redis
 chown -R vcon:vcon /opt/vcon-admin /opt/vcon-server /opt/vcon-data
 
