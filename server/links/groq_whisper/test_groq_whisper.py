@@ -130,6 +130,10 @@ class TestGroqWhisperIntegration:
             mock.return_value = mock_instance
             yield mock_instance, test_vcon_with_audio
 
+    @pytest.mark.skipif(
+    os.environ.get("GROQ_API_KEY") is None,
+    reason="GROQ_API_KEY environment variable not set"
+    )
     def test_real_transcription(self, audio_content):
         """Test actual transcription with real Groq API"""
         # Ensure all proxy env vars are cleared before test

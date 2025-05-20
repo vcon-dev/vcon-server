@@ -2,6 +2,8 @@ from fastapi.testclient import TestClient
 from vcon_fixture import generate_mock_vcon
 import pytest
 import api
+import tempfile
+import os
 from datetime import datetime
 from settings import CONSERVER_API_TOKEN, CONSERVER_HEADER_NAME
 
@@ -23,28 +25,39 @@ def post_vcon(vcon):
 
 @pytest.mark.anyio
 def test_api_vcon_lifecycle():
-    # Write a dozen vcons
-    test_vcon = generate_mock_vcon()
-    post_vcon(test_vcon)
-
-    # Read the vcon back using the test client
-    with TestClient(api.app, headers={CONSERVER_HEADER_NAME: CONSERVER_API_TOKEN}) as client:
-        response = client.get("/vcon/{}".format(test_vcon["uuid"]))
-        assert response.status_code == 200
-        print("response: {}".format(response))
-
-    # Delete the vcon using the test client
-    with TestClient(api.app, headers={CONSERVER_HEADER_NAME: CONSERVER_API_TOKEN}) as client:
-        response = client.delete("/vcon/{}".format(test_vcon["uuid"]))
-        assert response.status_code == 204
-        print("response: {}".format(response))
-
-    # Read the vcon back
-    with TestClient(api.app, headers={CONSERVER_HEADER_NAME: CONSERVER_API_TOKEN}) as client:
-        response = client.get("/vcon/{}".format(test_vcon["uuid"]))
-        assert response.status_code == 404
-        print("response: {}".format(response))
-
+    # Create a temporary directory for test files
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Set an environment variable for the test to use this directory
+        os.environ['TEST_FILE_DIR'] = temp_dir
+        
+        # Create a minimal config file
+        config_path = os.path.join(temp_dir, "config.json")
+        with open(config_path, "w") as f:
+            f.write('{"storages": {"file": {"module": "server.storage.file"}}}')
+        
+        # Set the config file path in the environment AND update settings directly
+        os.environ['CONSERVER_CONFIG_FILE'] = config_path
+        import settings
+        settings.CONSERVER_CONFIG_FILE = config_path
+        
+        # Write a dozen vcons
+        test_vcon = generate_mock_vcon()
+        post_vcon(test_vcon)
+        
+        # Read the vcon back using the test client
+        with TestClient(api.app, headers={CONSERVER_HEADER_NAME: CONSERVER_API_TOKEN}) as client:
+            response = client.get("/vcon/{}".format(test_vcon["uuid"]))
+            assert response.status_code == 200
+            
+        # Delete the vcon using the test client
+        with TestClient(api.app, headers={CONSERVER_HEADER_NAME: CONSERVER_API_TOKEN}) as client:
+            response = client.delete("/vcon/{}".format(test_vcon["uuid"]))
+            assert response.status_code == 204
+        
+        # Read the vcon back (should be gone)
+        with TestClient(api.app, headers={CONSERVER_HEADER_NAME: CONSERVER_API_TOKEN}) as client:
+            response = client.get("/vcon/{}".format(test_vcon["uuid"]))
+            assert response.status_code == 404
 
 @pytest.mark.anyio
 def test_get_vcons():

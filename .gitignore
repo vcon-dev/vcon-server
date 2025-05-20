@@ -1,5 +1,8 @@
 *.env
 venv
+.venv/
+venv/
+env/
 **/__pycache__
 .DS_Store
 **/*.ipynb
@@ -17,3 +20,13 @@ tmp
 *.pem
 .coverage
 .qodo
+
+.pytest_cache/
+.coverage
+htmlcov/
+
+.env
+.env.test
+
+.idea/
+.vscode/
