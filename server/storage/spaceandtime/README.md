@@ -1,75 +1,196 @@
-# Space and Time Storage
+# Space and Time Storage Module for vCon Server
 
-This module implements blockchain-based storage using Space and Time for the vCon server.
-
-## Overview
-
-Space and Time storage provides decentralized, immutable storage capabilities using blockchain technology, making it ideal for storing vCon data with verifiable integrity.
-
-## Configuration
-
-Required configuration options:
-
-```yaml
-storages:
-  spaceandtime:
-    module: storage.spaceandtime
-    options:
-      api_key: your_api_key           # Space and Time API key
-      project_id: your_project_id     # Project ID
-      database: vcon                  # Database name
-      table: vcons                    # Table name
-      network: mainnet                # Network (mainnet/testnet)
-```
+This module provides integration with Space and Time's decentralized database for vCon Server, enabling secure storage with blockchain-level integrity and SQL compatibility.
 
 ## Features
 
-- Blockchain-based storage
-- Immutable data records
-- Verifiable integrity
-- SQL query support
-- Automatic metrics logging
-- Data encryption
-- Access control
+- SQL-compatible storage interface
+- Blockchain-level security
+- Automatic table management
+- Biscuit-based access control
+- JSON data type support
+- Connection management
+- Automatic reconnection
+- Schema validation
+
+## Configuration
+
+The module accepts the following configuration options:
+
+```python
+default_options = {
+    "name": "spaceandtime",
+    "api_key": "",                # Space and Time API key
+    "table_name": "vcons",        # Target table name
+    "write_biscuit": "",          # Write access biscuit
+    "read_biscuit": "",           # Read access biscuit
+    "authenticate": True,         # Auto-authenticate
+    "auto_reconnect": True,      # Auto-reconnect on expiry
+}
+```
+
+### Environment Variables
+
+Required environment variables:
+
+```bash
+SXT_API_KEY=your_api_key
+SXT_VCON_TABLENAME=vcons
+SXT_VCON_TABLE_WRITE_BISCUIT=write_biscuit
+SXT_VCON_TABLE_READ_BISCUIT=read_biscuit
+```
+
+## Table Schema
+
+The module expects a table with the following schema:
+
+| Column     | Type      | Description              |
+| ---------- | --------- | ------------------------ |
+| UUID       | UUID      | Primary key              |
+| VCON       | TEXT      | Raw vCon data            |
+| CREATED_AT | TIMESTAMP | Creation timestamp       |
+| SUBJECT    | TEXT      | vCon subject             |
+| VCON_JSON  | JSONB     | vCon data in JSON format |
 
 ## Usage
 
+### Basic Usage
+
 ```python
-from storage import Storage
+from server.storage.spaceandtime import save, get
 
-# Initialize Space and Time storage
-sxt_storage = Storage("spaceandtime")
+# Save a vCon
+uuid = save(vcon_uuid, options)
 
-# Save vCon data
-sxt_storage.save(vcon_id)
-
-# Retrieve vCon data
-vcon_data = sxt_storage.get(vcon_id)
+# Retrieve a vCon
+vcon_data = get(vcon_uuid, options)
 ```
 
-## Implementation Details
+### With Custom Configuration
 
-The Space and Time storage implementation:
-- Uses Space and Time SDK for blockchain operations
-- Implements data encryption
-- Supports SQL queries
-- Provides access control
-- Includes automatic metrics logging
+```python
+options = {
+    "api_key": "your_api_key",
+    "table_name": "custom_vcons",
+    "write_biscuit": "write_access",
+    "read_biscuit": "read_access"
+}
+
+# Use custom configuration
+save(vcon_uuid, options)
+```
+
+## Authentication
+
+The module supports two authentication methods:
+
+1. API Key Authentication
+
+   - Primary authentication method
+   - Required for all operations
+   - Automatically managed
+
+2. Biscuit-based Access Control
+   - Fine-grained permissions
+   - Separate read/write access
+   - Table-level control
+
+## Error Handling
+
+The module implements comprehensive error handling:
+
+- Connection validation
+- Authentication checks
+- Schema validation
+- Query error handling
+- JSON parsing validation
+
+## Logging
+
+All operations are logged using the standard logging framework:
+
+- Operation start/end
+- Authentication status
+- Query execution
+- Error details
+- Data validation
 
 ## Dependencies
 
-- spaceandtime-sdk
-- cryptography
+Required packages:
 
-## Best Practices
+- `spaceandtime`: Official Space and Time Python client
+- `uuid6`: UUID generation
+- `dotenv`: Environment variable management
 
-1. Secure API key management
-2. Implement proper access control
-3. Use appropriate encryption
-4. Monitor blockchain status
-5. Regular backup verification
-6. Implement proper error handling
-7. Use appropriate data types
-8. Monitor gas costs
-9. Implement retry logic
-10. Use appropriate network (mainnet/testnet) 
+## Development
+
+### Running Tests
+
+```bash
+python -m pytest server/storage/spaceandtime/test_init.py
+```
+
+### Quick Test
+
+```bash
+python -m server.storage.spaceandtime
+```
+
+### Adding New Features
+
+1. Update the storage implementation
+2. Add new table columns if needed
+3. Update schema validation
+4. Update tests
+5. Update documentation
+
+## Troubleshooting
+
+Common issues and solutions:
+
+1. Authentication Issues
+
+   - Verify API key validity
+   - Check biscuit permissions
+   - Verify environment variables
+
+2. Connection Problems
+
+   - Check network connectivity
+   - Verify service status
+   - Check authentication status
+
+3. Data Issues
+   - Verify schema compatibility
+   - Check JSON validity
+   - Validate UUID format
+
+## Security Considerations
+
+- API key protection
+- Biscuit-based access control
+- SQL injection prevention
+- Data validation
+- Secure connection handling
+
+## Testing
+
+The module includes a basic test function that can be run directly:
+
+```python
+from server.storage.spaceandtime import test
+
+# Run basic tests
+test()
+```
+
+This will:
+
+1. Create a test vCon
+2. Retrieve the test vCon
+3. Test retrieval of non-existent vCon
+
+## License
+
+This module is part of the vCon Server project and follows its licensing terms.

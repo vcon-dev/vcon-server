@@ -1,75 +1,177 @@
-# ChatGPT Files Storage
+# ChatGPT Files Storage Module for vCon Server
 
-This module implements storage for ChatGPT-related files in the vCon server.
-
-## Overview
-
-ChatGPT Files storage provides specialized storage capabilities for managing files associated with ChatGPT interactions, including conversation history, embeddings, and related metadata.
-
-## Configuration
-
-Required configuration options:
-
-```yaml
-storages:
-  chatgpt_files:
-    module: storage.chatgpt_files
-    options:
-      base_path: /path/to/chatgpt/files  # Base directory for file storage
-      file_format: json                  # File format (json/txt)
-      compression: true                  # Enable compression
-      max_file_size: 10485760           # Max file size in bytes (10MB)
-```
+This module enables vCon Server to store and retrieve vCons using OpenAI's Files API, making them available for use with ChatGPT and other OpenAI services. It includes support for vector store integration, enabling semantic search capabilities.
 
 ## Features
 
-- File-based storage
-- JSON/TXT format support
-- Compression support
-- File size limits
-- Automatic metrics logging
-- File organization
-- Metadata management
+- Direct integration with OpenAI's Files API
+- Vector store support for semantic search
+- Automatic file lifecycle management
+- Support for multiple OpenAI organizations and projects
+- Temporary file cleanup
+- Configurable file naming
+
+## Configuration
+
+The module accepts the following configuration options:
+
+```python
+default_options = {
+    "organization_key": "org-xxxxx",      # OpenAI organization ID
+    "project_key": "proj_xxxxxxx",        # OpenAI project ID
+    "api_key": "sk-proj-xxxxxx",          # OpenAI API key
+    "vector_store_id": "xxxxxx",          # Vector store ID for embeddings
+    "purpose": "assistants",              # Purpose for file upload
+    "cleanup_local_files": True,          # Auto-cleanup of temp files
+    "file_prefix": "",                    # Optional file name prefix
+}
+```
+
+### Environment Variables
+
+Recommended environment variable configuration:
+
+```bash
+OPENAI_API_KEY=sk-...
+OPENAI_ORG_ID=org-...
+OPENAI_PROJECT_ID=proj_...
+OPENAI_VECTOR_STORE_ID=vs-...
+```
 
 ## Usage
 
+### Basic Usage
+
 ```python
-from storage import Storage
+from server.storage.chatgpt_files import save, get
 
-# Initialize ChatGPT Files storage
-chatgpt_storage = Storage("chatgpt_files")
+# Save a vCon
+save(vcon_uuid, options)
 
-# Save ChatGPT interaction data
-chatgpt_storage.save(vcon_id)
-
-# Retrieve ChatGPT interaction data
-interaction_data = chatgpt_storage.get(vcon_id)
+# Retrieve a vCon
+vcon_data = get(vcon_uuid, options)
 ```
 
-## Implementation Details
+### With Vector Store Integration
 
-The ChatGPT Files storage implementation:
-- Uses file system operations
-- Implements file compression
-- Supports multiple file formats
-- Provides file organization
-- Includes automatic metrics logging
+```python
+options = {
+    "organization_key": "org-xxx",
+    "project_key": "proj_xxx",
+    "api_key": "sk-xxx",
+    "vector_store_id": "vs-xxx",
+    "purpose": "assistants"
+}
+
+# Save vCon and add to vector store
+save(vcon_uuid, options)
+```
+
+## File Storage Details
+
+### File Format
+
+- Files are stored with the pattern: `{prefix}{uuid}.vcon.json`
+- JSON format for compatibility with OpenAI services
+- Automatic content-type detection
+
+### Vector Store Integration
+
+- Optional integration with OpenAI's vector stores
+- Enables semantic search capabilities
+- Automatic embedding generation
+- Configurable vector store settings
+
+## Error Handling
+
+The module implements comprehensive error handling:
+
+- API authentication validation
+- Network error handling
+- File operation error management
+- Automatic cleanup on failures
+- Detailed error logging
+
+## Logging
+
+All operations are logged using the standard logging framework:
+
+- Operation start/end
+- File upload/download status
+- Vector store operations
+- Error details
+- Cleanup operations
 
 ## Dependencies
 
-- json
-- gzip
-- pathlib
+- `openai`: OpenAI Python client
+- `redis_mgr`: Redis client for vCon retrieval
+- Standard Python libraries: `json`, `os`
 
-## Best Practices
+## Performance Considerations
 
-1. Regular file cleanup
-2. Implement file rotation
-3. Use appropriate file formats
-4. Monitor disk space
-5. Implement proper error handling
-6. Use compression for large files
-7. Regular backup
-8. Implement file size limits
-9. Use appropriate file permissions
-10. Monitor file system performance 
+- Uses temporary local files for upload
+- Automatic file cleanup
+- Efficient file searching
+- Connection reuse through client objects
+
+## Development
+
+### Running Tests
+
+```bash
+python -m pytest server/storage/chatgpt_files/test_init.py
+```
+
+### Adding New Features
+
+1. Update the storage implementation in `__init__.py`
+2. Add new configuration options if needed
+3. Update tests
+4. Update documentation
+
+## Troubleshooting
+
+Common issues and solutions:
+
+1. Authentication Errors
+
+   - Verify API key validity
+   - Check organization and project IDs
+   - Ensure proper permissions
+
+2. File Upload Failures
+
+   - Check file size limits
+   - Verify file format
+   - Check network connectivity
+
+3. Vector Store Issues
+   - Verify vector store ID
+   - Check embedding compatibility
+   - Ensure vector store access
+
+## Security Considerations
+
+- API keys are never logged
+- Temporary files are securely handled
+- Automatic cleanup of sensitive data
+- Support for organization isolation
+
+## Contributing
+
+1. Follow OpenAI's best practices
+2. Maintain type hints and documentation
+3. Add tests for new features
+4. Update README with significant changes
+
+## Limitations
+
+- File size limits apply (varies by OpenAI tier)
+- Rate limits based on OpenAI account type
+- Vector store availability depends on OpenAI access level
+- Temporary local storage required for uploads
+
+## License
+
+This module is part of the vCon Server project and follows its licensing terms.
