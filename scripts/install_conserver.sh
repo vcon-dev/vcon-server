@@ -136,7 +136,7 @@ cd /opt/vcon-admin
 log "Creating .env file for vcon-admin..."
 sudo -u vcon bash -c 'cat > /opt/vcon-admin/.env << EOF
 DNS_HOST=${DOMAIN}
-export DNS_REGISTRATION_EMAIL=${EMAIL}
+DNS_REGISTRATION_EMAIL=${EMAIL}
 EOF'
 
 # Create Streamlit secrets file
