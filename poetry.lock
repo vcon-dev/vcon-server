@@ -2797,7 +2797,7 @@ version = "0.5.2"
 description = "A py.test plugin that parses environment files before running tests"
 optional = false
 python-versions = "*"
-groups = ["dev"]
+groups = ["main", "dev"]
 files = [
     {file = "pytest-dotenv-0.5.2.tar.gz", hash = "sha256:2dc6c3ac6d8764c71c6d2804e902d0ff810fa19692e95fe138aefc9b1aa73732"},
     {file = "pytest_dotenv-0.5.2-py3-none-any.whl", hash = "sha256:40a2cece120a213898afaa5407673f6bd924b1fa7eafce6bda0e8abffe2f710f"},
@@ -3920,4 +3920,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<3.13"
-content-hash = "a4e2b4b5c4f44686f57d759d17f968b8af1df9e5d300d612f55e319895eb6ca3"
+content-hash = "ff404049912e28f0cf246f306c492bad0b5f7a8059e59c72ed683fb8c5bb0441"
