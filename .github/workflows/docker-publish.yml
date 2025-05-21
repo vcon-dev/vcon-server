@@ -2,7 +2,7 @@ name: Build and Push Docker image
 
 on:
   push:
-    branches: [main]
+    branches: [main, release-test]
     tags: ['v*']
 
 jobs:
@@ -26,6 +26,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
+          file: ./docker/Dockerfile
           push: true
           tags: |
             howethomas/conserver:latest
