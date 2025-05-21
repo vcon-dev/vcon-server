@@ -11,6 +11,7 @@ The Deepgram link is a specialized plugin that performs speech-to-text transcrip
 - Automatic retry mechanism with exponential backoff
 - Metrics tracking for transcription time and failures
 - Support for URL-based audio sources
+- **Comprehensive logging and code comments for observability and maintainability**
 
 ## Configuration Options
 
@@ -83,6 +84,19 @@ The link tracks the following metrics:
 - `conserver.link.deepgram.transcription_time`: Time taken for transcription
 - `conserver.link.deepgram.transcription_failures`: Count of transcription failures
 - `conserver.link.deepgram.confidence`: Confidence score of transcriptions
+
+## Logging and Observability
+
+This link now features **comprehensive logging** at multiple levels (INFO, WARNING, ERROR, DEBUG) to provide:
+- Start and end of processing for each vCon
+- Option merging and configuration details
+- Dialog filtering decisions (type, URL, duration)
+- API request and response debug information
+- Transcription timing and confidence values
+- Error details with stack traces on failures
+- Progress and status for each dialog
+
+Additionally, the code is now thoroughly commented, explaining the purpose and logic of each function, block, and key decision point. This makes the codebase easier to maintain, debug, and extend.
 
 ## Dependencies
 
