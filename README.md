@@ -311,13 +311,13 @@ This project is licensed under the terms specified in the LICENSE file.
 
 ### Example Redis Volume in docker-compose.yml
 
-```
+```yaml
 volumes:
   - /opt/vcon-data/redis:/data
 ```
 
 ### User Creation and Permissions
 
-The install script will create the `vcon` user and set permissions for all necessary directories.
+The install script creates the `vcon` user and sets permissions for all necessary directories.
 
 ---
