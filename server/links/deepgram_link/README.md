@@ -81,9 +81,9 @@ The transcription includes:
 ## Metrics
 
 The link tracks the following metrics:
-- `conserver.link.deepgram.transcription_time`: Time taken for transcription
-- `conserver.link.deepgram.transcription_failures`: Count of transcription failures
-- `conserver.link.deepgram.confidence`: Confidence score of transcriptions
+- `conserver.link.deepgram_link.transcription_time`: Time taken for transcription
+- `conserver.link.deepgram_link.transcription_failures`: Count of transcription failures
+- `conserver.link.deepgram_link.confidence`: Confidence score of transcriptions
 
 ## Logging and Observability
 

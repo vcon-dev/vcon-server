@@ -1,7 +1,7 @@
 import os
 import pytest
 from unittest.mock import patch, MagicMock
-from server.links.deepgram import run
+from server.links.deepgram_link import run
 from server.vcon import Vcon
 
 @pytest.fixture
@@ -25,10 +25,10 @@ def vcon_with_transcript():
     vcon.add_analysis(type="transcript", dialog=0, vendor="deepgram", body={"transcript": "hi", "confidence": 0.99})
     return vcon
 
-@patch('server.links.deepgram.DeepgramClient')
-@patch('server.links.deepgram.transcribe_dg')
+@patch('server.links.deepgram_link.DeepgramClient')
+@patch('server.links.deepgram_link.transcribe_dg')
 def test_run_skips_non_recording_and_short_and_no_url(mock_transcribe, mock_dg, vcon_with_no_valid_dialog):
-    with patch('server.links.deepgram.VconRedis', autospec=True) as mock:
+    with patch('server.links.deepgram_link.VconRedis', autospec=True) as mock:
         instance = MagicMock()
         instance.get_vcon.return_value = vcon_with_no_valid_dialog
         mock.return_value = instance
@@ -41,10 +41,10 @@ def test_run_skips_non_recording_and_short_and_no_url(mock_transcribe, mock_dg, 
         assert instance.store_vcon.called
         assert result == vcon_uuid
 
-@patch('server.links.deepgram.DeepgramClient')
-@patch('server.links.deepgram.transcribe_dg')
+@patch('server.links.deepgram_link.DeepgramClient')
+@patch('server.links.deepgram_link.transcribe_dg')
 def test_run_skips_already_transcribed(mock_transcribe, mock_dg, vcon_with_transcript):
-    with patch('server.links.deepgram.VconRedis', autospec=True) as mock:
+    with patch('server.links.deepgram_link.VconRedis', autospec=True) as mock:
         instance = MagicMock()
         instance.get_vcon.return_value = vcon_with_transcript
         mock.return_value = instance
@@ -55,10 +55,10 @@ def test_run_skips_already_transcribed(mock_transcribe, mock_dg, vcon_with_trans
         assert instance.store_vcon.called
         assert result == vcon_uuid
 
-@patch('server.links.deepgram.DeepgramClient')
-@patch('server.links.deepgram.transcribe_dg')
+@patch('server.links.deepgram_link.DeepgramClient')
+@patch('server.links.deepgram_link.transcribe_dg')
 def test_run_successful_transcription(mock_transcribe, mock_dg, vcon_with_one_valid_dialog):
-    with patch('server.links.deepgram.VconRedis', autospec=True) as mock:
+    with patch('server.links.deepgram_link.VconRedis', autospec=True) as mock:
         instance = MagicMock()
         instance.get_vcon.return_value = vcon_with_one_valid_dialog
         mock.return_value = instance
@@ -71,10 +71,10 @@ def test_run_successful_transcription(mock_transcribe, mock_dg, vcon_with_one_va
         assert instance.store_vcon.called
         assert result == vcon_uuid
 
-@patch('server.links.deepgram.DeepgramClient')
-@patch('server.links.deepgram.transcribe_dg')
+@patch('server.links.deepgram_link.DeepgramClient')
+@patch('server.links.deepgram_link.transcribe_dg')
 def test_run_low_confidence(mock_transcribe, mock_dg, vcon_with_one_valid_dialog):
-    with patch('server.links.deepgram.VconRedis', autospec=True) as mock:
+    with patch('server.links.deepgram_link.VconRedis', autospec=True) as mock:
         instance = MagicMock()
         instance.get_vcon.return_value = vcon_with_one_valid_dialog
         mock.return_value = instance
@@ -87,10 +87,10 @@ def test_run_low_confidence(mock_transcribe, mock_dg, vcon_with_one_valid_dialog
         assert instance.store_vcon.called
         assert result == vcon_uuid
 
-@patch('server.links.deepgram.DeepgramClient')
-@patch('server.links.deepgram.transcribe_dg')
+@patch('server.links.deepgram_link.DeepgramClient')
+@patch('server.links.deepgram_link.transcribe_dg')
 def test_run_transcribe_error(mock_transcribe, mock_dg, vcon_with_one_valid_dialog):
-    with patch('server.links.deepgram.VconRedis', autospec=True) as mock:
+    with patch('server.links.deepgram_link.VconRedis', autospec=True) as mock:
         instance = MagicMock()
         instance.get_vcon.return_value = vcon_with_one_valid_dialog
         mock.return_value = instance
@@ -113,9 +113,9 @@ def test_deepgram_integration_real_api(tmp_path):
     """
     Integration test: runs Deepgram transcription on a real public audio file if DEEPGRAM_KEY is set.
     """
-    from server.links.deepgram import run
+    from server.links.deepgram_link import run
     from server.vcon import Vcon
-    from server.links.deepgram import VconRedis
+    from server.links.deepgram_link import VconRedis
 
     # Use a short public domain WAV file (e.g., from Wikimedia)
     audio_url = "https://raw.githubusercontent.com/vcon-dev/vcon-server/main/server/links/hugging_face_whisper/en_NatGen_CallCenter_BethTom_CancelPhonePlan.wav"
@@ -152,7 +152,7 @@ def test_deepgram_integration_real_api(tmp_path):
     }
 
     # Patch VconRedis only for this test
-    import server.links.deepgram as deepgram_mod
+    import server.links.deepgram_link as deepgram_mod
     orig_vcon_redis = deepgram_mod.VconRedis
     deepgram_mod.VconRedis = DummyVconRedis
     try:
@@ -175,8 +175,8 @@ def make_vcon(dialogs):
     vcon.add_analysis = add_analysis
     return vcon
 
-@patch("server.links.deepgram.VconRedis")
-@patch("server.links.deepgram.DeepgramClient")
+@patch("server.links.deepgram_link.VconRedis")
+@patch("server.links.deepgram_link.DeepgramClient")
 def test_run_with_duration(mock_deepgram_client, mock_vcon_redis):
     dialogs = [
         {"type": "recording", "url": "http://audio", "duration": 120},
@@ -185,15 +185,15 @@ def test_run_with_duration(mock_deepgram_client, mock_vcon_redis):
     mock_vcon_redis.return_value.get_vcon.return_value = vcon
     mock_vcon_redis.return_value.store_vcon = MagicMock()
     mock_deepgram_client.return_value = MagicMock()
-    with patch("server.links.deepgram.transcribe_dg") as mock_transcribe:
+    with patch("server.links.deepgram_link.transcribe_dg") as mock_transcribe:
         mock_transcribe.return_value = {"confidence": 0.9, "transcript": "text"}
-        from server.links.deepgram import run
+        from server.links.deepgram_link import run
         result = run("test-uuid", "deepgram", opts={"DEEPGRAM_KEY": "fake", "api": {}})
         assert result == "test-uuid"
         assert len(vcon.analysis) == 1
 
-@patch("server.links.deepgram.VconRedis")
-@patch("server.links.deepgram.DeepgramClient")
+@patch("server.links.deepgram_link.VconRedis")
+@patch("server.links.deepgram_link.DeepgramClient")
 def test_run_with_short_duration(mock_deepgram_client, mock_vcon_redis):
     dialogs = [
         {"type": "recording", "url": "http://audio", "duration": 10},
@@ -202,14 +202,14 @@ def test_run_with_short_duration(mock_deepgram_client, mock_vcon_redis):
     mock_vcon_redis.return_value.get_vcon.return_value = vcon
     mock_vcon_redis.return_value.store_vcon = MagicMock()
     mock_deepgram_client.return_value = MagicMock()
-    with patch("server.links.deepgram.transcribe_dg") as mock_transcribe:
-        from server.links.deepgram import run
+    with patch("server.links.deepgram_link.transcribe_dg") as mock_transcribe:
+        from server.links.deepgram_link import run
         result = run("test-uuid", "deepgram", opts={"DEEPGRAM_KEY": "fake", "api": {}})
         assert result == "test-uuid"
         assert len(vcon.analysis) == 0
 
-@patch("server.links.deepgram.VconRedis")
-@patch("server.links.deepgram.DeepgramClient")
+@patch("server.links.deepgram_link.VconRedis")
+@patch("server.links.deepgram_link.DeepgramClient")
 def test_run_missing_duration_wav_fetches_and_transcribes(mock_deepgram_client, mock_vcon_redis):
     dialogs = [
         {"type": "recording", "url": "http://audio.wav"},
@@ -218,17 +218,17 @@ def test_run_missing_duration_wav_fetches_and_transcribes(mock_deepgram_client, 
     mock_vcon_redis.return_value.get_vcon.return_value = vcon
     mock_vcon_redis.return_value.store_vcon = MagicMock()
     mock_deepgram_client.return_value = MagicMock()
-    with patch("server.links.deepgram.get_wav_duration_from_url") as mock_get_duration, \
-         patch("server.links.deepgram.transcribe_dg") as mock_transcribe:
+    with patch("server.links.deepgram_link.get_wav_duration_from_url") as mock_get_duration, \
+         patch("server.links.deepgram_link.transcribe_dg") as mock_transcribe:
         mock_get_duration.return_value = 120
         mock_transcribe.return_value = {"confidence": 0.9, "transcript": "text"}
-        from server.links.deepgram import run
+        from server.links.deepgram_link import run
         result = run("test-uuid", "deepgram", opts={"DEEPGRAM_KEY": "fake", "api": {}})
         assert result == "test-uuid"
         assert len(vcon.analysis) == 1
 
-@patch("server.links.deepgram.VconRedis")
-@patch("server.links.deepgram.DeepgramClient")
+@patch("server.links.deepgram_link.VconRedis")
+@patch("server.links.deepgram_link.DeepgramClient")
 def test_run_missing_duration_nonwav_transcribes_anyway(mock_deepgram_client, mock_vcon_redis):
     dialogs = [
         {"type": "recording", "url": "http://audio.mp3"},
@@ -237,9 +237,9 @@ def test_run_missing_duration_nonwav_transcribes_anyway(mock_deepgram_client, mo
     mock_vcon_redis.return_value.get_vcon.return_value = vcon
     mock_vcon_redis.return_value.store_vcon = MagicMock()
     mock_deepgram_client.return_value = MagicMock()
-    with patch("server.links.deepgram.transcribe_dg") as mock_transcribe:
+    with patch("server.links.deepgram_link.transcribe_dg") as mock_transcribe:
         mock_transcribe.return_value = {"confidence": 0.9, "transcript": "text"}
-        from server.links.deepgram import run
+        from server.links.deepgram_link import run
         result = run("test-uuid", "deepgram", opts={"DEEPGRAM_KEY": "fake", "api": {}})
         assert result == "test-uuid"
         assert len(vcon.analysis) == 1 

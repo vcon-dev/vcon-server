@@ -123,8 +123,8 @@ links:
     options:
       webhook-urls:
         - https://example.com/conserver
-  deepgram:
-    module: links.deepgram
+  deepgram_link:
+    module: links.deepgram_link
     options:
       DEEPGRAM_KEY: your_deepgram_key
       minimum_duration: 30
@@ -159,7 +159,7 @@ storages:
 chains:
   main_chain:
     links:
-      - deepgram
+      - deepgram_link
       - summarize
       - webhook_store_call_log
     storages:
