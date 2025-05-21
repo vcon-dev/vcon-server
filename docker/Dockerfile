@@ -1,31 +1,34 @@
 FROM python:3.12.2
 
+# Install system dependencies
 RUN apt-get update && \
-    apt-get install -y libavdevice-dev ffmpeg
+    apt-get install -y --no-install-recommends \
+    libavdevice-dev \
+    ffmpeg \
+    libsox-fmt-all \
+    sox \
+    redis-tools \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install SoX dependency
-# https://pysox.readthedocs.io/en/latest/#installation
-RUN apt-get install -y libsox-fmt-all sox
-
-# This is required in order to wait for Redis
-RUN apt-get install -y redis-tools
-RUN pip install --upgrade pip
-
-# Install PyTorch for local LLM tests
-RUN pip install torch torchvision torchaudio
-
+# Set working directory
 WORKDIR /app
 
-# TODO Update to use Poetry
-ADD  pyproject.toml /app
-ADD  poetry.lock /app
-RUN pip install poetry==1.8.0
-RUN poetry config virtualenvs.create false
-RUN poetry install --no-dev --no-interaction --no-root
-ADD  . /app
+# Install pip and PyTorch
+RUN pip install --upgrade pip && \
+    pip install torch torchvision torchaudio
 
-ENV PYTHONPATH "${PYTHONPATH}:/app/:/app/server/"
+# Install Poetry and project dependencies
+COPY pyproject.toml poetry.lock /app/
+RUN pip install poetry==1.8.0 && \
+    poetry config virtualenvs.create false && \
+    poetry install --only main --no-interaction --no-root
 
+# Copy application code
+COPY . /app
+
+# Set environment variables
+ENV PYTHONPATH=/app/:/app/server/
+
+# Set entrypoint and command
 ENTRYPOINT ["/app/docker/wait_for_redis.sh"]
-
-CMD [ "python", "./server/conserver.py" ]
+CMD ["python", "./server/conserver.py"]
