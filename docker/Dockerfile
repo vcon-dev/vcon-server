@@ -13,14 +13,22 @@ RUN apt-get update && \
 # Set working directory
 WORKDIR /app
 
-# Install pip and PyTorch
-RUN pip install --upgrade pip && \
-    pip install torch torchvision torchaudio
-
-# Install Poetry and project dependencies
-COPY pyproject.toml poetry.lock /app/
+# Install Poetry with specific version
 RUN pip install poetry==1.8.0 && \
-    poetry config virtualenvs.create false && \
+    poetry config virtualenvs.create false
+
+# Copy dependency files
+COPY pyproject.toml poetry.lock* /app/
+
+# Fix PyTorch installation to use compatible versions
+# The key fix is installing specific versions of torch and torchvision that are compatible
+RUN pip install --upgrade pip && \
+    pip install torch==2.1.2 torchvision==0.16.2 torchaudio==2.1.2 && \
+    # Install MSAL for dataverse tests
+    pip install msal
+
+# Handle the lock file
+RUN poetry lock --no-update && \
     # Install all dependencies including test dependencies
     poetry install --with test --no-interaction --no-root
 
