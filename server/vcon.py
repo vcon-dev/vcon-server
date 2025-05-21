@@ -4,7 +4,13 @@ from typing import Optional, Union
 import hashlib
 import time
 import uuid6
-from datetime import datetime, UTC
+from datetime import datetime
+try:
+    from datetime import UTC  # Python 3.11+
+except ImportError:
+    # For Python 3.9 and 3.10
+    from datetime import timezone
+    UTC = timezone.utc
 from pydash import get as _get
 import base64
 import os
