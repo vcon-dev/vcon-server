@@ -21,7 +21,8 @@ RUN pip install --upgrade pip && \
 COPY pyproject.toml poetry.lock /app/
 RUN pip install poetry==1.8.0 && \
     poetry config virtualenvs.create false && \
-    poetry install --only main --no-interaction --no-root
+    # Install all dependencies including test dependencies
+    poetry install --with test --no-interaction --no-root
 
 # Copy application code
 COPY . /app
