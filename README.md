@@ -24,6 +24,10 @@ vCon Server is a powerful conversation processing and storage system that enable
   - [Monitoring and Logging](#monitoring-and-logging)
   - [Troubleshooting](#troubleshooting)
   - [License](#license)
+  - [Production Deployment Best Practices](#production-deployment-best-practices)
+    - [Example Directory Layout](#example-directory-layout)
+    - [Example Redis Volume in docker-compose.yml](#example-redis-volume-in-docker-composeyml)
+    - [User Creation and Permissions](#user-creation-and-permissions)
 
 ## Prerequisites
 
@@ -289,3 +293,31 @@ docker compose logs -f [service_name]
 ## License
 
 This project is licensed under the terms specified in the LICENSE file.
+
+## Production Deployment Best Practices
+
+- **Install as a non-root user**: Create a dedicated user (e.g., `vcon`) for running the application and Docker containers.
+- **Clone repositories to /opt**: Place `vcon-admin` and `vcon-server` in `/opt` for system-wide, non-root access.
+- **Use persistent Docker volumes**: Map Redis and other stateful service data to `/opt/vcon-data` for durability.
+- **Follow the updated install script**: Use `scripts/install_conserver.sh` which now implements these best practices.
+
+### Example Directory Layout
+
+```
+/opt/vcon-admin
+/opt/vcon-server
+/opt/vcon-data/redis
+```
+
+### Example Redis Volume in docker-compose.yml
+
+```yaml
+volumes:
+  - /opt/vcon-data/redis:/data
+```
+
+### User Creation and Permissions
+
+The install script creates the `vcon` user and sets permissions for all necessary directories.
+
+---
