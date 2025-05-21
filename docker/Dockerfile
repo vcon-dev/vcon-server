@@ -20,10 +20,9 @@ RUN pip install poetry==1.8.0 && \
 # Copy dependency files
 COPY pyproject.toml poetry.lock* /app/
 
-# Fix PyTorch installation to use compatible versions
-# The key fix is installing specific versions of torch and torchvision that are compatible
+# Fix PyTorch installation to use compatible versions for Python 3.12
 RUN pip install --upgrade pip && \
-    pip install torch==2.1.2 torchvision==0.16.2 torchaudio==2.1.2 && \
+    pip install torch==2.2.0 torchvision==0.17.0 torchaudio==2.2.0 && \
     # Install MSAL for dataverse tests
     pip install msal
 
