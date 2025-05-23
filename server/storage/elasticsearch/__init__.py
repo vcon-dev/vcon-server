@@ -61,6 +61,9 @@ def save(
         vcon = vcon_redis.get_vcon(vcon_uuid)
         vcon_dict = vcon.to_dict()
 
+        if not vcon_dict["dialog"]:
+            return
+
         started_at = vcon_dict["dialog"][0]["start"]
 
         common_attributes = {
