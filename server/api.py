@@ -315,7 +315,8 @@ async def get_vcon(vcon_uuid: UUID) -> JSONResponse:
             vcon = Storage(storage_name=storage_name).get(vcon_uuid)
             if vcon:
                 # Store the vCon back in Redis with expiration
-                await redis_async.json().set(f"vcon:{str(vcon_uuid)}", "$", vcon, ex=VCON_REDIS_EXPIRY)
+                await redis_async.json().set(f"vcon:{str(vcon_uuid)}", "$", vcon)
+                await redis_async.expire(f"vcon:{str(vcon_uuid)}", VCON_REDIS_EXPIRY)
                 # Add to sorted set for timestamp-based retrieval
                 created_at = datetime.fromisoformat(vcon["created_at"])
                 timestamp = int(created_at.timestamp())
@@ -361,7 +362,8 @@ async def get_vcons(
                 vcon = Storage(storage_name=storage_name).get(vcon_uuid)
                 if vcon:
                     # Store the vCon back in Redis with expiration
-                    await redis_async.json().set(f"vcon:{str(vcon_uuid)}", "$", vcon, ex=VCON_REDIS_EXPIRY)
+                    await redis_async.json().set(f"vcon:{str(vcon_uuid)}", "$", vcon)
+                    await redis_async.expire(f"vcon:{str(vcon_uuid)}", VCON_REDIS_EXPIRY)
                     # Add to sorted set for timestamp-based retrieval
                     created_at = datetime.fromisoformat(vcon["created_at"])
                     timestamp = int(created_at.timestamp())
