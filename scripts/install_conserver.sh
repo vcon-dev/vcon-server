@@ -86,6 +86,17 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
+# Create vcon user and directories if not exist
+if ! id "vcon" &>/dev/null; then
+    log "Creating user 'vcon'..."
+    useradd -m -s /bin/bash vcon
+fi
+# Add vcon user to docker group
+log "Adding user 'vcon' to docker group..."
+usermod -aG docker vcon
+mkdir -p /opt/vcon-admin /opt/vcon-server /opt/vcon-data/redis
+chown -R vcon:vcon /opt/vcon-admin /opt/vcon-server /opt/vcon-data
+
 # Install Docker if not already installed
 if ! command_exists docker; then
     log "Installing Docker..."
@@ -116,23 +127,22 @@ fi
 log "Creating docker network 'conserver'..."
 docker network create conserver || log "Network already exists"
 
-# Clone vcon-admin repository
+# Clone vcon-admin repository as vcon user
 log "Cloning vcon-admin repository..."
-cd /root
-git clone https://github.com/vcon-dev/vcon-admin
-cd vcon-admin/
+sudo -u vcon git clone https://github.com/vcon-dev/vcon-admin /opt/vcon-admin
+cd /opt/vcon-admin
 
 # Create .env file
 log "Creating .env file for vcon-admin..."
-cat > .env << EOF
+sudo -u vcon bash -c 'cat > /opt/vcon-admin/.env << EOF
 DNS_HOST=${DOMAIN}
-export DNS_REGISTRATION_EMAIL=${EMAIL}
-EOF
+DNS_REGISTRATION_EMAIL=${EMAIL}
+EOF'
 
 # Create Streamlit secrets file
 log "Creating Streamlit secrets..."
-mkdir -p .streamlit
-cat > .streamlit/secrets.toml << EOF
+sudo -u vcon mkdir -p /opt/vcon-admin/.streamlit
+sudo -u vcon bash -c 'cat > /opt/vcon-admin/.streamlit/secrets.toml << EOF
 # .streamlit/secrets.toml
 
 [aws]
@@ -161,21 +171,21 @@ password = ""
 [conserver]
 api_url = "https://${DOMAIN}/api"
 auth_token = "${API_TOKEN}"
-EOF
+EOF'
 
-# Build and start vcon-admin
+# Build and start vcon-admin as vcon user
 log "Building and starting vcon-admin..."
-docker compose up --build -d
+cd /opt/vcon-admin
+sudo -u vcon docker compose up --build -d
 
-# Clone vcon-server repository
+# Clone vcon-server repository as vcon user
 log "Cloning vcon-server repository..."
-cd /root
-git clone https://github.com/vcon-dev/vcon-server
-cd vcon-server/
+sudo -u vcon git clone https://github.com/vcon-dev/vcon-server /opt/vcon-server
+cd /opt/vcon-server
 
 # Create .env file
 log "Creating .env file for vcon-server..."
-cat > .env << EOF
+sudo -u vcon bash -c 'cat > /opt/vcon-server/.env << EOF
 REDIS_URL=redis://redis
 
 # API security token
@@ -189,11 +199,11 @@ GROQ_API_KEY=your_groq_api_key_here
 
 DNS_HOST=${DOMAIN}
 DNS_REGISTRATION_EMAIL=${EMAIL}
-EOF
+EOF'
 
 # Create config.yml
 log "Creating config.yml file..."
-cat > config.yml << EOF
+sudo -u vcon bash -c 'cat > /opt/vcon-server/config.yml << EOF
 links:
   tag:
     module: links.tag
@@ -219,11 +229,12 @@ chains:
     storages:
     - mongo
     enabled: 1
-EOF
+EOF'
 
-# Build and start vcon-server
+# Build and start vcon-server as vcon user
 log "Building and starting vcon-server..."
-docker compose up --build -d
+cd /opt/vcon-server
+sudo -u vcon docker compose up --build -d
 
 # Wait for services to start
 log "Waiting for services to start..."
@@ -234,7 +245,7 @@ log "Installation completed successfully!"
 log "-------------------------------------------------------"
 log "Portal Address: https://${DOMAIN}/admin/"
 log "Default login: admin/admin"
-log "SSH Access: root@${DOMAIN}"
+log "SSH Access: vcon@${DOMAIN}"
 log "API Access: https://${DOMAIN}/api/docs"
 log "API Token: ${API_TOKEN}"
 log "Mongo Express Access: https://${DOMAIN}/mongo-express"

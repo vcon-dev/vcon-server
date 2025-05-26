@@ -15,7 +15,7 @@ This script automates the installation process for the Conserver vCon Server, se
 ## Quick Installation
 
 ```bash
-curl -o install_conserver.sh https://raw.githubusercontent.com/your-username/your-repo/main/install_conserver.sh
+curl -o install_conserver.sh https://raw.githubusercontent.com/vcon-dev/vcon-server/main/install_conserver.sh
 chmod +x install_conserver.sh
 sudo ./install_conserver.sh --domain your-domain.com --email your-email@example.com
 ```
