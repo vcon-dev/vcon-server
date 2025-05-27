@@ -1,31 +1,42 @@
 FROM python:3.12.2
 
+# Install system dependencies
 RUN apt-get update && \
-    apt-get install -y libavdevice-dev ffmpeg
+    apt-get install -y --no-install-recommends \
+    libavdevice-dev \
+    ffmpeg \
+    libsox-fmt-all \
+    sox \
+    redis-tools \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install SoX dependency
-# https://pysox.readthedocs.io/en/latest/#installation
-RUN apt-get install -y libsox-fmt-all sox
-
-# This is required in order to wait for Redis
-RUN apt-get install -y redis-tools
-RUN pip install --upgrade pip
-
-# Install PyTorch for local LLM tests
-RUN pip install torch torchvision torchaudio
-
+# Set working directory
 WORKDIR /app
 
-# TODO Update to use Poetry
-ADD  pyproject.toml /app
-ADD  poetry.lock /app
-RUN pip install poetry==1.8.0
-RUN poetry config virtualenvs.create false
-RUN poetry install --no-dev --no-interaction --no-root
-ADD  . /app
+# Install Poetry with specific version
+RUN pip install poetry==1.8.0 && \
+    poetry config virtualenvs.create false
 
-ENV PYTHONPATH "${PYTHONPATH}:/app/:/app/server/"
+# Copy dependency files
+COPY pyproject.toml poetry.lock* /app/
 
+# Fix PyTorch installation to use compatible versions for Python 3.12
+RUN pip install --upgrade pip && \
+    pip install torch==2.2.0 torchvision==0.17.0 torchaudio==2.2.0 && \
+    # Install MSAL for dataverse tests
+    pip install msal
+
+# Handle the lock file
+RUN poetry lock --no-update && \
+    # Install all dependencies including test dependencies
+    poetry install --with test --no-interaction --no-root
+
+# Copy application code
+COPY . /app
+
+# Set environment variables
+ENV PYTHONPATH=/app/:/app/server/
+
+# Set entrypoint and command
 ENTRYPOINT ["/app/docker/wait_for_redis.sh"]
-
-CMD [ "python", "./server/conserver.py" ]
+CMD ["python", "./server/conserver.py"]

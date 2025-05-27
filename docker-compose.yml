@@ -50,7 +50,7 @@ services:
       - "com.datadoghq.ad.instances=[{'python_service': 'conserver.api'}]"
 
   redis:
-    image: "redis/redis-stack:latest"
+    image: redis/redis-stack-server:latest
     ports:
       - "${REDIS_EXTERNAL_PORT:-8001}:8001"
     environment:
