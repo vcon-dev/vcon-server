@@ -1,7 +1,7 @@
 from lib.vcon_redis import VconRedis
 from lib.logging_utils import init_logger
 import logging
-from server.utils.openai_chat import OpenAIChatClient  # Updated import
+from server.utils.openai_responses import OpenAIResponsesClient
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -19,14 +19,14 @@ logger = init_logger(__name__)
 default_options = {
     "prompt": "Did both the customer and the agent speak? Respond with 'true' if yes, 'false' if not. Respond with only 'true' or 'false'.",
     "analysis_type": "engagement_analysis",
-    "model": "gpt-4o-mini",  # Updated to use current model
+    "model": "gpt-4o-mini",  # Updated to use new model
     "sampling_rate": 1,
     "temperature": 0.2,
     "source": {
         "analysis_type": "transcript",
         "text_location": "body.paragraphs.transcript",
     },
-    "OPENAI_API_KEY": os.getenv("OPENAI_API_KEY", "")
+    "OPENAI_API_KEY": os.getenv("OPENAI_API_KEY", "")  # Make it optional with empty default
 }
 
 def get_analysis_for_type(vcon, index, analysis_type):
@@ -42,10 +42,10 @@ def get_analysis_for_type(vcon, index, analysis_type):
 )
 def check_engagement(transcript, prompt, model, temperature, client) -> bool:
     """
-    Use the actual OpenAI Chat Completions API to check engagement
+    Use the new Responses API to check engagement
     """
     try:
-        response = client.create_completion(
+        response = client.create_response(
             input_text=f"Transcript: {transcript}",
             instructions=prompt,
             model=model,
@@ -89,8 +89,8 @@ def run(
         logger.info(f"Skipping {link_name} vCon {vcon_uuid} due to sampling")
         return vcon_uuid
 
-    # Use the corrected OpenAI Chat client
-    client = OpenAIChatClient(api_key=opts["OPENAI_API_KEY"], timeout=120.0, max_retries=0)
+    # Use the new Responses API client
+    client = OpenAIResponsesClient(api_key=opts["OPENAI_API_KEY"], timeout=120.0, max_retries=0)
     source_type = opts["source"]["analysis_type"]
     text_location = opts["source"]["text_location"]
 

@@ -1,19 +1,123 @@
+# Environment variables and secrets
 *.env
+.env*
 venv
+
+# Python cache and compiled files
 **/__pycache__
+*.py[cod]
+*$py.class
+*.so
+
+# OS files
 .DS_Store
+.DS_Store?
+._*
+Thumbs.db
+
+# Jupyter notebooks
 **/*.ipynb
 
+# IDE and editor files
 .vscode
-docker-compose.override.yml
+.idea/
+*.sublime-project
+*.sublime-workspace
 
-static
-!static/styles.css
+# Docker
+docker-compose.override.yml
+.data
+
+# Temporary and backup files
+tmp
+backup_*/
+*.bak
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# Certificates and keys
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# Configuration files with secrets
 config.json
 config.yml
+local_config.yml
+dev_config.yml
 
-.data
-tmp
-*.pem
+# Static files (keeping your exception)
+static
+!static/styles.css
+
+# Testing and coverage
 .coverage
+.pytest_cache/
+htmlcov/
+test_results/
+test_output/
+
+# vCon server specific
+.vcon/
+storage/
+uploads/
+
+# Logs
+*.log
+logs/
+log/
+
+# Model and cache files
+*.model
+*.bin
+models/
+.cache/
+torch_cache/
+.huggingface/
+.openai/
+
+# Audio/media files for testing
+*.wav
+*.mp3
+*.mp4
+*.avi
+*.mov
+
+# Data files
+*.csv
+*.xlsx
+data/
+
+# Redis data
+dump.rdb
+*.rdb
+
+# Poetry (optional - uncomment if you want to track exact versions)
+# poetry.lock
+
+# Development tools
 .qodo
+.mypy_cache/
+.tox/
+.nox/
+
+# Profiling
+*.prof
+
+# Virtual environments (additional patterns)
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
