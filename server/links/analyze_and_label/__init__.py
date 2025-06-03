@@ -2,13 +2,13 @@ from lib.vcon_redis import VconRedis
 from lib.logging_utils import init_logger
 import logging
 import json
-from openai import OpenAI
+from server.utils.openai_chat import OpenAIChatClient  # Updated import
 from tenacity import (
     retry,
     stop_after_attempt,
     wait_exponential,
     before_sleep_log,
-)  # for exponential backoff
+)
 from lib.metrics import init_metrics, stats_gauge, stats_count
 import time
 from lib.links.filters import is_included, randomly_execute_with_sampling
@@ -20,7 +20,7 @@ logger = init_logger(__name__)
 default_options = {
     "prompt": "Analyze this transcript and provide a list of relevant labels for categorization. Return your response as a JSON object with a single key 'labels' containing an array of strings.",
     "analysis_type": "labeled_analysis",
-    "model": "gpt-4-turbo",
+    "model": "gpt-4o",  # Updated to use current model
     "sampling_rate": 1,
     "temperature": 0.2,
     "source": {
@@ -30,34 +30,35 @@ default_options = {
     "response_format": {"type": "json_object"}
 }
 
-
 def get_analysis_for_type(vcon, index, analysis_type):
     for a in vcon.analysis:
         if a["dialog"] == index and a["type"] == analysis_type:
             return a
     return None
 
-
 @retry(
     wait=wait_exponential(multiplier=2, min=1, max=65),
     stop=stop_after_attempt(6),
     before_sleep=before_sleep_log(logger, logging.INFO),
 )
-def generate_analysis_with_labels(transcript, prompt, model, temperature, client, response_format) -> dict:
-    messages = [
-        {"role": "system", "content": "You are a helpful assistant that analyzes text and provides relevant labels."},
-        {"role": "user", "content": prompt + "\n\n" + transcript},
-    ]
-
-    response = client.chat.completions.create(
-        model=model, 
-        messages=messages, 
-        temperature=temperature,
-        response_format=response_format
-    )
-    
-    return response.choices[0].message.content
-
+def generate_analysis_with_labels(transcript, prompt, model, temperature, client, response_format) -> str:
+    """
+    Generate analysis with labels using the actual OpenAI Chat Completions API
+    """
+    try:
+        response = client.create_completion(
+            input_text=f"{prompt}\n\nTranscript: {transcript}",
+            instructions="You are a helpful assistant that analyzes text and provides relevant labels.",
+            model=model,
+            temperature=temperature,
+            response_format=response_format
+        )
+        
+        return response["text"]
+        
+    except Exception as e:
+        logger.error(f"Error in generate_analysis_with_labels: {str(e)}")
+        raise
 
 def run(
     vcon_uuid,
@@ -81,7 +82,8 @@ def run(
         logger.info(f"Skipping {link_name} vCon {vcon_uuid} due to sampling")
         return vcon_uuid
 
-    client = OpenAI(api_key=opts["OPENAI_API_KEY"], timeout=120.0, max_retries=0)
+    # Use the corrected OpenAI Chat client
+    client = OpenAIChatClient(api_key=opts["OPENAI_API_KEY"], timeout=120.0, max_retries=0)
     source_type = navigate_dict(opts, "source.analysis_type")
     text_location = navigate_dict(opts, "source.text_location")
 
@@ -198,7 +200,6 @@ def run(
     logger.info(f"Finished analyze_and_label - {module_name}:{link_name} plugin for: {vcon_uuid}")
 
     return vcon_uuid
-
 
 def navigate_dict(dictionary, path):
     keys = path.split(".")
