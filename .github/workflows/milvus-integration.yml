@@ -1,0 +1,181 @@
+name: Milvus Integration Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'server/storage/milvus/**'
+      - 'docker-compose.milvus.yml'
+      - '.github/workflows/milvus-integration.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'server/storage/milvus/**'
+      - 'docker-compose.milvus.yml'
+      - '.github/workflows/milvus-integration.yml'
+  workflow_dispatch:
+    inputs:
+      run_performance_tests:
+        description: 'Run performance tests'
+        required: false
+        default: 'false'
+        type: boolean
+
+env:
+  MILVUS_INTEGRATION_TESTS: true
+  MILVUS_TEST_HOST: localhost
+  MILVUS_TEST_PORT: 19530
+  MILVUS_TEST_USER: ""
+  MILVUS_TEST_PASSWORD: ""
+
+jobs:
+  milvus-integration:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        python-version: [3.11, 3.12]
+    
+    services:
+      # We'll use docker-compose instead of services for complex setup
+      
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libavdevice-dev ffmpeg libsox-fmt-all sox
+
+    - name: Install Poetry
+      uses: snok/install-poetry@v1
+      with:
+        version: 1.8.0
+        virtualenvs-create: true
+        virtualenvs-in-project: true
+
+    - name: Load cached venv
+      id: cached-poetry-dependencies
+      uses: actions/cache@v3
+      with:
+        path: .venv
+        key: venv-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('**/poetry.lock') }}
+
+    - name: Install dependencies
+      if: steps.cached-poetry-dependencies.outputs.cache-hit != 'true'
+      run: |
+        poetry install --with test
+        poetry run pip install pymilvus
+
+    - name: Start Milvus services
+      run: |
+        docker-compose -f docker-compose.milvus.yml up -d
+        
+        # Wait for services to be ready
+        echo "Waiting for services to start..."
+        sleep 30
+        
+        # Wait for etcd
+        timeout 120 bash -c 'until docker exec milvus-etcd etcdctl endpoint health; do sleep 5; done'
+        
+        # Wait for minio
+        timeout 120 bash -c 'until curl -f http://localhost:9000/minio/health/live; do sleep 5; done'
+        
+        # Wait for milvus
+        timeout 180 bash -c 'until curl -f http://localhost:9091/healthz; do sleep 10; done'
+        
+        echo "All services are ready!"
+
+    - name: Verify Milvus connection
+      run: |
+        poetry run python -c "
+        from pymilvus import connections, utility
+        try:
+            connections.connect(host='localhost', port='19530')
+            version = utility.get_server_version()
+            print(f'Successfully connected to Milvus version: {version}')
+            connections.disconnect('default')
+        except Exception as e:
+            print(f'Failed to connect to Milvus: {e}')
+            exit(1)
+        "
+
+    - name: Run Milvus integration tests
+      run: |
+        poetry run pytest server/storage/milvus/test_milvus_integration.py -v -m "not performance" --tb=short
+
+    - name: Run performance tests
+      if: ${{ github.event.inputs.run_performance_tests == 'true' || github.event_name == 'workflow_dispatch' }}
+      run: |
+        poetry run pytest server/storage/milvus/test_milvus_integration.py -v -m "performance" --tb=short
+
+    - name: Show Milvus logs on failure
+      if: failure()
+      run: |
+        echo "=== Milvus logs ==="
+        docker logs milvus-standalone
+        echo "=== etcd logs ==="
+        docker logs milvus-etcd
+        echo "=== MinIO logs ==="
+        docker logs milvus-minio
+
+    - name: Cleanup
+      if: always()
+      run: |
+        docker-compose -f docker-compose.milvus.yml down -v
+        docker system prune -f
+
+  milvus-compatibility:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    
+    strategy:
+      matrix:
+        milvus-version: ["v2.4.15", "v2.4.0", "v2.3.0"]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v4
+      with:
+        python-version: 3.12
+
+    - name: Install Poetry and dependencies
+      run: |
+        pip install poetry==1.8.0
+        poetry install --with test
+        poetry run pip install pymilvus
+
+    - name: Test with Milvus ${{ matrix.milvus-version }}
+      run: |
+        # Modify docker-compose to use specific Milvus version
+        sed -i 's/milvusdb\/milvus:v[0-9.]\+/milvusdb\/milvus:${{ matrix.milvus-version }}/g' docker-compose.milvus.yml
+        
+        # Start services
+        docker-compose -f docker-compose.milvus.yml up -d
+        
+        # Wait for services
+        sleep 60
+        timeout 180 bash -c 'until curl -f http://localhost:9091/healthz; do sleep 10; done'
+        
+        # Set test environment
+        export MILVUS_INTEGRATION_TESTS=true
+        export MILVUS_TEST_HOST=localhost
+        export MILVUS_TEST_PORT=19530
+        
+        # Run basic compatibility tests
+        poetry run pytest server/storage/milvus/test_milvus_integration.py::TestMilvusIntegration::test_connection_establishment -v
+        poetry run pytest server/storage/milvus/test_milvus_integration.py::TestMilvusIntegration::test_save_and_retrieve_vcon -v
+
+    - name: Cleanup
+      if: always()
+      run: |
+        docker-compose -f docker-compose.milvus.yml down -v
