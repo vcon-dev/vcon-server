@@ -1,0 +1,102 @@
+name: Milvus Integration Tests
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'server/storage/milvus/**'
+      - 'docker-compose.milvus.yml'
+      - 'scripts/test-milvus*'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'server/storage/milvus/**'
+  schedule:
+    - cron: '0 2 * * *'  # Daily at 2 AM
+  workflow_dispatch:
+    inputs:
+      include_performance:
+        description: 'Run performance tests'
+        required: false
+        default: 'false'
+        type: boolean
+
+jobs:
+  milvus-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v4
+      with:
+        python-version: 3.12
+
+    - name: Install Poetry
+      uses: snok/install-poetry@v1
+      with:
+        version: 1.8.0
+
+    - name: Install dependencies
+      run: |
+        poetry install --with test
+        poetry add pymilvus
+
+    - name: Free up disk space
+      run: |
+        docker system prune -af
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf /opt/ghc
+
+    - name: Run Milvus integration tests
+      run: |
+        chmod +x scripts/test-milvus.sh
+        ./scripts/test-milvus.sh
+
+    - name: Run performance tests
+      if: ${{ github.event.inputs.include_performance == 'true' }}
+      run: |
+        chmod +x scripts/test-milvus-comprehensive.sh
+        ./scripts/test-milvus-comprehensive.sh --performance
+
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: milvus-test-results
+        path: |
+          pytest-results.xml
+          milvus-logs/
+
+  compatibility-matrix:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    strategy:
+      matrix:
+        milvus-version: ["v2.4.15", "v2.4.0", "v2.3.0"]
+        
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v4
+      with:
+        python-version: 3.12
+
+    - name: Install dependencies
+      run: |
+        pip install poetry
+        poetry install --with test
+
+    - name: Update Milvus version
+      run: |
+        sed -i 's/milvusdb\/milvus:v[0-9.]\+/milvusdb\/milvus:${{ matrix.milvus-version }}/g' docker-compose.milvus.yml
+
+    - name: Test with Milvus ${{ matrix.milvus-version }}
+      run: |
+        chmod +x scripts/test-milvus.sh
+        ./scripts/test-milvus.sh
