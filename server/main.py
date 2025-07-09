@@ -8,6 +8,8 @@ for processing vCons through configured processing chains.
 import importlib
 import logging
 import signal
+import subprocess
+import sys
 import time
 from typing import Dict, List, Optional, TypedDict
 
@@ -61,6 +63,38 @@ def signal_handler(signum: int, frame: Optional[object]) -> None:
     logger.info("SIGTERM received, initiating graceful shutdown...")
     global shutdown_requested
     shutdown_requested = True
+
+
+def import_or_install(module_name: str, pip_name: Optional[str] = None) -> object:
+    """Import a module, installing it via pip if not found.
+    
+    Args:
+        module_name: The name of the module to import
+        pip_name: Optional pip package name (defaults to module_name)
+        
+    Returns:
+        The imported module
+        
+    Raises:
+        Exception: If module installation or import fails
+    """
+    if pip_name is None:
+        pip_name = module_name
+    
+    try:
+        return importlib.import_module(module_name)
+    except ModuleNotFoundError:
+        logger.info("Module %s not found, attempting to install %s", module_name, pip_name)
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", pip_name])
+            logger.info("Successfully installed %s", pip_name)
+            return importlib.import_module(module_name)
+        except subprocess.CalledProcessError as e:
+            logger.error("Failed to install %s: %s", pip_name, str(e))
+            raise
+        except Exception as e:
+            logger.error("Error importing %s after installation: %s", module_name, str(e))
+            raise
 
 
 # Register the signal handler for SIGTERM
@@ -199,7 +233,8 @@ class VconChainRequest:
         module_name = link["module"]
         if module_name not in imported_modules:
             logger.debug("Importing module %s for link %s", module_name, link_name)
-            imported_modules[module_name] = importlib.import_module(module_name)
+            pip_name = link.get("pip_name")  # Optional pip package name from config
+            imported_modules[module_name] = import_or_install(module_name, pip_name)
         module = imported_modules[module_name]
         options = link.get("options")
         
@@ -279,16 +314,27 @@ def main() -> None:
     logger.info("Loading required modules")
     imports = config.get("imports", {})
     logger.debug("Modules to import: %s", list(imports.keys()))
-    for module_name, module_path in imports.items():
+    for import_name, import_config in imports.items():
         try:
-            logger.info("Importing module %s from %s", module_name, module_path)
-            imported_modules[module_name] = importlib.import_module(module_path)
+            # Support both old string format and new dict format
+            if isinstance(import_config, str):
+                # Old format: imports: { module_name: "module_path" }
+                module_name = import_config
+                pip_name = None
+                logger.info("Importing module %s (legacy format)", module_name)
+            else:
+                # New format: imports: { import_name: { module: "module_name", pip_name: "package" } }
+                module_name = import_config["module"]
+                pip_name = import_config.get("pip_name")
+                logger.info("Importing module %s for import %s", module_name, import_name)
+            
+            imported_modules[module_name] = import_or_install(module_name, pip_name)
             logger.debug("Successfully imported module %s", module_name)
         except Exception as e:
             logger.error(
-                "Failed to import module %s from %s: %s",
+                "Failed to import module %s for import %s: %s",
                 module_name,
-                module_path,
+                import_name,
                 str(e),
                 exc_info=True
             )
