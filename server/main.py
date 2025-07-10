@@ -67,24 +67,26 @@ def signal_handler(signum: int, frame: Optional[object]) -> None:
 
 def import_or_install(module_name: str, pip_name: Optional[str] = None) -> object:
     """Import a module, installing it via pip if not found.
-    
+
     Args:
         module_name: The name of the module to import
         pip_name: Optional pip package name (defaults to module_name)
-        
+
     Returns:
         The imported module
-        
+
     Raises:
         Exception: If module installation or import fails
     """
     if pip_name is None:
         pip_name = module_name
-    
+
     try:
         return importlib.import_module(module_name)
     except ModuleNotFoundError:
-        logger.info("Module %s not found, attempting to install %s", module_name, pip_name)
+        logger.info(
+            "Module %s not found, attempting to install %s", module_name, pip_name
+        )
         try:
             subprocess.check_call([sys.executable, "-m", "pip", "install", pip_name])
             logger.info("Successfully installed %s", pip_name)
@@ -93,7 +95,9 @@ def import_or_install(module_name: str, pip_name: Optional[str] = None) -> objec
             logger.error("Failed to install %s: %s", pip_name, str(e))
             raise
         except Exception as e:
-            logger.error("Error importing %s after installation: %s", module_name, str(e))
+            logger.error(
+                "Error importing %s after installation: %s", module_name, str(e)
+            )
             raise
 
 
