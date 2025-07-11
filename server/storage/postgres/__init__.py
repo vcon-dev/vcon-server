@@ -104,7 +104,7 @@ def save(
         
         # Connect to Postgres
         db = get_db_connection(opts)
-        BaseModel._meta.database = db
+        Vcons._meta.database = db
         
         # Ensure table exists
         db.create_tables([Vcons], safe=True)
@@ -160,7 +160,7 @@ def get(
     try:
         # Connect to Postgres
         db = get_db_connection(opts)
-        BaseModel._meta.database = db
+        Vcons._meta.database = db
 
         # Attempt to retrieve the vCon
         try:
