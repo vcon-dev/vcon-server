@@ -13,7 +13,7 @@ A specialized link that performs AI-powered analysis on entire vCon objects, ret
 ### datatrails
 A specialized link that integrates vCon data with the DataTrails platform, creating verifiable audit trails for vCon operations. Supports both asset-based and asset-free events, with automatic token management and structured event attributes mapping to SCITT envelopes.
 
-### deepgram
+### deepgram_link
 A specialized link that performs speech-to-text transcription on audio recordings in vCon dialogs using the Deepgram API. Supports automatic language detection, confidence scoring, and minimum duration filtering for transcription quality.
 
 ### diet
