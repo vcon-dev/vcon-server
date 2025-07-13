@@ -5,13 +5,13 @@ on:
     branches: [ main, develop ]
     paths:
       - 'server/storage/milvus/**'
-      - 'docker compose.milvus.yml'
+      - 'docker-compose.milvus.yml'
       - '.github/workflows/milvus-integration.yml'
   pull_request:
     branches: [ main ]
     paths:
       - 'server/storage/milvus/**'
-      - 'docker compose.milvus.yml'
+      - 'docker-compose.milvus.yml'
       - '.github/workflows/milvus-integration.yml'
   workflow_dispatch:
     inputs:
@@ -72,7 +72,7 @@ jobs:
 
     - name: Start Milvus services
       run: |
-        docker compose -f docker compose.milvus.yml up -d
+        docker compose -f docker-compose.milvus.yml up -d
         
         # Wait for services to be ready
         echo "Waiting for services to start..."
@@ -125,7 +125,7 @@ jobs:
     - name: Cleanup
       if: always()
       run: |
-        docker compose -f docker compose.milvus.yml down -v
+        docker compose -f docker-compose.milvus.yml down -v
         docker system prune -f
 
   milvus-compatibility:
@@ -154,10 +154,10 @@ jobs:
     - name: Test with Milvus ${{ matrix.milvus-version }}
       run: |
         # Modify docker compose to use specific Milvus version
-        sed -i 's/milvusdb\/milvus:v[0-9.]\+/milvusdb\/milvus:${{ matrix.milvus-version }}/g' docker compose.milvus.yml
+        sed -i 's/milvusdb\/milvus:v[0-9.]\+/milvusdb\/milvus:${{ matrix.milvus-version }}/g' docker-compose.milvus.yml
         
         # Start services
-        docker compose -f docker compose.milvus.yml up -d
+        docker compose -f docker-compose.milvus.yml up -d
         
         # Wait for services
         sleep 60
@@ -175,4 +175,4 @@ jobs:
     - name: Cleanup
       if: always()
       run: |
-        docker compose -f docker compose.milvus.yml down -v
+        docker compose -f docker-compose.milvus.yml down -v
