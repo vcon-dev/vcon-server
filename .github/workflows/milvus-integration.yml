@@ -85,7 +85,7 @@ jobs:
         timeout 120 bash -c 'until curl -f http://localhost:9000/minio/health/live; do sleep 5; done'
         
         # Wait for milvus
-        timeout 180 bash -c 'until curl -f http://localhost:9091/healthz; do sleep 10; done'
+        timeout 300 bash -c 'until curl -f http://localhost:9091/healthz; do sleep 10; done'
         
         echo "All services are ready!"
 
@@ -160,8 +160,8 @@ jobs:
         docker compose -f docker-compose.milvus.yml up -d
         
         # Wait for services
-        sleep 60
-        timeout 180 bash -c 'until curl -f http://localhost:9091/healthz; do sleep 10; done'
+        sleep 90
+        timeout 300 bash -c 'until curl -f http://localhost:9091/healthz; do sleep 10; done'
         
         # Set test environment
         export MILVUS_INTEGRATION_TESTS=true
@@ -169,8 +169,8 @@ jobs:
         export MILVUS_TEST_PORT=19530
         
         # Run basic compatibility tests
-        poetry run pytest server/storage/milvus/test_milvus_integration.py::TestMilvusIntegration::test_connection_establishment -v
-        poetry run pytest server/storage/milvus/test_milvus_integration.py::TestMilvusIntegration::test_save_and_retrieve_vcon -v
+        poetry run pytest server/storage/milvus/test_milvus_integration.py::TestMilvusBasic::test_connection_establishment -v
+        poetry run pytest server/storage/milvus/test_milvus_integration.py::TestMilvusBasic::test_save_and_retrieve_vcon -v
 
     - name: Cleanup
       if: always()
