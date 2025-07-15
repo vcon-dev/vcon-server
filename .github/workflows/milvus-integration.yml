@@ -169,8 +169,8 @@ jobs:
         export MILVUS_TEST_PORT=19530
         
         # Run basic compatibility tests
-        poetry run pytest server/storage/milvus/test_milvus_integration.py::TestMilvusBasic::test_connection_establishment -v
-        poetry run pytest server/storage/milvus/test_milvus_integration.py::TestMilvusBasic::test_save_and_retrieve_vcon -v
+        poetry run pytest server/storage/milvus/test_milvus_integration.py::TestMilvusBasic::test_insert_and_query_data -v
+        poetry run pytest server/storage/milvus/test_milvus_integration.py::TestMilvusBasic::test_multiple_inserts -v
 
     - name: Cleanup
       if: always()
