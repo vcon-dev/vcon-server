@@ -18,7 +18,7 @@ if ! command -v docker >/dev/null 2>&1; then
     exit 1
 fi
 
-if ! command -v docker-compose >/dev/null 2>&1; then
+if ! command -v docker compose >/dev/null 2>&1; then
     echo -e "${RED}Error: Docker Compose is not installed${NC}"
     exit 1
 fi
@@ -108,7 +108,7 @@ wait_for_service() {
 
 # Start Milvus services
 echo -e "${YELLOW}Starting Milvus services...${NC}"
-docker-compose -f docker-compose.milvus.yml up -d
+docker compose -f docker-compose.milvus.yml up -d
 
 # Wait for each service individually
 wait_for_service "MinIO" "curl -f http://localhost:9000/minio/health/live"
@@ -123,7 +123,7 @@ export MILVUS_TEST_PORT=19530
 
 # Run integration tests
 echo -e "${YELLOW}Running Milvus integration tests...${NC}"
-poetry run pytest server/storage/milvus/test_milvus_simple.py -v
+poetry run pytest server/storage/milvus/test_milvus_integration.py -v
 
 test_result=$?
 
@@ -146,7 +146,7 @@ fi
 
 # Cleanup
 echo -e "${YELLOW}Cleaning up services...${NC}"
-docker-compose -f docker-compose.milvus.yml down -v
+docker compose -f docker-compose.milvus.yml down -v
 echo -e "${GREEN}Cleanup complete!${NC}"
 
 exit $test_result
