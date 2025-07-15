@@ -117,7 +117,7 @@ def test_collection(milvus_connection, test_collection_name):
         FieldSchema(name="party_id", dtype=DataType.VARCHAR, max_length=100),
         FieldSchema(name="text", dtype=DataType.VARCHAR, max_length=65535),
         FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=1536),
-        FieldSchema(name="created_at", dtype=DataType.VARCHAR, max_length=30),
+        FieldSchema(name="created_at", dtype=DataType.VARCHAR, max_length=50),
     ]
     
     schema = CollectionSchema(fields=fields, description="Test vCons collection")
