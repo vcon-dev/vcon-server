@@ -312,7 +312,7 @@ async def get_vcon(vcon_uuid: UUID) -> JSONResponse:
     vcon = await redis_async.json().get(f"vcon:{str(vcon_uuid)}")
     if not vcon:
         for storage_name in Configuration.get_storages():
-            vcon = Storage(storage_name=storage_name).get(vcon_uuid)
+            vcon = Storage(storage_name=storage_name).get(str(vcon_uuid))
             if vcon:
                 # Store the vCon back in Redis with expiration
                 await redis_async.json().set(f"vcon:{str(vcon_uuid)}", "$", vcon)
@@ -359,7 +359,7 @@ async def get_vcons(
         if not vcon:
             # Fallback to storages if vCon not found in Redis
             for storage_name in Configuration.get_storages():
-                vcon = Storage(storage_name=storage_name).get(vcon_uuid)
+                vcon = Storage(storage_name=storage_name).get(str(vcon_uuid))
                 if vcon:
                     # Store the vCon back in Redis with expiration
                     await redis_async.json().set(f"vcon:{str(vcon_uuid)}", "$", vcon)
