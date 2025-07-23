@@ -17,3 +17,7 @@ tmp
 *.pem
 .coverage
 .qodo
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
