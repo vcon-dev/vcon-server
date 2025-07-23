@@ -24,6 +24,10 @@ vCon Server is a powerful conversation processing and storage system that enable
   - [Monitoring and Logging](#monitoring-and-logging)
   - [Troubleshooting](#troubleshooting)
   - [License](#license)
+  - [Production Deployment Best Practices](#production-deployment-best-practices)
+    - [Example Directory Layout](#example-directory-layout)
+    - [Example Redis Volume in docker-compose.yml](#example-redis-volume-in-docker-composeyml)
+    - [User Creation and Permissions](#user-creation-and-permissions)
 
 ## Prerequisites
 
@@ -64,6 +68,7 @@ cp .env.example .env
 3. Create the Docker network:
 ```bash
 docker network create conserver
+
 ```
 
 4. Build and start the services:
@@ -119,8 +124,8 @@ links:
     options:
       webhook-urls:
         - https://example.com/conserver
-  deepgram:
-    module: links.deepgram
+  deepgram_link:
+    module: links.deepgram_link
     options:
       DEEPGRAM_KEY: your_deepgram_key
       minimum_duration: 30
@@ -155,7 +160,7 @@ storages:
 chains:
   main_chain:
     links:
-      - deepgram
+      - deepgram_link
       - summarize
       - webhook_store_call_log
     storages:
@@ -163,6 +168,272 @@ chains:
       - s3
     enabled: 1
 ```
+
+## Dynamic Module Installation
+
+The vCon server supports dynamic installation of modules from PyPI or GitHub repositories. This applies to both link modules and general imports, allowing you to use external packages without pre-installing them, making deployment more flexible.
+
+### Dynamic Imports
+
+For general module imports that need to be available globally, use the `imports` section:
+
+```yaml
+imports:
+  # PyPI package with different module name
+  custom_utility:
+    module: custom_utils
+    pip_name: custom-utils-package
+  
+  # GitHub repository
+  github_helper:
+    module: github_helper
+    pip_name: git+https://github.com/username/helper-repo.git
+  
+  # Module name matches pip package name
+  requests_import:
+    module: requests
+    # pip_name not needed since it matches module name
+  
+  # Legacy format (string value) - still supported
+  legacy_module: some.legacy.module
+```
+
+### Dynamic Link Modules
+
+### Basic Usage
+
+For modules where the pip package name matches the module name:
+
+```yaml
+links:
+  requests_link:
+    module: requests
+    # Will automatically install "requests" from PyPI if not found
+    options:
+      timeout: 30
+```
+
+### Custom Pip Package Name
+
+For modules where the pip package name differs from the module name:
+
+```yaml
+links:
+  custom_link:
+    module: my_module
+    pip_name: custom-package-name
+    options:
+      api_key: secret
+```
+
+### GitHub Repositories
+
+Install directly from GitHub repositories:
+
+```yaml
+links:
+  github_link:
+    module: github_module
+    pip_name: git+https://github.com/username/repo.git@main
+    options:
+      debug: true
+```
+
+For private repositories, use a personal access token:
+
+```yaml
+links:
+  private_link:
+    module: private_module
+    pip_name: git+https://token:your_github_token@github.com/username/private-repo.git
+    options:
+      config_param: value
+```
+
+The system will automatically detect missing modules and install them during processing. Modules are cached after installation for performance.
+
+## Module Version Management
+
+The vCon server supports sophisticated version management for dynamically installed modules (both imports and links). This allows you to control exactly which versions of external packages are used and when they should be updated.
+
+### Version Specification Methods
+
+#### 1. Exact Version Pinning
+
+Install a specific version of a package:
+
+```yaml
+# For imports
+imports:
+  my_import:
+    module: my_module
+    pip_name: my-package==1.2.3
+
+# For links  
+links:
+  my_link:
+    module: my_module
+    pip_name: my-package==1.2.3
+    options:
+      config: value
+```
+
+#### 2. Version Ranges
+
+Use version constraints to allow compatible updates:
+
+```yaml
+links:
+  flexible_link:
+    module: flexible_module
+    pip_name: flexible-package>=1.0.0,<2.0.0
+    options:
+      setting: value
+```
+
+#### 3. Git Repository Versions
+
+Install from specific Git tags, branches, or commits:
+
+```yaml
+links:
+  # Install from specific tag
+  git_tag_link:
+    module: git_module
+    pip_name: git+https://github.com/username/repo.git@v1.2.3
+    
+  # Install from specific branch
+  git_branch_link:
+    module: git_module
+    pip_name: git+https://github.com/username/repo.git@develop
+    
+  # Install from specific commit
+  git_commit_link:
+    module: git_module
+    pip_name: git+https://github.com/username/repo.git@abc123def456
+```
+
+#### 4. Pre-release Versions
+
+Include pre-release versions:
+
+```yaml
+links:
+  prerelease_link:
+    module: beta_module
+    pip_name: beta-package --pre
+    options:
+      experimental: true
+```
+
+### Version Updates
+
+To install a new version of an already-installed link, rebuild the Docker container:
+
+```yaml
+links:
+  upgraded_link:
+    module: my_module
+    pip_name: my-package==2.0.0  # Updated from 1.0.0
+    options:
+      new_feature: enabled
+```
+
+**Recommended approach for version updates:**
+- Update the version in your configuration file
+- Rebuild the Docker container to ensure clean installation
+- This approach ensures consistent, reproducible deployments
+
+### Version Update Strategies
+
+#### Container Rebuild (Recommended)
+
+For all deployments, the recommended approach is to rebuild containers:
+
+1. Update your configuration file with the new version:
+```yaml
+# For imports
+imports:
+  my_import:
+    module: my_module
+    pip_name: my-package==2.0.0  # Updated from 1.0.0
+
+# For links
+links:
+  my_link:
+    module: my_module
+    pip_name: my-package==2.0.0  # Updated from 1.0.0
+```
+
+2. Rebuild and deploy the container:
+```bash
+docker compose build
+docker compose up -d
+```
+
+This ensures clean, reproducible deployments without version conflicts.
+
+### Best Practices
+
+#### Development Environment
+```yaml
+links:
+  dev_link:
+    module: dev_module
+    pip_name: git+https://github.com/username/repo.git@develop
+    # Rebuild container frequently to get latest changes
+```
+
+#### Staging Environment
+```yaml
+links:
+  staging_link:
+    module: staging_module
+    pip_name: staging-package>=1.0.0,<2.0.0
+    # Use version ranges for compatibility testing
+```
+
+#### Production Environment
+```yaml
+links:
+  prod_link:
+    module: prod_module
+    pip_name: prod-package==1.2.3
+    # Exact version pinning for stability
+```
+
+### Troubleshooting Version Issues
+
+#### Container Rebuild Issues
+If you're experiencing import issues after a version update:
+
+1. Ensure you've rebuilt the container: `docker compose build`
+2. Clear any cached images: `docker system prune`
+3. Restart with fresh containers: `docker compose up -d`
+
+#### Check Installed Versions
+```bash
+pip list | grep package-name
+pip show package-name
+```
+
+#### Dependency Conflicts
+If you encounter dependency conflicts:
+
+1. Use virtual environments
+2. Check compatibility with `pip check`
+3. Consider using dependency resolution tools like `pip-tools`
+
+### Version Monitoring
+
+Monitor link versions in your logs:
+
+```python
+# Links log their versions during import
+logger.info("Imported %s version %s", module_name, module.__version__)
+```
+
+Consider implementing version reporting endpoints for operational visibility.
 
 ## Deployment
 
@@ -289,3 +560,31 @@ docker compose logs -f [service_name]
 ## License
 
 This project is licensed under the terms specified in the LICENSE file.
+
+## Production Deployment Best Practices
+
+- **Install as a non-root user**: Create a dedicated user (e.g., `vcon`) for running the application and Docker containers.
+- **Clone repositories to /opt**: Place `vcon-admin` and `vcon-server` in `/opt` for system-wide, non-root access.
+- **Use persistent Docker volumes**: Map Redis and other stateful service data to `/opt/vcon-data` for durability.
+- **Follow the updated install script**: Use `scripts/install_conserver.sh` which now implements these best practices.
+
+### Example Directory Layout
+
+```
+/opt/vcon-admin
+/opt/vcon-server
+/opt/vcon-data/redis
+```
+
+### Example Redis Volume in docker-compose.yml
+
+```yaml
+volumes:
+  - /opt/vcon-data/redis:/data
+```
+
+### User Creation and Permissions
+
+The install script creates the `vcon` user and sets permissions for all necessary directories.
+
+---
