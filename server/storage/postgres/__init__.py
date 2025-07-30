@@ -174,7 +174,8 @@ def get(
         logger.error(
             f"postgres storage plugin: failed to get vCon: {vcon_uuid}, error: {e}"
         )
-        return None
+        # Re-raise the exception for invalid UUIDs or other database errors
+        raise e
     finally:
         if db:
             db.close()
