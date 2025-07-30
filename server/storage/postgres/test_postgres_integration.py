@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 from datetime import datetime
 from server.storage.postgres import save, get, Vcons, get_db_connection, BaseModel
 
+@pytest.mark.docker
 class TestPostgresIntegration:
     """Test PostgreSQL storage integration with real database."""
     

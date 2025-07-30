@@ -9,41 +9,19 @@ logger = logging.getLogger(__name__)
 
 @pytest.fixture(scope="session")
 def postgres_server():
-    """Start a PostgreSQL container for testing."""
+    """Use PostgreSQL service from Docker Compose for testing."""
     
-    container_name = "test-postgres-vcon"
-    
-    # Clean up any existing container
-    subprocess.run(["docker", "rm", "-f", container_name], 
-                   capture_output=True, text=True)
-    
-    logger.info("Starting PostgreSQL container for tests...")
-    
-    # Start new container
-    result = subprocess.run([
-        "docker", "run", "-d",
-        "--name", container_name,
-        "-e", "POSTGRES_PASSWORD=testpassword123",
-        "-e", "POSTGRES_USER=vcon_test",
-        "-e", "POSTGRES_DB=vcon_test_db",
-        "-p", "5433:5432",  # Use port 5433 to avoid conflicts
-        "postgres:15"
-    ], capture_output=True, text=True)
-    
-    if result.returncode != 0:
-        raise RuntimeError(f"Failed to start PostgreSQL container: {result.stderr}")
-    
-    # Wait for PostgreSQL to be ready
+    # PostgreSQL configuration for Docker Compose service
     postgres_config = {
         "name": "postgres",
         "database": "vcon_test_db",
         "user": "vcon_test",
         "password": "testpassword123",
-        "host": "localhost",
-        "port": 5433
+        "host": "postgres",  # Use service name from docker-compose
+        "port": 5432  # Use internal port
     }
     
-    logger.info("Waiting for PostgreSQL to be ready...")
+    logger.info("Waiting for PostgreSQL service to be ready...")
     for attempt in range(60):  # Wait up to 60 seconds
         try:
             conn = psycopg2.connect(
@@ -59,17 +37,9 @@ def postgres_server():
         except psycopg2.OperationalError:
             time.sleep(1)
     else:
-        # Cleanup on failure
-        subprocess.run(["docker", "rm", "-f", container_name], 
-                       capture_output=True, text=True)
-        raise RuntimeError("PostgreSQL failed to start within 60 seconds")
+        pytest.skip("PostgreSQL service failed to start within 60 seconds")
     
     yield postgres_config
-    
-    # Cleanup
-    logger.info("Cleaning up PostgreSQL container...")
-    subprocess.run(["docker", "rm", "-f", container_name], 
-                   capture_output=True, text=True)
 
 
 @pytest.fixture

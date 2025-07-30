@@ -70,6 +70,22 @@ services:
       - "com.datadoghq.ad.init_configs=[{}]"
       - "com.datadoghq.ad.instances=[{'host': 'redis', 'port': 6379}]"
 
+  postgres:
+    image: "postgres:15"
+    environment:
+      POSTGRES_DB: vcon_test_db
+      POSTGRES_USER: vcon_test
+      POSTGRES_PASSWORD: testpassword123
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vcon_test -d vcon_test_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - conserver
+
   datadog-agent:
     image: "datadog/agent:latest"
     profiles:
