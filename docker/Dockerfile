@@ -11,8 +11,7 @@ RUN apt-get install -y libsox-fmt-all sox
 RUN apt-get install -y redis-tools
 RUN pip install --upgrade pip
 
-# Install PyTorch for local LLM tests
-RUN pip install torch torchvision torchaudio
+# PyTorch removed to reduce Docker image size
 
 WORKDIR /app
 

@@ -163,17 +163,33 @@ class Vcon:
     def parties(self) -> list:
         return self.vcon_dict.get("parties", [])
 
+    @parties.setter
+    def parties(self, value: list):
+        self.vcon_dict["parties"] = value
+
     @property
     def dialog(self) -> list:
         return self.vcon_dict.get("dialog", [])
+
+    @dialog.setter
+    def dialog(self, value: list):
+        self.vcon_dict["dialog"] = value
 
     @property
     def attachments(self) -> list:
         return self.vcon_dict.get("attachments", [])
 
+    @attachments.setter
+    def attachments(self, value: list):
+        self.vcon_dict["attachments"] = value
+
     @property
     def analysis(self):
         return self.vcon_dict.get("analysis", [])
+
+    @analysis.setter
+    def analysis(self, value: list):
+        self.vcon_dict["analysis"] = value
 
     @property
     def uuid(self) -> str:
