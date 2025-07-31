@@ -7,6 +7,21 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:13
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: vcon_test_db
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
     steps:
     # Step 1: Check out the repository
     - name: Check out the repository
@@ -15,12 +30,32 @@ jobs:
     - name: Set up Docker
       run: |
         sudo apt-get update
-        sudo apt-get install -y docker-compose
+        sudo apt-get install -y docker-compose postgresql-client
+
+    - name: Wait for PostgreSQL to be ready
+      run: |
+        until pg_isready -h localhost -p 5432 -U postgres; do
+          echo "Waiting for PostgreSQL to be ready..."
+          sleep 2
+        done
+        echo "PostgreSQL is ready!"
+
+    - name: Create test database
+      run: |
+        PGPASSWORD=postgres createdb -h localhost -U postgres vcon_test_db || echo "Database already exists"
+      env:
+        PGPASSWORD: postgres
 
     - name: Create .env file
       run: |
         echo "REDIS_URL=redis://redis" >> .env
         echo "CONSERVER_API_TOKEN=fake-token" >> .env
+        echo "POSTGRES_HOST=host.docker.internal" >> .env
+        echo "POSTGRES_PORT=5432" >> .env
+        echo "POSTGRES_USER=postgres" >> .env
+        echo "POSTGRES_PASSWORD=postgres" >> .env
+        echo "POSTGRES_DB=vcon_test_db" >> .env
+        echo "DATABASE_URL=postgresql://postgres:postgres@host.docker.internal:5432/vcon_test_db" >> .env
 
     - name: We need to create Conserver network for now
       run: |
@@ -36,6 +71,8 @@ jobs:
         docker-compose run --rm conserver bash -c "
           # Install tests dependencies
           poetry install &&
+          # Install PostgreSQL adapter if not in pyproject.toml
+          poetry add psycopg2-binary --group dev &&
           # Run the tests
           pytest --maxfail=5 --disable-warnings
         "
