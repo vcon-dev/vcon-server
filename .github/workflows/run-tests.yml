@@ -79,7 +79,7 @@ jobs:
       if: always()
       run: docker-compose down
 
-        - name: Install pytest-asyncio (Poetry workaround)
+        - name: Install pytest-asyncio
       run: |
         docker-compose run --rm conserver pip install pytest-asyncio
 
