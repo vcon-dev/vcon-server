@@ -10,7 +10,7 @@ The module supports:
 - Automatic table creation if not exists
 - Connection pooling and proper resource cleanup
 """
-
+import os
 from typing import Optional, Dict, Any
 from lib.logging_utils import init_logger
 from server.lib.vcon_redis import VconRedis
@@ -28,11 +28,11 @@ logger = init_logger(__name__)
 # Default configuration for PostgreSQL connection
 default_options = {
     "name": "postgres",
-    "database": "vcon_db",  # Default database name
-    "user": "postgres",     # Default username
-    "password": "",         # Password should be provided in options
-    "host": "localhost",    # Default host
-    "port": 5432,          # Default PostgreSQL port
+    "database": os.getenv("POSTGRES_DB", "vcon_db"),
+    "user": os.getenv("POSTGRES_USER", "postgres"),
+    "password": os.getenv("POSTGRES_PASSWORD", ""),
+    "host": os.getenv("POSTGRES_HOST", "localhost"),
+    "port": int(os.getenv("POSTGRES_PORT", "5432")),
 }
 
 class BaseModel(Model):

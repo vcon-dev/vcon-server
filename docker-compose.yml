@@ -13,8 +13,11 @@ services:
       - .:/app
     depends_on:
       - redis
+      - postgres
     env_file:
       - .env
+    environment:
+      - CONSERVER_CONFIG_FILE=/app/test_config.yml
     stop_grace_period: 5s
     networks:
       - conserver
@@ -34,6 +37,7 @@ services:
       - "${CONSERVER_EXTERNAL_PORT:-8000}:8000"
     depends_on:
       - redis
+      - postgres
     env_file:
       - .env
     networks:
@@ -57,7 +61,8 @@ services:
       REDIS_ARGS: --save 20 1 --notify-keyspace-events Ex --dir /data --appendonly yes
     mem_limit: 1gb # <===== IMPORTANT!!!! We're overriding this in the docker-compose.override.yml file
     volumes:
-      - /opt/vcon-data/redis:/data # Production: use a persistent host directory
+      # Use Docker named volume instead of host path for local development
+      - redis_data:/data
     healthcheck:
       test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
       interval: 30s
@@ -74,12 +79,16 @@ services:
     image: "postgres:15"
     environment:
       POSTGRES_DB: vcon_test_db
-      POSTGRES_USER: vcon_test
-      POSTGRES_PASSWORD: testpassword123
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8"
     ports:
       - "5433:5432"
+    volumes:
+      # Use Docker named volume for local development
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U vcon_test -d vcon_test_db"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d vcon_test_db"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -110,4 +119,7 @@ services:
     restart: unless-stopped
     env_file:
       - .env
-    
+
+volumes:
+  redis_data:
+  postgres_data:
