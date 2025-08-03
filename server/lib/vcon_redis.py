@@ -36,3 +36,12 @@ class VconRedis:
             return None
         _vcon = vcon.Vcon(vcon_dict)
         return _vcon
+
+    def store_vcon_dict(self, vcon_dict: dict):
+        key = f"vcon:{vcon_dict["uuid"]}"
+        redis.json().set(key, Path.root_path(), vcon_dict)
+
+    def get_vcon_dict(self, vcon_id: str) -> Optional[dict]:
+        return redis.json().get(
+            f"vcon:{vcon_id}", Path.root_path()
+        )
