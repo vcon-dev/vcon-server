@@ -1,14 +1,13 @@
 name: Python conserver unit test
 on: 
-  push: # all
-  pull_request: # all PRs for now
+  push:
+  pull_request:
 
 jobs:
   test:
     runs-on: ubuntu-latest
 
     steps:
-    # Step 1: Check out the repository
     - name: Check out the repository
       uses: actions/checkout@v3
 
@@ -27,11 +26,40 @@ jobs:
         echo "POSTGRES_PASSWORD=postgres" >> .env
         echo "POSTGRES_DB=vcon_test_db" >> .env
         echo "DATABASE_URL=postgresql://postgres:postgres@postgres:5432/vcon_test_db" >> .env
-        # Add any other environment variables your app needs
-        echo "CONSERVER_EXTERNAL_PORT=8000" >> .env
-        echo "REDIS_EXTERNAL_PORT=8001" >> .env
+        echo "CONSERVER_CONFIG_FILE=/app/test_config.yml" >> .env
 
-    - name: We need to create Conserver network for now
+    - name: Create test configuration file
+      run: |
+        cat > test_config.yml << 'EOF'
+        ---
+        # Test configuration for Docker environment
+        storages:
+          mongo:
+            module: storage.mongo
+            options:
+              url: mongodb://root:example@mongo:27017/
+              database: conserver
+              collection: vcons
+          postgres:
+            module: storage.postgres
+            options:
+              user: postgres
+              password: postgres
+              host: postgres
+              port: 5432
+              database: vcon_test_db
+
+        chains:
+          sample_chain:
+            links: []
+            ingress_lists: []
+            storages:
+            - postgres
+            egress_lists: []
+            enabled: 1
+        EOF
+
+    - name: Create Conserver network
       run: |
         docker network create conserver
 
@@ -48,21 +76,24 @@ jobs:
         done'
         echo "PostgreSQL is ready!"
 
+    - name: Install pytest-asyncio and setup database
+      run: |
+        docker-compose run --rm conserver bash -c "
+          pip install pytest-asyncio &&
+          python -c 'from server.storage.postgres import get_db_connection, Vcons; opts = {\"database\": \"vcon_test_db\", \"user\": \"postgres\", \"password\": \"postgres\", \"host\": \"postgres\", \"port\": 5432}; db = get_db_connection(opts); Vcons._meta.database = db; db.create_tables([Vcons], safe=True); print(\"Tables created successfully!\"); db.close()'
+        "
+
     - name: Verify services are running
       run: |
         docker-compose ps
         docker-compose logs postgres
 
-    # Step 3: Run Docker container with additional commands
     - name: Run tests inside Docker container
       run: |
         docker-compose run --rm conserver bash -c "
-          # Install tests dependencies
           poetry install &&
-          # Install PostgreSQL adapter if not in pyproject.toml
           poetry add psycopg2-binary --group dev &&
-          # Run the tests
-          pytest --maxfail=5 --disable-warnings
+          pytest --maxfail=5 --disable-warnings -v
         "
 
     - name: Show logs on failure
@@ -77,17 +108,6 @@ jobs:
 
     - name: Clean up
       if: always()
-      run: docker-compose down
-
-    - name: Install pytest-asyncio
       run: |
-        docker-compose run --rm conserver pip install pytest-asyncio
-
-    - name: Run tests inside Docker container
-      run: |
-        docker-compose run --rm conserver bash -c "
-          # Install tests dependencies
-          poetry install &&
-          # Run the tests  
-          pytest --maxfail=5 --disable-warnings
-        "
+        docker-compose down -v
+        docker network rm conserver || true
