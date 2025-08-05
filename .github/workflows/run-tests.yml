@@ -16,83 +16,34 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y docker-compose
 
-    - name: Create .env file
-      run: |
-        echo "REDIS_URL=redis://redis:6379" >> .env
-        echo "CONSERVER_API_TOKEN=fake-token" >> .env
-        echo "POSTGRES_HOST=postgres" >> .env
-        echo "POSTGRES_PORT=5432" >> .env
-        echo "POSTGRES_USER=postgres" >> .env
-        echo "POSTGRES_PASSWORD=postgres" >> .env
-        echo "POSTGRES_DB=vcon_test_db" >> .env
-        echo "DATABASE_URL=postgresql://postgres:postgres@postgres:5432/vcon_test_db" >> .env
-        echo "CONSERVER_CONFIG_FILE=/app/test_config.yml" >> .env
-
-    - name: Create test configuration file
-      run: |
-        cat > test_config.yml << 'EOF'
-        ---
-        # Test configuration for Docker environment
-        storages:
-          mongo:
-            module: storage.mongo
-            options:
-              url: mongodb://root:example@mongo:27017/
-              database: conserver
-              collection: vcons
-          postgres:
-            module: storage.postgres
-            options:
-              user: postgres
-              password: postgres
-              host: postgres
-              port: 5432
-              database: vcon_test_db
-
-        chains:
-          sample_chain:
-            links: []
-            ingress_lists: []
-            storages:
-            - postgres
-            egress_lists: []
-            enabled: 1
-        EOF
-
     - name: Create Conserver network
       run: |
         docker network create conserver
 
-    - name: Build and run services with Docker Compose
+    - name: Build and run test services
       run: |
-        docker-compose up --build --detach
+        docker-compose -f docker-compose.test.yml up --build --detach
 
-    - name: Wait for PostgreSQL to be ready
+    - name: Wait for services to be ready
       run: |
         echo "Waiting for PostgreSQL to be ready..."
-        timeout 60 bash -c 'until docker-compose exec -T postgres pg_isready -U postgres -d vcon_test_db; do 
+        timeout 60 bash -c 'until docker-compose -f docker-compose.test.yml exec -T postgres pg_isready -U postgres -d vcon_test_db; do 
           echo "PostgreSQL is unavailable - sleeping"
           sleep 2
         done'
-        echo "PostgreSQL is ready!"
+        
+        echo "Waiting for Redis to be ready..."
+        timeout 30 bash -c 'until docker-compose -f docker-compose.test.yml exec -T redis redis-cli ping | grep PONG; do
+          echo "Redis is unavailable - sleeping"
+          sleep 2
+        done'
+        
+        echo "Services are ready!"
 
-    - name: Install pytest-asyncio and setup database
+    - name: Run tests
       run: |
-        docker-compose run --rm conserver bash -c "
-          pip install pytest-asyncio &&
-          python -c 'from server.storage.postgres import get_db_connection, Vcons; opts = {\"database\": \"vcon_test_db\", \"user\": \"postgres\", \"password\": \"postgres\", \"host\": \"postgres\", \"port\": 5432}; db = get_db_connection(opts); Vcons._meta.database = db; db.create_tables([Vcons], safe=True); print(\"Tables created successfully!\"); db.close()'
-        "
-
-    - name: Verify services are running
-      run: |
-        docker-compose ps
-        docker-compose logs postgres
-
-    - name: Run tests inside Docker container
-      run: |
-        docker-compose run --rm conserver bash -c "
+        docker-compose -f docker-compose.test.yml run --rm conserver bash -c "
           poetry install &&
-          poetry add psycopg2-binary --group dev &&
           pytest --maxfail=5 --disable-warnings -v
         "
 
@@ -100,14 +51,14 @@ jobs:
       if: failure()
       run: |
         echo "=== Docker Compose Logs ==="
-        docker-compose logs
+        docker-compose -f docker-compose.test.yml logs
         echo "=== PostgreSQL Logs ==="
-        docker-compose logs postgres
-        echo "=== Conserver Logs ==="
-        docker-compose logs conserver
+        docker-compose -f docker-compose.test.yml logs postgres
+        echo "=== Redis Logs ==="
+        docker-compose -f docker-compose.test.yml logs redis
 
     - name: Clean up
       if: always()
       run: |
-        docker-compose down -v
+        docker-compose -f docker-compose.test.yml down -v
         docker network rm conserver || true
