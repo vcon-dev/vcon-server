@@ -1,6 +1,6 @@
 # 🐰 vCon Server
 
-vCon Server is a powerful conversation processing and storage system that enables advanced analysis and management of conversation data. It provides a flexible pipeline for processing, storing, and analyzing conversations through various modules and integrations.
+vCon Server is a powerful conversation processing and storage system that enables advanced analysis and management of conversation data. It provides a flexible pipeline for processing, storing, and analyzing conversations through various modules and integrations. The system includes secure API endpoints for both internal use and external partner integration, allowing third-party systems to securely submit conversation data with scoped access controls.
 
 ## Table of Contents
 - [🐰 vCon Server](#-vcon-server)
@@ -13,6 +13,10 @@ vCon Server is a powerful conversation processing and storage system that enable
   - [Configuration](#configuration)
     - [Environment Variables](#environment-variables)
     - [Configuration File](#configuration-file)
+  - [API Endpoints](#api-endpoints)
+    - [Authentication](#authentication)
+    - [Main API Endpoints](#main-api-endpoints)
+    - [External Ingress API](#external-ingress-api)
   - [Deployment](#deployment)
     - [Docker Deployment](#docker-deployment)
     - [Scaling](#scaling)
@@ -115,9 +119,26 @@ DNS_REGISTRATION_EMAIL=your-email@example.com
 
 ### Configuration File
 
-The `config.yml` file defines the processing pipeline, storage options, and chain configurations. Here's an example configuration:
+The `config.yml` file defines the processing pipeline, storage options, chain configurations, and external API access. Here's an example configuration:
 
 ```yaml
+# External API access configuration
+# Configure API keys for external partners to submit vCons to specific ingress lists
+ingress_auth:
+  # Single API key for an ingress list
+  customer_data: "customer-api-key-12345"
+  
+  # Multiple API keys for the same ingress list (different clients)
+  support_calls:
+    - "support-api-key-67890"
+    - "support-client-2-key"
+    - "support-vendor-key-xyz"
+  
+  # Multiple API keys for sales leads
+  sales_leads:
+    - "sales-api-key-abcdef"
+    - "sales-partner-key-123"
+
 links:
   webhook_store_call_log:
     module: links.webhook
@@ -434,6 +455,204 @@ logger.info("Imported %s version %s", module_name, module.__version__)
 ```
 
 Consider implementing version reporting endpoints for operational visibility.
+
+## API Endpoints
+
+The vCon Server provides RESTful API endpoints for managing conversation data. All endpoints require authentication using API keys.
+
+### Authentication
+
+API authentication is handled through the `x-conserver-api-token` header:
+
+```bash
+curl -H "x-conserver-api-token: YOUR_API_TOKEN" \
+     -X POST \
+     "https://your-domain.com/api/endpoint"
+```
+
+### Main API Endpoints
+
+#### Standard vCon Submission
+
+For internal use with full system access:
+
+```bash
+POST /vcon?ingress_list=my_ingress
+Content-Type: application/json
+x-conserver-api-token: YOUR_MAIN_API_TOKEN
+
+{
+  "uuid": "123e4567-e89b-12d3-a456-426614174000",
+  "vcon": "0.0.1",
+  "created_at": "2024-01-15T10:30:00Z",
+  "parties": [...]
+}
+```
+
+#### External Partner Submission
+
+For external partners and 3rd party systems with limited access:
+
+```bash
+POST /vcon/external-ingress?ingress_list=partner_data
+Content-Type: application/json
+x-conserver-api-token: PARTNER_SPECIFIC_API_TOKEN
+
+{
+  "uuid": "123e4567-e89b-12d3-a456-426614174000",
+  "vcon": "0.0.1", 
+  "created_at": "2024-01-15T10:30:00Z",
+  "parties": [...]
+}
+```
+
+### External Ingress API
+
+The `/vcon/external-ingress` endpoint is specifically designed for external partners and 3rd party systems to securely submit vCons with limited API access.
+
+#### Security Model
+
+- **Scoped Access**: Each API key grants access only to predefined ingress list(s)
+- **Isolation**: No access to other API endpoints or system resources
+- **Multi-Key Support**: Multiple API keys can be configured for the same ingress list
+- **Configuration-Based**: API keys are managed through the `ingress_auth` section in `config.yml`
+
+#### Configuration
+
+Configure external API access in your `config.yml`:
+
+```yaml
+ingress_auth:
+  # Single API key for customer data ingress
+  customer_data: "customer-api-key-12345"
+  
+  # Multiple API keys for support calls (different clients)
+  support_calls:
+    - "support-api-key-67890"
+    - "support-client-2-key" 
+    - "support-vendor-key-xyz"
+  
+  # Multiple partners for sales leads
+  sales_leads:
+    - "sales-api-key-abcdef"
+    - "sales-partner-key-123"
+```
+
+#### Usage Examples
+
+**Single Partner Access:**
+```bash
+curl -X POST "https://your-domain.com/vcon/external-ingress?ingress_list=customer_data" \
+     -H "Content-Type: application/json" \
+     -H "x-conserver-api-token: customer-api-key-12345" \
+     -d '{
+       "uuid": "123e4567-e89b-12d3-a456-426614174000",
+       "vcon": "0.0.1",
+       "created_at": "2024-01-15T10:30:00Z",
+       "parties": []
+     }'
+```
+
+**Multiple Partner Access:**
+```bash
+# Partner 1 using their key
+curl -X POST "https://your-domain.com/vcon/external-ingress?ingress_list=support_calls" \
+     -H "x-conserver-api-token: support-api-key-67890" \
+     -d @vcon_data.json
+
+# Partner 2 using their key  
+curl -X POST "https://your-domain.com/vcon/external-ingress?ingress_list=support_calls" \
+     -H "x-conserver-api-token: support-client-2-key" \
+     -d @vcon_data.json
+```
+
+#### Response Format
+
+**Success (HTTP 204 No Content):**
+```
+HTTP/1.1 204 No Content
+```
+
+**Authentication Error (HTTP 403 Forbidden):**
+```json
+{
+  "detail": "Invalid API Key for ingress list 'customer_data'"
+}
+```
+
+**Validation Error (HTTP 422 Unprocessable Entity):**
+```json
+{
+  "detail": [
+    {
+      "loc": ["body", "uuid"],
+      "msg": "field required",
+      "type": "value_error.missing"
+    }
+  ]
+}
+```
+
+#### Best Practices
+
+1. **Generate Strong API Keys**: Use cryptographically secure random strings
+2. **Rotate Keys Regularly**: Update API keys periodically for security
+3. **Monitor Usage**: Track API usage per partner for billing and monitoring
+4. **Rate Limiting**: Consider implementing rate limiting for external partners
+5. **Logging**: Monitor external submissions for security and compliance
+
+#### Integration Examples
+
+**Python Integration:**
+```python
+import requests
+import json
+
+def submit_vcon_to_partner_ingress(vcon_data, ingress_list, api_key, base_url):
+    """Submit vCon to external ingress endpoint."""
+    url = f"{base_url}/vcon/external-ingress"
+    headers = {
+        "Content-Type": "application/json",
+        "x-conserver-api-token": api_key
+    }
+    params = {"ingress_list": ingress_list}
+    
+    response = requests.post(url, json=vcon_data, headers=headers, params=params)
+    
+    if response.status_code == 204:
+        return {"success": True}
+    else:
+        return {"success": False, "error": response.json()}
+
+# Usage
+result = submit_vcon_to_partner_ingress(
+    vcon_data=my_vcon,
+    ingress_list="customer_data", 
+    api_key="customer-api-key-12345",
+    base_url="https://your-domain.com"
+)
+```
+
+**Node.js Integration:**
+```javascript
+async function submitVconToIngress(vconData, ingressList, apiKey, baseUrl) {
+  const response = await fetch(`${baseUrl}/vcon/external-ingress?ingress_list=${ingressList}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-conserver-api-token': apiKey
+    },
+    body: JSON.stringify(vconData)
+  });
+  
+  if (response.status === 204) {
+    return { success: true };
+  } else {
+    const error = await response.json();
+    return { success: false, error };
+  }
+}
+```
 
 ## Deployment
 

@@ -24,12 +24,10 @@ import os
 import traceback
 from typing import Dict, List, Optional
 from uuid import UUID
-import logging
 from datetime import datetime
-import traceback
 
 import yaml
-from fastapi import FastAPI, HTTPException, Query, Security, APIRouter
+from fastapi import FastAPI, HTTPException, Query, Security, APIRouter, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security.api_key import APIKeyHeader
@@ -102,6 +100,67 @@ async def get_api_key(api_key_header: str = Security(api_key_header)) -> Optiona
 
     if api_key_header not in api_keys:
         raise HTTPException(status_code=HTTP_403_FORBIDDEN, detail="Invalid API Key")
+    return api_key_header
+
+
+def validate_ingress_api_key(
+    ingress_list: str, api_key_header: str
+) -> str:
+    """Validate the API key for a specific ingress list.
+
+    Args:
+        ingress_list: Name of the ingress list to validate access for
+        api_key_header: The API key from the request header
+
+    Returns:
+        The validated API key if valid for the ingress list
+
+    Raises:
+        HTTPException: If the API key is invalid or not authorized for the ingress list
+    """
+    if not api_key_header:
+        raise HTTPException(status_code=HTTP_403_FORBIDDEN, detail="API Key required")
+
+    # Get ingress-specific API key configuration
+    ingress_auth = Configuration.get_ingress_auth()
+
+    if not ingress_auth:
+        raise HTTPException(
+            status_code=HTTP_403_FORBIDDEN,
+            detail="No ingress authentication configured",
+        )
+
+    # Check if the ingress list is configured
+    if ingress_list not in ingress_auth:
+        raise HTTPException(
+            status_code=HTTP_403_FORBIDDEN,
+            detail=f"Ingress list '{ingress_list}' not configured",
+        )
+
+    # Get allowed API keys for this ingress list - can be a string or list
+    allowed_keys = ingress_auth[ingress_list]
+
+    # Convert single string to list for consistent processing
+    if isinstance(allowed_keys, str):
+        allowed_keys = [allowed_keys]
+    elif not isinstance(allowed_keys, list):
+        logger.error(
+            f"Invalid API key configuration for ingress list '{ingress_list}'. Expected string or list."
+        )
+        raise HTTPException(
+            status_code=HTTP_403_FORBIDDEN,
+            detail=f"Invalid configuration for ingress list '{ingress_list}'",
+        )
+
+    # Validate the API key against all allowed keys for this ingress list
+    if api_key_header not in allowed_keys:
+        logger.warning(f"Invalid API key for ingress list '{ingress_list}'")
+        raise HTTPException(
+            status_code=HTTP_403_FORBIDDEN,
+            detail=f"Invalid API Key for ingress list '{ingress_list}'",
+        )
+
+    logger.debug(f"Valid API key provided for ingress list '{ingress_list}'")
     return api_key_header
 
 
@@ -506,6 +565,97 @@ async def post_vcon(
     except Exception as e:
         logger.error(f"Error storing vCon: {str(e)}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail="Failed to store vCon")
+
+
+@api_router.post(
+    "/vcon/external-ingress",
+    status_code=204,
+    summary="Submit external vCon from 3rd party systems",
+    description=(
+        "Endpoint for external partners and 3rd party systems to submit vCons "
+        "with limited API access. Requires ingress-specific authentication for "
+        "secure isolation."
+    ),
+    tags=["external"],
+)
+async def external_ingress_vcon(
+    request: Request,
+    inbound_vcon: Vcon,
+    ingress_list: str = Query(
+        ..., description="Name of the ingress list to add the vCon to"
+    ),
+) -> None:
+    """Submit external vCons from 3rd party systems with limited API access.
+
+    This endpoint is specifically designed for external partners and 3rd party systems
+    to submit vCons to designated ingress queues. Each API key is scoped to specific
+    ingress lists, providing secure isolation and preventing access to other system
+    resources or ingress queues.
+
+    Security Model:
+    - Each API key grants access only to predefined ingress list(s)
+    - No access to other API endpoints or system resources
+    - API keys are configured per ingress list in CONSERVER_CONFIG_FILE under 'ingress_auth'
+    - Multiple API keys can be configured for the same ingress list
+
+    The submitted vCon is stored, indexed, and automatically queued for processing
+    in the specified ingress list.
+
+    Args:
+        inbound_vcon: The vCon record to submit
+        ingress_list: Target ingress queue name (must match configured access)
+
+    Returns:
+        None: HTTP 204 No Content on successful submission
+
+    Raises:
+        HTTPException:
+            - 403: Invalid API key or unauthorized ingress list access
+            - 500: Storage or processing error
+
+    Example:
+        POST /vcon/external-ingress?ingress_list=partner_data
+        Headers: x-conserver-api-token: partner-specific-key
+        Body: {vCon JSON data}
+    """
+    # Extract API key from request headers and validate for this specific ingress list
+    api_key = request.headers.get(CONSERVER_HEADER_NAME)
+    validate_ingress_api_key(ingress_list, api_key)
+
+    try:
+        dict_vcon = inbound_vcon.model_dump()
+        dict_vcon["uuid"] = str(inbound_vcon.uuid)
+        key = f"vcon:{str(dict_vcon['uuid'])}"
+        created_at = datetime.fromisoformat(str(dict_vcon["created_at"]))
+        dict_vcon["created_at"] = created_at.isoformat()
+        timestamp = int(created_at.timestamp())
+
+        logger.debug(
+            f"Storing vCon {inbound_vcon.uuid} ({len(dict_vcon)} bytes) via external ingress"
+        )
+        await redis_async.json().set(key, "$", dict_vcon)
+
+        logger.debug(f"Adding vCon {inbound_vcon.uuid} to sorted set")
+        await add_vcon_to_set(key, timestamp)
+
+        logger.debug(f"Indexing vCon {inbound_vcon.uuid}")
+        await index_vcon(inbound_vcon.uuid)
+
+        # Always add to the specified ingress list (required for this endpoint)
+        logger.debug(f"Adding vCon {inbound_vcon.uuid} to ingress list {ingress_list}")
+        await redis_async.rpush(ingress_list, str(inbound_vcon.uuid))
+
+        logger.info(
+            f"Successfully stored vCon {inbound_vcon.uuid} and added to ingress list {ingress_list}"
+        )
+
+        return None
+
+    except Exception as e:
+        logger.error(
+            "Error storing vCon via external ingress", exc_info=True
+        )
+        raise HTTPException(status_code=500, detail="Failed to store vCon") from e
 
 
 @api_router.delete(

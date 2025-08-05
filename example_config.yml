@@ -1,4 +1,26 @@
 ---
+# Ingress-specific API key authentication
+# This section defines API keys that are authorized to push vCons to specific ingress lists
+# Each key grants access only to the specified ingress list, providing secure isolation
+# Multiple API keys can be configured per ingress list for different clients/systems
+ingress_auth:
+  # Single API key for the 'customer_data' ingress list
+  customer_data: "customer-api-key-12345"
+
+  # Multiple API keys for the 'support_calls' ingress list (different clients)
+  support_calls:
+    - "support-api-key-67890"
+    - "support-client-2-key"
+    - "support-vendor-key-xyz"
+
+  # Multiple API keys for the 'sales_leads' ingress list
+  sales_leads:
+    - "sales-api-key-abcdef"
+    - "sales-partner-key-123"
+
+  # Single API key using string format (backward compatible)
+  analytics_data: "analytics-api-key-789"
+
 # Optional imports section for dynamically installed modules
 imports:
   # Example of importing a PyPI package
