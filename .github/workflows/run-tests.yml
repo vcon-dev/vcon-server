@@ -1,7 +1,7 @@
 name: Python conserver unit test
 on: 
-  push: # all
-  pull_request: # all PRs for now
+  push:
+  pull_request:
 
 jobs:
   test:
@@ -16,75 +16,49 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y docker-compose
 
-    - name: Create .env file
-      run: |
-        echo "REDIS_URL=redis://redis:6379" >> .env
-        echo "CONSERVER_API_TOKEN=fake-token" >> .env
-        echo "POSTGRES_HOST=postgres" >> .env
-        echo "POSTGRES_PORT=5432" >> .env
-        echo "POSTGRES_USER=postgres" >> .env
-        echo "POSTGRES_PASSWORD=postgres" >> .env
-        echo "POSTGRES_DB=vcon_test_db" >> .env
-        echo "DATABASE_URL=postgresql://postgres:postgres@postgres:5432/vcon_test_db" >> .env
-        # Add any other environment variables your app needs
-        echo "CONSERVER_EXTERNAL_PORT=8000" >> .env
-        echo "REDIS_EXTERNAL_PORT=8001" >> .env
-
-    - name: We need to create Conserver network for now
+    - name: Create Conserver network
       run: |
         docker network create conserver
 
-    - name: Build and run services with Docker Compose
+    - name: Build and run test services
       run: |
-        docker-compose up --build --detach
+        docker-compose -f docker-compose.test.yml up --build --detach
 
-    - name: Wait for PostgreSQL to be ready
+    - name: Wait for services to be ready
       run: |
         echo "Waiting for PostgreSQL to be ready..."
-        timeout 60 bash -c 'until docker-compose exec -T postgres pg_isready -U postgres -d vcon_test_db; do 
+        timeout 60 bash -c 'until docker-compose -f docker-compose.test.yml exec -T postgres pg_isready -U postgres -d vcon_test_db; do 
           echo "PostgreSQL is unavailable - sleeping"
           sleep 2
         done'
-        echo "PostgreSQL is ready!"
+        
+        echo "Waiting for Redis to be ready..."
+        timeout 30 bash -c 'until docker-compose -f docker-compose.test.yml exec -T redis redis-cli ping | grep PONG; do
+          echo "Redis is unavailable - sleeping"
+          sleep 2
+        done'
+        
+        echo "Services are ready!"
 
-    - name: Verify services are running
+    - name: Run tests
       run: |
-        docker-compose ps
-        docker-compose logs postgres
-
-    - name: Run tests inside Docker container
-      run: |
-        docker-compose run --rm conserver bash -c "
-          # Install tests dependencies
+        docker-compose -f docker-compose.test.yml run --rm conserver bash -c "
           poetry install &&
-          # Install PostgreSQL adapter if not in pyproject.toml
-          poetry add psycopg2-binary --group dev &&
-          # Run the tests
-          pytest --maxfail=5 --disable-warnings
+          pytest --maxfail=5 --disable-warnings -v
         "
 
     - name: Show logs on failure
       if: failure()
       run: |
         echo "=== Docker Compose Logs ==="
-        docker-compose logs
+        docker-compose -f docker-compose.test.yml logs
         echo "=== PostgreSQL Logs ==="
-        docker-compose logs postgres
-        echo "=== Conserver Logs ==="
-        docker-compose logs conserver
+        docker-compose -f docker-compose.test.yml logs postgres
+        echo "=== Redis Logs ==="
+        docker-compose -f docker-compose.test.yml logs redis
 
     - name: Clean up
       if: always()
-      run: docker-compose down
-
-    - name: Install pytest-asyncio
       run: |
-        docker-compose run --rm conserver pip install pytest-asyncio
-
-    - name: Run tests
-      run: |
-        docker-compose run --rm conserver bash -c "
-          pip install pytest-asyncio &&
-          python /app/setup_test_db.py &&
-          export CONSERVER_CONFIG_FILE=/app/test_config.yml &&
-          pytest --maxfail=5 --disable-warnings --tb=short"
+        docker-compose -f docker-compose.test.yml down -v
+        docker network rm conserver || true

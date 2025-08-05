@@ -1,0 +1,80 @@
+version: "3.3"
+networks:
+  conserver:
+    external: true
+
+services:
+  conserver:
+    build:
+      dockerfile: ./docker/Dockerfile
+      context: .
+    command: "python ./server/main.py"
+    volumes:
+      - .:/app
+    depends_on:
+      - redis
+      - postgres
+    env_file:
+      - .env.test
+    stop_grace_period: 5s
+    networks:
+      - conserver
+
+  api:
+    build:
+      dockerfile: ./docker/Dockerfile
+      context: .
+    command: /bin/bash -c "poetry run uvicorn server.api:app --host 0.0.0.0 --port 8000"
+    volumes:
+      - .:/app
+    ports:
+      - "${CONSERVER_EXTERNAL_PORT:-8000}:8000"
+    depends_on:
+      - redis
+      - postgres
+    env_file:
+      - .env.test
+    networks:
+      - conserver
+
+  redis:
+    image: "redis/redis-stack:latest"
+    ports:
+      - "${REDIS_EXTERNAL_PORT:-8001}:8001"
+    environment:
+      REDIS_ARGS: --save 20 1 --notify-keyspace-events Ex --dir /data --appendonly yes
+    mem_limit: 1gb
+    volumes:
+      - redis_test_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - conserver
+
+  postgres:
+    image: "postgres:15"
+    environment:
+      POSTGRES_DB: vcon_test_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+      # Add init script to create tables automatically
+      - ./test-init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d vcon_test_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - conserver
+
+volumes:
+  redis_test_data:
+  postgres_test_data:
