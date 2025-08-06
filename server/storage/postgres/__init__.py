@@ -27,12 +27,11 @@ logger = init_logger(__name__)
 
 # Default configuration for PostgreSQL connection
 default_options = {
-    "name": "postgres",
-    "database": os.getenv("POSTGRES_DB", "vcon_db"),
-    "user": os.getenv("POSTGRES_USER", "postgres"),
-    "password": os.getenv("POSTGRES_PASSWORD", ""),
-    "host": os.getenv("POSTGRES_HOST", "postgres"),  
-    "port": int(os.getenv("POSTGRES_PORT", "5432")),
+    "host": os.environ["POSTGRES_HOST"],
+    "port": int(os.environ["POSTGRES_PORT"]),
+    "user": os.environ["POSTGRES_USER"],
+    "password": os.environ["POSTGRES_PASSWORD"],
+    "database": os.environ["POSTGRES_DB"],
 }
 
 class BaseModel(Model):
