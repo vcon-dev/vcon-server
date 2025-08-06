@@ -13,8 +13,10 @@ services:
     volumes:
       - .:/app
     depends_on:
-      - redis
-      - postgres
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     env_file:
       - .env.test
     stop_grace_period: 5s
@@ -31,8 +33,10 @@ services:
     ports:
       - "${CONSERVER_EXTERNAL_PORT:-8000}:8000"
     depends_on:
-      - redis
-      - postgres
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     env_file:
       - .env.test
     networks:
@@ -49,8 +53,8 @@ services:
       - redis_test_data:/data
     healthcheck:
       test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
-      interval: 30s
-      timeout: 10s
+      interval: 10s
+      timeout: 5s
       retries: 5
     networks:
       - conserver
@@ -91,6 +95,21 @@ services:
     restart: unless-stopped
     networks:
       - conserver
+
+  # Optional MongoDB service — won't be used unless STORAGE_PLUGINS includes "mongo"
+  mongo:
+    image: mongo:6
+    container_name: mongo
+    ports:
+      - "27017:27017"
+    networks:
+      - conserver
+    healthcheck:
+      test: ["CMD", "mongo", "--eval", "db.runCommand({ ping: 1 })"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
 
 volumes:
   redis_test_data:
