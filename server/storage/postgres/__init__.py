@@ -28,9 +28,9 @@ logger = init_logger(__name__)
 # Default configuration for PostgreSQL connection
 default_options = {
     "name": "postgres",
-    "database": os.getenv("POSTGRES_DB", "vcon_test_db"),
+    "database": os.getenv("POSTGRES_DB", "vcon_db"),
     "user": os.getenv("POSTGRES_USER", "postgres"),
-    "password": os.getenv("POSTGRES_PASSWORD", "postgres"),
+    "password": os.getenv("POSTGRES_PASSWORD", ""),
     "host": os.getenv("POSTGRES_HOST", "postgres"),  
     "port": int(os.getenv("POSTGRES_PORT", "5432")),
 }
