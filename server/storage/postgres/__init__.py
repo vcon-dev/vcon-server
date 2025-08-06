@@ -63,23 +63,17 @@ class Vcons(BaseModel):
 
 def get_db_connection(opts: Dict[str, Any]) -> PostgresqlExtDatabase:
     """
-    Create a new database connection using the provided options.
-    
-    Args:
-        opts: Dictionary containing database connection parameters
-        
-    Returns:
-        PostgresqlExtDatabase: Configured database connection
-        
-    Raises:
-        Exception: If connection parameters are invalid
+    Create a new database connection using the provided options,
+    falling back to defaults.
     """
+    options = {**default_options, **opts}  # opts overrides defaults
+
     return PostgresqlExtDatabase(
-        opts["database"],
-        user=opts["user"],
-        password=opts["password"],
-        host=opts["host"],
-        port=opts["port"],
+        options["database"],
+        user=options["user"],
+        password=options["password"],
+        host=options["host"],
+        port=options["port"],
     )
 
 def save(
