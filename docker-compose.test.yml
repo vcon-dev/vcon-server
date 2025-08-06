@@ -1,0 +1,117 @@
+version: "3.8"
+
+networks:
+  conserver:
+    external: true
+
+services:
+  conserver:
+    build:
+      dockerfile: ./docker/Dockerfile
+      context: .
+    command: "python ./server/main.py"
+    volumes:
+      - .:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env.test
+    stop_grace_period: 5s
+    networks:
+      - conserver
+
+  api:
+    build:
+      dockerfile: ./docker/Dockerfile
+      context: .
+    command: /bin/bash -c "poetry run uvicorn server.api:app --host 0.0.0.0 --port 8000"
+    volumes:
+      - .:/app
+    ports:
+      - "${CONSERVER_EXTERNAL_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env.test
+    networks:
+      - conserver
+
+  redis:
+    image: "redis/redis-stack:latest"
+    ports:
+      - "${REDIS_EXTERNAL_PORT:-8001}:8001"
+    environment:
+      REDIS_ARGS: --save 20 1 --notify-keyspace-events Ex --dir /data --appendonly yes
+    mem_limit: 1gb
+    volumes:
+      - redis_test_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - conserver
+
+  postgres:
+    image: postgres:15
+    container_name: vcon-postgres
+    environment:
+      POSTGRES_DB: vcon_test_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+      - ./test-init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d vcon_test_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - conserver
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: vcon-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@vcon.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "8080:80"
+    depends_on:
+      - postgres
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    restart: unless-stopped
+    networks:
+      - conserver
+
+  # Optional MongoDB service — won't be used unless STORAGE_PLUGINS includes "mongo"
+  mongo:
+    image: mongo:6
+    container_name: mongo
+    ports:
+      - "27017:27017"
+    networks:
+      - conserver
+    healthcheck:
+      test: ["CMD", "mongo", "--eval", "db.runCommand({ ping: 1 })"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  redis_test_data:
+  postgres_test_data:
+  pgadmin_data:

@@ -10,7 +10,7 @@ The module supports:
 - Automatic table creation if not exists
 - Connection pooling and proper resource cleanup
 """
-
+import os
 from typing import Optional, Dict, Any
 from lib.logging_utils import init_logger
 from server.lib.vcon_redis import VconRedis
@@ -28,11 +28,11 @@ logger = init_logger(__name__)
 # Default configuration for PostgreSQL connection
 default_options = {
     "name": "postgres",
-    "database": "vcon_db",  # Default database name
-    "user": "postgres",     # Default username
-    "password": "",         # Password should be provided in options
-    "host": "localhost",    # Default host
-    "port": 5432,          # Default PostgreSQL port
+    "database": os.getenv("POSTGRES_DB", "vcon_db"),
+    "user": os.getenv("POSTGRES_USER", "postgres"),
+    "password": os.getenv("POSTGRES_PASSWORD", ""),
+    "host": os.getenv("POSTGRES_HOST", "postgres"),  
+    "port": int(os.getenv("POSTGRES_PORT", "5432")),
 }
 
 class BaseModel(Model):
@@ -63,23 +63,17 @@ class Vcons(BaseModel):
 
 def get_db_connection(opts: Dict[str, Any]) -> PostgresqlExtDatabase:
     """
-    Create a new database connection using the provided options.
-    
-    Args:
-        opts: Dictionary containing database connection parameters
-        
-    Returns:
-        PostgresqlExtDatabase: Configured database connection
-        
-    Raises:
-        Exception: If connection parameters are invalid
+    Create a new database connection using the provided options,
+    falling back to defaults.
     """
+    options = {**default_options, **opts}  # opts overrides defaults
+
     return PostgresqlExtDatabase(
-        opts["database"],
-        user=opts["user"],
-        password=opts["password"],
-        host=opts["host"],
-        port=opts["port"],
+        options["database"],
+        user=options["user"],
+        password=options["password"],
+        host=options["host"],
+        port=options["port"],
     )
 
 def save(
@@ -174,7 +168,8 @@ def get(
         logger.error(
             f"postgres storage plugin: failed to get vCon: {vcon_uuid}, error: {e}"
         )
-        return None
+        # Re-raise the exception for invalid UUIDs or other database errors
+        raise e
     finally:
         if db:
             db.close()

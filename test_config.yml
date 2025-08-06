@@ -1,0 +1,26 @@
+---
+# Test configuration for Docker environment
+storages:
+  mongo:
+    module: storage.mongo
+    options:
+      url: mongodb://root:example@mongo:27017/
+      database: conserver
+      collection: vcons
+  postgres:
+    module: storage.postgres
+    options:
+      user: postgres
+      password: postgres
+      host: postgres
+      port: 5432
+      database: vcon_test_db
+
+chains:
+  sample_chain:
+    links: []
+    ingress_lists: []
+    storages:
+    - postgres
+    egress_lists: []
+    enabled: 1

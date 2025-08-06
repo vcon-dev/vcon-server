@@ -18,6 +18,7 @@ WORKDIR /app
 # Install Poetry
 RUN pip install poetry==2.1.3
 RUN poetry config virtualenvs.create false
+RUN pip install pytest-asyncio
 
 # Copy dependency files first for better caching
 COPY pyproject.toml poetry.lock* /app/
