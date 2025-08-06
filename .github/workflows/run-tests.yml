@@ -44,7 +44,28 @@ jobs:
       run: |
         docker-compose -f docker-compose.test.yml run --rm conserver bash -c "
           poetry install &&
-          pytest --maxfail=5 --disable-warnings -v
+          python -c '
+        import os
+        from server.storage.postgres import Vcons
+        from playhouse.postgres_ext import PostgresqlExtDatabase
+
+        db = PostgresqlExtDatabase(
+            \"vcon_test_db\",     
+            user=\"postgres\",    
+            password=\"postgres\",
+            host=\"postgres\",    
+            port=5432
+        )
+
+        Vcons._meta.database = db
+
+        db.connect()
+        Vcons.create_table(safe=True)
+        db.close()
+
+        print(\"Table created successfully\")
+        ' &&
+          pytest -v
         "
 
     - name: Show logs on failure
