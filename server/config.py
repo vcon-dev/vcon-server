@@ -31,3 +31,15 @@ class Configuration:
     def get_imports(cls) -> dict:
         config = cls.get_config()
         return config.get("imports", {})
+
+    @classmethod
+    def get_ingress_auth(cls) -> dict:
+        """Get ingress-specific API key configuration.
+
+        Returns:
+            dict: Dictionary mapping ingress list names to their API keys.
+                  Values can be either a single string (one API key) or
+                  a list of strings (multiple API keys for the same ingress list).
+        """
+        config = cls.get_config()
+        return config.get("ingress_auth", {})
