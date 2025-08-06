@@ -1,4 +1,5 @@
-version: "3.3"
+version: "3.8"
+
 networks:
   conserver:
     external: true
@@ -55,7 +56,8 @@ services:
       - conserver
 
   postgres:
-    image: "postgres:15"
+    image: postgres:15
+    container_name: vcon-postgres
     environment:
       POSTGRES_DB: vcon_test_db
       POSTGRES_USER: postgres
@@ -65,7 +67,6 @@ services:
       - "5432:5432"
     volumes:
       - postgres_test_data:/var/lib/postgresql/data
-      # Add init script to create tables automatically
       - ./test-init:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d vcon_test_db"]
@@ -75,6 +76,23 @@ services:
     networks:
       - conserver
 
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: vcon-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@vcon.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "8080:80"
+    depends_on:
+      - postgres
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    restart: unless-stopped
+    networks:
+      - conserver
+
 volumes:
   redis_test_data:
   postgres_test_data:
+  pgadmin_data:
