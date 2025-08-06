@@ -185,6 +185,7 @@ app.add_middleware(
 )
 
 api_router = APIRouter()
+external_router = APIRouter()
 
 
 class Vcon(BaseModel):
@@ -567,7 +568,7 @@ async def post_vcon(
         raise HTTPException(status_code=500, detail="Failed to store vCon")
 
 
-@api_router.post(
+@external_router.post(
     "/vcon/external-ingress",
     status_code=204,
     summary="Submit external vCon from 3rd party systems",
@@ -922,3 +923,6 @@ app.include_router(
     api_router,
     dependencies=[Security(get_api_key, scopes=[])]
 )
+
+# Include external router without main API authentication
+app.include_router(external_router)
