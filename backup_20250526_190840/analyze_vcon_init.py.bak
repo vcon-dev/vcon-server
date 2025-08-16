@@ -1,13 +1,13 @@
 from lib.vcon_redis import VconRedis
 from lib.logging_utils import init_logger
 import logging
-from server.utils.openai_chat import OpenAIChatClient  # Updated import
+from server.utils.openai_responses import OpenAIResponsesClient
 from tenacity import (
     retry,
     stop_after_attempt,
     wait_exponential,
     before_sleep_log,
-)
+)  # for exponential backoff
 from lib.metrics import init_metrics, stats_gauge, stats_count
 import time
 import json
@@ -21,18 +21,20 @@ logger = init_logger(__name__)
 default_options = {
     "prompt": "Analyze this vCon and return a JSON object with your analysis.",
     "analysis_type": "json_analysis",
-    "model": "gpt-4o-mini",  # Updated to use current model
+    "model": "gpt-4o-mini",  # Updated to use new model
     "sampling_rate": 1,
     "temperature": 0,
     "system_prompt": "You are a helpful assistant that analyzes conversation data and returns structured JSON output.",
     "remove_body_properties": True,
 }
 
+
 def get_analysis_for_type(vcon, analysis_type):
     for a in vcon.analysis:
         if a["type"] == analysis_type:
             return a
     return None
+
 
 @retry(
     wait=wait_exponential(multiplier=2, min=1, max=65),
@@ -41,7 +43,7 @@ def get_analysis_for_type(vcon, analysis_type):
 )
 def generate_analysis(vcon_data, prompt, system_prompt, model, temperature, client) -> str:
     """
-    Generate analysis using the actual OpenAI Chat Completions API
+    Generate analysis using the new Responses API
     """
     try:
         # Convert vcon_data to a JSON string
@@ -50,9 +52,10 @@ def generate_analysis(vcon_data, prompt, system_prompt, model, temperature, clie
         # Check and replace the system_prompt in the JSON string
         if system_prompt in vcon_data_json:
             vcon_data_json = vcon_data_json.replace(system_prompt, "")
+            # Log that the system_prompt was found and replaced
             logger.info("Replaced system_prompt in vcon_data")
 
-        response = client.create_completion(
+        response = client.create_response(
             input_text=f"{prompt}\n\n{json.dumps(vcon_data)}",
             instructions=system_prompt,
             model=model,
@@ -66,12 +69,14 @@ def generate_analysis(vcon_data, prompt, system_prompt, model, temperature, clie
         logger.error(f"Error in generate_analysis: {str(e)}")
         raise
 
+
 def is_valid_json(json_string):
     try:
         json.loads(json_string)
         return True
     except json.JSONDecodeError:
         return False
+
 
 def prepare_vcon_for_analysis(vcon, remove_body_properties=True):
     """Create a copy of vCon with optional removal of body properties to save space"""
@@ -84,6 +89,7 @@ def prepare_vcon_for_analysis(vcon, remove_body_properties=True):
                     dialog.pop('body', None)
     
     return vcon_copy
+
 
 def run(
     vcon_uuid,
@@ -117,8 +123,8 @@ def run(
         )
         return vcon_uuid
 
-    # Use the corrected OpenAI Chat client
-    client = OpenAIChatClient(api_key=opts["OPENAI_API_KEY"], timeout=120.0, max_retries=0)
+    # Use the new Responses API client
+    client = OpenAIResponsesClient(api_key=opts["OPENAI_API_KEY"], timeout=120.0, max_retries=0)
     
     # Prepare vCon data for analysis (removing body properties if specified)
     vcon_data = prepare_vcon_for_analysis(vCon, opts["remove_body_properties"])
@@ -178,7 +184,7 @@ def run(
     vCon.add_analysis(
         type=opts["analysis_type"],
         vendor="openai",
-        body=json.loads(analysis_result),
+        body=json.loads(analysis_result),  # Pass the raw JSON string instead of parsing it
         dialog=0,  # Use dialog=0 to indicate it applies to the first/main dialog
         extra={
             "vendor_schema": vendor_schema,
@@ -189,6 +195,7 @@ def run(
     logger.info(f"Finished analyze - {module_name}:{link_name} plugin for: {vcon_uuid}")
 
     return vcon_uuid
+
 
 def navigate_dict(dictionary, path):
     keys = path.split(".")
