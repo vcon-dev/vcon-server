@@ -74,6 +74,21 @@ if [ -z "$EMAIL" ]; then
     exit 1
 fi
 
+# Display configuration and confirm
+echo "========================================"
+echo "Conserver vCon Server Installation"
+echo "========================================"
+echo "Domain: $DOMAIN"
+echo "Email: $EMAIL"
+echo "API Token: $API_TOKEN"
+echo "========================================"
+echo ""
+read -p "Do you want to proceed with this configuration? (yes/no): " CONFIRM
+if [ "$CONFIRM" != "yes" ]; then
+    echo "Installation cancelled."
+    exit 0
+fi
+
 # Welcome message
 log "Starting Conserver vCon Server installation"
 log "Domain: $DOMAIN"
@@ -91,9 +106,6 @@ if ! id "vcon" &>/dev/null; then
     log "Creating user 'vcon'..."
     useradd -m -s /bin/bash vcon
 fi
-# Add vcon user to docker group
-log "Adding user 'vcon' to docker group..."
-usermod -aG docker vcon
 mkdir -p /opt/vcon-admin /opt/vcon-server /opt/vcon-data/redis
 chown -R vcon:vcon /opt/vcon-admin /opt/vcon-server /opt/vcon-data
 
@@ -113,6 +125,10 @@ else
     log "Docker is already installed"
 fi
 
+# Add vcon user to docker group (after Docker is installed so the group exists)
+log "Adding user 'vcon' to docker group..."
+usermod -aG docker vcon
+
 # Install git if not already installed
 if ! command_exists git; then
     log "Installing git..."
@@ -127,10 +143,17 @@ fi
 log "Creating docker network 'conserver'..."
 docker network create conserver || log "Network already exists"
 
-# Clone vcon-admin repository as vcon user
-log "Cloning vcon-admin repository..."
-sudo -u vcon git clone https://github.com/vcon-dev/vcon-admin /opt/vcon-admin
-cd /opt/vcon-admin
+# Clone or update vcon-admin repository as vcon user
+if [ -d "/opt/vcon-admin/.git" ]; then
+    log "Updating existing vcon-admin repository..."
+    cd /opt/vcon-admin
+    sudo -u vcon git pull
+else
+    log "Cloning vcon-admin repository..."
+    rm -rf /opt/vcon-admin
+    sudo -u vcon git clone https://github.com/vcon-dev/vcon-admin /opt/vcon-admin
+    cd /opt/vcon-admin
+fi
 
 # Create .env file
 log "Creating .env file for vcon-admin..."
@@ -178,10 +201,17 @@ log "Building and starting vcon-admin..."
 cd /opt/vcon-admin
 sudo -u vcon docker compose up --build -d
 
-# Clone vcon-server repository as vcon user
-log "Cloning vcon-server repository..."
-sudo -u vcon git clone https://github.com/vcon-dev/vcon-server /opt/vcon-server
-cd /opt/vcon-server
+# Clone or update vcon-server repository as vcon user  
+if [ -d "/opt/vcon-server/.git" ]; then
+    log "Updating existing vcon-server repository..."
+    cd /opt/vcon-server
+    sudo -u vcon git pull
+else
+    log "Cloning vcon-server repository..."
+    rm -rf /opt/vcon-server
+    sudo -u vcon git clone https://github.com/vcon-dev/vcon-server /opt/vcon-server
+    cd /opt/vcon-server
+fi
 
 # Create .env file
 log "Creating .env file for vcon-server..."
@@ -230,6 +260,10 @@ chains:
     - mongo
     enabled: 1
 EOF'
+
+# Copy example docker-compose.yml to docker-compose.yml
+log "Setting up docker-compose.yml..."
+sudo -u vcon cp /opt/vcon-server/example_docker-compose.yml /opt/vcon-server/docker-compose.yml
 
 # Build and start vcon-server as vcon user
 log "Building and starting vcon-server..."
