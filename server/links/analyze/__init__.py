@@ -121,7 +121,7 @@ def run(
         logger.info(
             "Analysing dialog %s with options: %s",
             index,
-            {k: v for k, v in opts.items() if k != "OPENAI_API_KEY"},
+            {k: v for k, v in opts.items() if k != "OPENAI_API_KEY" and k != "AZURE_OPENAI_API_KEY" and k != "AZURE_OPENAI_ENDPOINT"},
         )
         start = time.time()
         try:

@@ -120,8 +120,6 @@ def transcribe_openai(url: str, opts: dict = None) -> dict:
         # Convert response to dict format
         result = transcription.dict()
 
-        logger.info(f"Transcription result: {result}")
-
         return result
 
     except Exception as e:
