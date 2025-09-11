@@ -25,6 +25,8 @@ vCon Server is a powerful conversation processing and storage system that enable
     - [S3 Storage](#s3-storage)
     - [Elasticsearch Storage](#elasticsearch-storage)
     - [Milvus Vector Database Storage](#milvus-vector-database-storage)
+  - [Tracer Modules](#tracer-modules)
+    - [JLINC Zero-Knowledge Auditing](#jlinc-zero-knowledge-auditing)
   - [Monitoring and Logging](#monitoring-and-logging)
   - [Troubleshooting](#troubleshooting)
   - [License](#license)
@@ -187,6 +189,8 @@ chains:
     storages:
       - postgres
       - s3
+    ingress_lists:
+      - customer_data
     enabled: 1
 ```
 
@@ -736,6 +740,29 @@ storages:
       api_key: "your-openai-api-key"
       organization: "your-org-id"
       create_collection_if_missing: true
+```
+
+## Tracer Modules
+
+Tracer modules enable functions to run on data as it passes through each link in the Conserver chain.
+
+### JLINC Zero-Knowledge Auditing
+
+JLINC provides cryptographic signing for tamper-proof data and provenance, coupled with zero-knowledge audit records that can be stored with third-parties to allow for secure and private third-party auditing.
+
+```yaml
+tracers:
+  jlinc:
+    module: tracers.jlinc
+    options:
+      data_store_api_url: http://jlinc-server:9090
+      data_store_api_key: your_data_store_api_key
+      archive_api_url: http://jlinc-server:9090
+      archive_api_key: your_archive_api_key
+      system_prefix: VCONTest
+      agreement_id: 00000000-0000-0000-0000-000000000000
+      hash_event_data: True
+      dlq_vcon_on_error: True
 ```
 
 ## Monitoring and Logging

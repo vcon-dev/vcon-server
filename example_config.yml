@@ -88,6 +88,22 @@ links:
     # pip_name not needed since it matches module name
     options:
       timeout: 30
+
+tracers:
+  # Uncomment the below to add JLINC auditing
+  # Also add `jlinc` as a tracer below
+  # jlinc:
+  #   module: tracers.jlinc
+  #   options:
+  #     data_store_api_url: http://jlinc-server:9090
+  #     data_store_api_key: <acquire from UI>
+  #     archive_api_url: http://jlinc-server:9090
+  #     archive_api_key: <acquire from UI>
+  #     system_prefix: VCONTest
+  #     agreement_id: 00000000-0000-0000-0000-000000000000
+  #     hash_event_data: True
+  #     dlq_vcon_on_error: True
+      
 storages:
   mongo:
     module: storage.mongo
@@ -153,6 +169,8 @@ chains:
     - postgres
     - s3
     - milvus
+    # tracers:
+    # - jlinc
     egress_lists:
     - test_output
     enabled: 1
@@ -166,6 +184,8 @@ chains:
     - custom_test_list
     storages:
     - mongo
+    # tracers:
+    # - jlinc
     egress_lists:
     - custom_output
     enabled: 1

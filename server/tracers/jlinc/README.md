@@ -12,10 +12,12 @@ jlinc:
   ingress-lists: []
   egress-lists: []
   options:
-    userDid: "string"         # The user's DID
-    userSigningKey: "string"  # The user's signing key
-    auditServerUrl: ["http://jlinc-archive-server:8081"]  # List of JLINC audit server URLs to try
-    apiServerUrl: ["http://jlinc-api-server:9090"]        # List of JLINC API server URLs to try
+    data_store_api_url: http://jlinc-server:9090       # The Datastore API URL from the JLINC interface
+    data_store_api_key: 4a0f1a0c...                    # The Datastore API Key from the JLINC interface
+    archive_api_url: http://jlinc-server:9090          # The Archive API URL from the JLINC interface
+    archive_api_key: ac4f95c8a2...                     # The Archive API Key from the JLINC interface
+    system_prefix: VCONTest                            # The prefix to use for identities in the JLINC DID
+    agreement_id: 00000000-0000-0000-0000-000000000000 # The agreement ID, use all zeros for the general auditing nil-agreement
 ```
 
 ## Process

@@ -8,7 +8,7 @@ services:
     build:
       dockerfile: ./docker/Dockerfile
       context: .
-    command: "python ./server/main.py"
+    command: "watchmedo auto-restart -p '*.py' -R python -- ./server/main.py"
     volumes:
       - .:/app
     depends_on:
@@ -70,6 +70,15 @@ services:
       - "com.datadoghq.ad.init_configs=[{}]"
       - "com.datadoghq.ad.instances=[{'host': 'redis', 'port': 6379}]"
 
+  postgres:
+    image: postgres:alpine
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    networks:
+      - conserver
+
   datadog-agent:
     image: "datadog/agent:latest"
     profiles:
@@ -94,4 +103,122 @@ services:
     restart: unless-stopped
     env_file:
       - .env
-    
+
+  # Uncomment the below to include the `JLINC` link functionality
+  # -------------------------------------------------------------
+  #
+  # jlinc-server:
+  #   image: registry.jlinc.io/jlinc-server
+  #   environment:
+  #     # BASE CONFIGURATION
+  #     # ==================
+  #     # If you wish to display debug logging
+  #     # DEBUG: "true"
+  #     #
+  #     # DB URL
+  #     POSTGRES_URL: postgresql://jlinc:password@jlinc-db/jlinc
+  #     # Public URLs, callback URLS will be PUBLIC_CALLBACK_URL + '/callback/<module>'
+  #     PUBLIC_CORE_URL: http://localhost:9090
+  #     PUBLIC_ARCHIVE_URL: http://localhost:9090
+  #     PUBLIC_CALLBACK_URL: http://localhost:9090
+  #     # Enabled app modules
+  #     APP_MODULES: core, archive
+  #     # Enabled authentication modules
+  #     AUTH_MODULES: oidc, github, google
+  #     # Secure secret for memory store, generate with `openssl rand -hex 64`
+  #     SECURE_SECRET: 9ed678e6da3333a53c635039a5f53015ba3d4c841a0ade4e46f31c2d42c9b3e71edcdda7e1d75d066a39a8f56f9eb325d556a90195c6e7f45c6e2fffd0e98a7a
+  #     # Default FedID server to use for identity management
+  #     DEFAULT_FEDID_URL: http://fedid-server:8881
+
+  #     # AUTH MODULES
+  #     # ============
+
+  #     # OpenID Connect
+  #     # --------------
+  #     # Works with any OIDC provider
+  #     # OIDC_CLIENT_ID: 
+  #     # OIDC_CLIENT_SECRET: 
+  #     # OIDC_ISSUER: https://fedid-test.jlinc.io/oidc
+  #     # OIDC_AUTHORIZATION_URL: https://fedid-test.jlinc.io/oidc/auth
+  #     # OIDC_TOKEN_URL: https://fedid-test.jlinc.io/oidc/token
+  #     # OIDC_USERINFO_URL: https://fedid-test.jlinc.io/oidc/me
+  #     # OIDC_LOGOUT_URL: https://fedid-test.jlinc.io/oidc/session/end
+
+  #     # GitHub
+  #     # --------------
+  #     # Set up your GitHub app: https://github.com/settings/applications/new
+  #     # GITHUB_CLIENT_ID: 
+  #     # GITHUB_CLIENT_SECRET: 
+
+  #     # Google
+  #     # --------------
+  #     # Set up your Google app: https://console.developers.google.com/
+  #     #   - Create a new app
+  #     #   - Set up auth: https://console.cloud.google.com/auth/overview
+  #     # GOOGLE_CLIENT_ID: 
+  #     # GOOGLE_CLIENT_SECRET: 
+  #   restart: unless-stopped
+  #   depends_on:
+  #     - jlinc-db
+  #   networks:
+  #     - conserver
+  #   # For dev
+  #   ports:
+  #     - 9090:9090
+
+  # jlinc-db:
+  #   image: postgres:17-alpine
+  #   environment:
+  #     - POSTGRES_USER=jlinc
+  #     - POSTGRES_PASSWORD=password
+  #     - POSTGRES_DB=jlinc
+  #   volumes:
+  #     - ./.data/jlinc-db:/var/lib/postgresql/data
+  #   restart: unless-stopped
+  #   networks:
+  #     - conserver
+
+  # fedid-server:
+  #   image: registry.jlinc.io/fedid-server
+  #   environment:
+  #     CONFIG: '{
+  #               "publicUrl": "http://fedid-server:8881",
+  #               "port": 8881,
+  #               "schema": "http",
+  #               "primaryDomain": "vcon.local",
+  #               "domains": [
+  #                 "vcon.local"
+  #               ],
+  #               "dbUrl": "postgresql://fedid:password@fedid-db/fedid",
+  #               "redisUrl": "redis://fedid-redis:6379",
+  #               "allowInsecure": true
+  #             }'
+  #   restart: unless-stopped
+  #   depends_on:
+  #     - fedid-db
+  #     - fedid-redis
+  #   networks:
+  #     - conserver
+
+  # fedid-db:
+  #   image: postgres:15-alpine
+  #   hostname: postgres
+  #   environment:
+  #     - POSTGRES_USER=fedid
+  #     - POSTGRES_PASSWORD=password
+  #     - POSTGRES_DB=fedid
+  #   volumes:
+  #     - ./.data/fedid-db:/var/lib/postgresql/data
+  #   restart: unless-stopped
+  #   networks:
+  #     - conserver
+
+  # fedid-redis:
+  #   image: redis
+  #   healthcheck:
+  #     test: ["CMD", "redis-cli", "ping"]
+  #     interval: 10s
+  #     timeout: 30s
+  #     retries: 3
+  #   networks:
+  #     - conserver
