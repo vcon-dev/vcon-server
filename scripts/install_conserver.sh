@@ -261,10 +261,6 @@ chains:
     enabled: 1
 EOF'
 
-# Copy example docker-compose.yml to docker-compose.yml
-log "Setting up docker-compose.yml..."
-sudo -u vcon cp /opt/vcon-server/example_docker-compose.yml /opt/vcon-server/docker-compose.yml
-
 # Build and start vcon-server as vcon user
 log "Building and starting vcon-server..."
 cd /opt/vcon-server
