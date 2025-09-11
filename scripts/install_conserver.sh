@@ -30,6 +30,28 @@ command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
+# Function to safely copy file with existence check
+safe_copy_file() {
+    local source_file="$1"
+    local dest_file="$2"
+    local description="${3:-file}"
+    
+    if [ ! -f "$source_file" ]; then
+        log "ERROR: Source $description '$source_file' does not exist"
+        return 1
+    fi
+    
+    log "Copying $description from '$source_file' to '$dest_file'"
+    cp "$source_file" "$dest_file"
+    if [ $? -eq 0 ]; then
+        log "Successfully copied $description"
+        return 0
+    else
+        log "ERROR: Failed to copy $description"
+        return 1
+    fi
+}
+
 # Parse command line arguments
 RANDOM_TOKEN=$(openssl rand -hex 8)
 API_TOKEN=${RANDOM_TOKEN}
@@ -155,6 +177,21 @@ else
     cd /opt/vcon-admin
 fi
 
+# Ensure docker-compose.yml exists for vcon-admin (copy from example if needed)
+if [ ! -f "/opt/vcon-admin/docker-compose.yml" ]; then
+    log "docker-compose.yml not found in vcon-admin, checking for example file..."
+    if [ -f "/opt/vcon-admin/example_docker-compose.yml" ]; then
+        log "Copying example_docker-compose.yml to docker-compose.yml for vcon-admin..."
+        sudo -u vcon cp /opt/vcon-admin/example_docker-compose.yml /opt/vcon-admin/docker-compose.yml
+        log "Successfully created docker-compose.yml from example for vcon-admin"
+    else
+        log "WARNING: Neither docker-compose.yml nor example_docker-compose.yml found in vcon-admin repository"
+        log "Continuing with installation - docker-compose.yml may be created by the build process"
+    fi
+else
+    log "docker-compose.yml already exists in vcon-admin"
+fi
+
 # Create .env file
 log "Creating .env file for vcon-admin..."
 sudo -u vcon bash -c 'cat > /opt/vcon-admin/.env << EOF
@@ -211,6 +248,22 @@ else
     rm -rf /opt/vcon-server
     sudo -u vcon git clone https://github.com/vcon-dev/vcon-server /opt/vcon-server
     cd /opt/vcon-server
+fi
+
+# Ensure docker-compose.yml exists (copy from example if needed)
+if [ ! -f "/opt/vcon-server/docker-compose.yml" ]; then
+    log "docker-compose.yml not found, checking for example file..."
+    if [ -f "/opt/vcon-server/example_docker-compose.yml" ]; then
+        log "Copying example_docker-compose.yml to docker-compose.yml..."
+        sudo -u vcon cp /opt/vcon-server/example_docker-compose.yml /opt/vcon-server/docker-compose.yml
+        log "Successfully created docker-compose.yml from example"
+    else
+        log "ERROR: Neither docker-compose.yml nor example_docker-compose.yml found in vcon-server repository"
+        log "Please ensure the repository contains the required docker-compose configuration files"
+        exit 1
+    fi
+else
+    log "docker-compose.yml already exists"
 fi
 
 # Create .env file
