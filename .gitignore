@@ -6,7 +6,6 @@ venv
 
 .vscode
 docker-compose.override.yml
-docker-compose.yml
 
 static
 !static/styles.css
