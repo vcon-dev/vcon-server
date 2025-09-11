@@ -147,12 +147,12 @@ class VconChainRequest:
             self.chain_details["name"]
         )
 
-        for link_name in self.chain_details["links"]:
-            should_continue_chain = self._process_link(link_name)
+        for i in range(len(self.chain_details["links"])):
+            should_continue_chain = self._process_link(self.chain_details["links"], i)
             if not should_continue_chain:
                 logger.info(
                     "Link %s halted chain processing for vCon %s",
-                    link_name,
+                    self.chain_details["links"][i],
                     self.vcon_id,
                 )
                 break
@@ -222,15 +222,57 @@ class VconChainRequest:
                 exc_info=True
             )
 
-    def _process_link(self, link_name: str) -> bool:
+    def _process_tracers(self, in_vcon_uuid, out_vcon_uuid, links: list[str], link_index: int) -> bool:
+        if "tracers" in config:
+            for tracer_name in config["tracers"]:
+                tracer = config["tracers"][tracer_name]
+                tracer_options = tracer.get("options")
+                try:
+                    tracer_started = time.time()
+                    logger.info("Processing tracer %s for vCon: %s", tracer_name, self.vcon_id)
+                    tracer_module_name = tracer["module"]
+                    if tracer_module_name not in imported_modules:
+                        logger.debug("Importing module %s for tracer %s", tracer_module_name, tracer_name)
+                        tracer_pip_name = tracer.get("pip_name")  # Optional pip package name from config
+                        imported_modules[tracer_module_name] = import_or_install(tracer_module_name, tracer_pip_name)
+                    tracer_module = imported_modules[tracer_module_name]
+                    tracer_module.run(in_vcon_uuid, out_vcon_uuid, tracer_name, links, link_index, tracer_options)
+                    tracer_processing_time = round(time.time() - tracer_started, 3)
+                    logger.info(
+                        "Completed tracer %s (module: %s) for vCon: %s in %s seconds",
+                        tracer_name,
+                        tracer_module_name,
+                        out_vcon_uuid,
+                        tracer_processing_time,
+                        extra={
+                            "tracer_processing_time": tracer_processing_time,
+                            "tracer_name": tracer_name,
+                            "tracer_module_name": tracer_module_name
+                        }
+                    )
+                except Exception as e:
+                    logger.error(
+                        "Error in tracer %s (module: %s) for vCon %s: %s",
+                        tracer_name,
+                        tracer_module_name,
+                        out_vcon_uuid,
+                        str(e),
+                        exc_info=True
+                    )
+                    if "dlq_vcon_on_error" in tracer_options and tracer_options["dlq_vcon_on_error"]:
+                        raise
+
+    def _process_link(self, links: list[str], link_index: int) -> bool:
         """Process a single link in the chain.
 
         Args:
-            link_name: Name of the link to process
+            links: The list of links that can be run
+            link_index: Which link to run
 
         Returns:
             bool: Whether the chain should continue processing
         """
+        link_name = links[link_index]
         logger.info("Processing link %s for vCon: %s", link_name, self.vcon_id)
         link = config["links"][link_name]
 
@@ -242,8 +284,10 @@ class VconChainRequest:
         module = imported_modules[module_name]
         options = link.get("options")
         
-        started = time.time()
         try:
+            if link_index == 0:
+                self._process_tracers(self.vcon_id, self.vcon_id, links, -1)
+            started = time.time()
             should_continue_chain = module.run(self.vcon_id, link_name, options)
             link_processing_time = round(time.time() - started, 3)
             logger.info(
@@ -258,6 +302,10 @@ class VconChainRequest:
                     "module_name": module_name
                 }
             )
+            if should_continue_chain:
+                self._process_tracers(should_continue_chain, self.vcon_id, links, link_index)
+            else:
+                self._process_tracers(self.vcon_id, self.vcon_id, links, link_index)
             return should_continue_chain
         except Exception as e:
             logger.error(
