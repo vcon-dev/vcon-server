@@ -7,7 +7,7 @@ from tenacity import (
     stop_after_attempt,
     wait_exponential,
     before_sleep_log,
-)  # for exponential backoff
+)
 from lib.metrics import init_metrics, stats_gauge, stats_count
 import time
 from lib.links.filters import is_included, randomly_execute_with_sampling
@@ -19,7 +19,7 @@ logger = init_logger(__name__)
 default_options = {
     "prompt": "Summarize this transcript in a few sentences.",
     "analysis_type": "summary",
-    "model": "gpt-3.5-turbo-16k",
+    "model": "gpt-4o-mini",  # Updated to use current model
     "sampling_rate": 1,
     "temperature": 0,
     "source": {
@@ -28,13 +28,11 @@ default_options = {
     },
 }
 
-
 def get_analysys_for_type(vcon, index, analysis_type):
     for a in vcon.analysis:
         if a["dialog"] == index and a["type"] == analysis_type:
             return a
     return None
-
 
 @retry(
     wait=wait_exponential(multiplier=2, min=1, max=65),
@@ -42,18 +40,22 @@ def get_analysys_for_type(vcon, index, analysis_type):
     before_sleep=before_sleep_log(logger, logging.INFO),
 )
 def generate_analysis(transcript, prompt, model, temperature, client) -> str:
-    # logger.info(f"TRANSCRIPT: {transcript}")
-    # logger.info(f"PROMPT: {prompt}")
-    messages = [
-        {"role": "system", "content": "You are a helpful assistant."},
-        {"role": "user", "content": prompt + "\n\n" + transcript},
-    ]
-    # logger.info(f"messages: {messages}")
-    # logger.info(f"MODEL: {model}")
-
-    sentiment_result = client.chat.completions.create(model=model, messages=messages, temperature=temperature)
-    return sentiment_result.choices[0].message.content
-
+    """
+    Generate analysis using the actual OpenAI Chat Completions API
+    """
+    try:
+        response = client.create_completion(
+            input_text=f"{prompt}\n\nTranscript: {transcript}",
+            instructions="You are a helpful assistant.",
+            model=model,
+            temperature=temperature
+        )
+        
+        return response["text"]
+        
+    except Exception as e:
+        logger.error(f"Error in generate_analysis: {str(e)}")
+        raise
 
 def run(
     vcon_uuid,
@@ -167,7 +169,6 @@ def run(
     logger.info(f"Finished analyze - {module_name}:{link_name} plugin for: {vcon_uuid}")
 
     return vcon_uuid
-
 
 def navigate_dict(dictionary, path):
     keys = path.split(".")
