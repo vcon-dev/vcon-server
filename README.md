@@ -1,6 +1,6 @@
 # 🐰 vCon Server
 
-vCon Server is a powerful conversation processing and storage system that enables advanced analysis and management of conversation data. It provides a flexible pipeline for processing, storing, and analyzing conversations through various modules and integrations.
+vCon Server is a powerful conversation processing and storage system that enables advanced analysis and management of conversation data. It provides a flexible pipeline for processing, storing, and analyzing conversations through various modules and integrations. The system includes secure API endpoints for both internal use and external partner integration, allowing third-party systems to securely submit conversation data with scoped access controls.
 
 ## Table of Contents
 - [🐰 vCon Server](#-vcon-server)
@@ -13,6 +13,10 @@ vCon Server is a powerful conversation processing and storage system that enable
   - [Configuration](#configuration)
     - [Environment Variables](#environment-variables)
     - [Configuration File](#configuration-file)
+  - [API Endpoints](#api-endpoints)
+    - [Authentication](#authentication)
+    - [Main API Endpoints](#main-api-endpoints)
+    - [External Ingress API](#external-ingress-api)
   - [Deployment](#deployment)
     - [Docker Deployment](#docker-deployment)
     - [Scaling](#scaling)
@@ -68,6 +72,7 @@ cp .env.example .env
 3. Create the Docker network:
 ```bash
 docker network create conserver
+
 ```
 
 4. Build and start the services:
@@ -114,9 +119,26 @@ DNS_REGISTRATION_EMAIL=your-email@example.com
 
 ### Configuration File
 
-The `config.yml` file defines the processing pipeline, storage options, and chain configurations. Here's an example configuration:
+The `config.yml` file defines the processing pipeline, storage options, chain configurations, and external API access. Here's an example configuration:
 
 ```yaml
+# External API access configuration
+# Configure API keys for external partners to submit vCons to specific ingress lists
+ingress_auth:
+  # Single API key for an ingress list
+  customer_data: "customer-api-key-12345"
+  
+  # Multiple API keys for the same ingress list (different clients)
+  support_calls:
+    - "support-api-key-67890"
+    - "support-client-2-key"
+    - "support-vendor-key-xyz"
+  
+  # Multiple API keys for sales leads
+  sales_leads:
+    - "sales-api-key-abcdef"
+    - "sales-partner-key-123"
+
 links:
   webhook_store_call_log:
     module: links.webhook
@@ -166,6 +188,470 @@ chains:
       - postgres
       - s3
     enabled: 1
+```
+
+## Dynamic Module Installation
+
+The vCon server supports dynamic installation of modules from PyPI or GitHub repositories. This applies to both link modules and general imports, allowing you to use external packages without pre-installing them, making deployment more flexible.
+
+### Dynamic Imports
+
+For general module imports that need to be available globally, use the `imports` section:
+
+```yaml
+imports:
+  # PyPI package with different module name
+  custom_utility:
+    module: custom_utils
+    pip_name: custom-utils-package
+  
+  # GitHub repository
+  github_helper:
+    module: github_helper
+    pip_name: git+https://github.com/username/helper-repo.git
+  
+  # Module name matches pip package name
+  requests_import:
+    module: requests
+    # pip_name not needed since it matches module name
+  
+  # Legacy format (string value) - still supported
+  legacy_module: some.legacy.module
+```
+
+### Dynamic Link Modules
+
+### Basic Usage
+
+For modules where the pip package name matches the module name:
+
+```yaml
+links:
+  requests_link:
+    module: requests
+    # Will automatically install "requests" from PyPI if not found
+    options:
+      timeout: 30
+```
+
+### Custom Pip Package Name
+
+For modules where the pip package name differs from the module name:
+
+```yaml
+links:
+  custom_link:
+    module: my_module
+    pip_name: custom-package-name
+    options:
+      api_key: secret
+```
+
+### GitHub Repositories
+
+Install directly from GitHub repositories:
+
+```yaml
+links:
+  github_link:
+    module: github_module
+    pip_name: git+https://github.com/username/repo.git@main
+    options:
+      debug: true
+```
+
+For private repositories, use a personal access token:
+
+```yaml
+links:
+  private_link:
+    module: private_module
+    pip_name: git+https://token:your_github_token@github.com/username/private-repo.git
+    options:
+      config_param: value
+```
+
+The system will automatically detect missing modules and install them during processing. Modules are cached after installation for performance.
+
+## Module Version Management
+
+The vCon server supports sophisticated version management for dynamically installed modules (both imports and links). This allows you to control exactly which versions of external packages are used and when they should be updated.
+
+### Version Specification Methods
+
+#### 1. Exact Version Pinning
+
+Install a specific version of a package:
+
+```yaml
+# For imports
+imports:
+  my_import:
+    module: my_module
+    pip_name: my-package==1.2.3
+
+# For links  
+links:
+  my_link:
+    module: my_module
+    pip_name: my-package==1.2.3
+    options:
+      config: value
+```
+
+#### 2. Version Ranges
+
+Use version constraints to allow compatible updates:
+
+```yaml
+links:
+  flexible_link:
+    module: flexible_module
+    pip_name: flexible-package>=1.0.0,<2.0.0
+    options:
+      setting: value
+```
+
+#### 3. Git Repository Versions
+
+Install from specific Git tags, branches, or commits:
+
+```yaml
+links:
+  # Install from specific tag
+  git_tag_link:
+    module: git_module
+    pip_name: git+https://github.com/username/repo.git@v1.2.3
+    
+  # Install from specific branch
+  git_branch_link:
+    module: git_module
+    pip_name: git+https://github.com/username/repo.git@develop
+    
+  # Install from specific commit
+  git_commit_link:
+    module: git_module
+    pip_name: git+https://github.com/username/repo.git@abc123def456
+```
+
+#### 4. Pre-release Versions
+
+Include pre-release versions:
+
+```yaml
+links:
+  prerelease_link:
+    module: beta_module
+    pip_name: beta-package --pre
+    options:
+      experimental: true
+```
+
+### Version Updates
+
+To install a new version of an already-installed link, rebuild the Docker container:
+
+```yaml
+links:
+  upgraded_link:
+    module: my_module
+    pip_name: my-package==2.0.0  # Updated from 1.0.0
+    options:
+      new_feature: enabled
+```
+
+**Recommended approach for version updates:**
+- Update the version in your configuration file
+- Rebuild the Docker container to ensure clean installation
+- This approach ensures consistent, reproducible deployments
+
+### Version Update Strategies
+
+#### Container Rebuild (Recommended)
+
+For all deployments, the recommended approach is to rebuild containers:
+
+1. Update your configuration file with the new version:
+```yaml
+# For imports
+imports:
+  my_import:
+    module: my_module
+    pip_name: my-package==2.0.0  # Updated from 1.0.0
+
+# For links
+links:
+  my_link:
+    module: my_module
+    pip_name: my-package==2.0.0  # Updated from 1.0.0
+```
+
+2. Rebuild and deploy the container:
+```bash
+docker compose build
+docker compose up -d
+```
+
+This ensures clean, reproducible deployments without version conflicts.
+
+### Best Practices
+
+#### Development Environment
+```yaml
+links:
+  dev_link:
+    module: dev_module
+    pip_name: git+https://github.com/username/repo.git@develop
+    # Rebuild container frequently to get latest changes
+```
+
+#### Staging Environment
+```yaml
+links:
+  staging_link:
+    module: staging_module
+    pip_name: staging-package>=1.0.0,<2.0.0
+    # Use version ranges for compatibility testing
+```
+
+#### Production Environment
+```yaml
+links:
+  prod_link:
+    module: prod_module
+    pip_name: prod-package==1.2.3
+    # Exact version pinning for stability
+```
+
+### Troubleshooting Version Issues
+
+#### Container Rebuild Issues
+If you're experiencing import issues after a version update:
+
+1. Ensure you've rebuilt the container: `docker compose build`
+2. Clear any cached images: `docker system prune`
+3. Restart with fresh containers: `docker compose up -d`
+
+#### Check Installed Versions
+```bash
+pip list | grep package-name
+pip show package-name
+```
+
+#### Dependency Conflicts
+If you encounter dependency conflicts:
+
+1. Use virtual environments
+2. Check compatibility with `pip check`
+3. Consider using dependency resolution tools like `pip-tools`
+
+### Version Monitoring
+
+Monitor link versions in your logs:
+
+```python
+# Links log their versions during import
+logger.info("Imported %s version %s", module_name, module.__version__)
+```
+
+Consider implementing version reporting endpoints for operational visibility.
+
+## API Endpoints
+
+The vCon Server provides RESTful API endpoints for managing conversation data. All endpoints require authentication using API keys.
+
+### Authentication
+
+API authentication is handled through the `x-conserver-api-token` header:
+
+```bash
+curl -H "x-conserver-api-token: YOUR_API_TOKEN" \
+     -X POST \
+     "https://your-domain.com/api/endpoint"
+```
+
+### Main API Endpoints
+
+#### Standard vCon Submission
+
+For internal use with full system access:
+
+```bash
+POST /vcon?ingress_list=my_ingress
+Content-Type: application/json
+x-conserver-api-token: YOUR_MAIN_API_TOKEN
+
+{
+  "uuid": "123e4567-e89b-12d3-a456-426614174000",
+  "vcon": "0.0.1",
+  "created_at": "2024-01-15T10:30:00Z",
+  "parties": [...]
+}
+```
+
+#### External Partner Submission
+
+For external partners and 3rd party systems with limited access:
+
+```bash
+POST /vcon/external-ingress?ingress_list=partner_data
+Content-Type: application/json
+x-conserver-api-token: PARTNER_SPECIFIC_API_TOKEN
+
+{
+  "uuid": "123e4567-e89b-12d3-a456-426614174000",
+  "vcon": "0.0.1", 
+  "created_at": "2024-01-15T10:30:00Z",
+  "parties": [...]
+}
+```
+
+### External Ingress API
+
+The `/vcon/external-ingress` endpoint is specifically designed for external partners and 3rd party systems to securely submit vCons with limited API access.
+
+#### Security Model
+
+- **Scoped Access**: Each API key grants access only to predefined ingress list(s)
+- **Isolation**: No access to other API endpoints or system resources
+- **Multi-Key Support**: Multiple API keys can be configured for the same ingress list
+- **Configuration-Based**: API keys are managed through the `ingress_auth` section in `config.yml`
+
+#### Configuration
+
+Configure external API access in your `config.yml`:
+
+```yaml
+ingress_auth:
+  # Single API key for customer data ingress
+  customer_data: "customer-api-key-12345"
+  
+  # Multiple API keys for support calls (different clients)
+  support_calls:
+    - "support-api-key-67890"
+    - "support-client-2-key" 
+    - "support-vendor-key-xyz"
+  
+  # Multiple partners for sales leads
+  sales_leads:
+    - "sales-api-key-abcdef"
+    - "sales-partner-key-123"
+```
+
+#### Usage Examples
+
+**Single Partner Access:**
+```bash
+curl -X POST "https://your-domain.com/vcon/external-ingress?ingress_list=customer_data" \
+     -H "Content-Type: application/json" \
+     -H "x-conserver-api-token: customer-api-key-12345" \
+     -d '{
+       "uuid": "123e4567-e89b-12d3-a456-426614174000",
+       "vcon": "0.0.1",
+       "created_at": "2024-01-15T10:30:00Z",
+       "parties": []
+     }'
+```
+
+**Multiple Partner Access:**
+```bash
+# Partner 1 using their key
+curl -X POST "https://your-domain.com/vcon/external-ingress?ingress_list=support_calls" \
+     -H "x-conserver-api-token: support-api-key-67890" \
+     -d @vcon_data.json
+
+# Partner 2 using their key  
+curl -X POST "https://your-domain.com/vcon/external-ingress?ingress_list=support_calls" \
+     -H "x-conserver-api-token: support-client-2-key" \
+     -d @vcon_data.json
+```
+
+#### Response Format
+
+**Success (HTTP 204 No Content):**
+```
+HTTP/1.1 204 No Content
+```
+
+**Authentication Error (HTTP 403 Forbidden):**
+```json
+{
+  "detail": "Invalid API Key for ingress list 'customer_data'"
+}
+```
+
+**Validation Error (HTTP 422 Unprocessable Entity):**
+```json
+{
+  "detail": [
+    {
+      "loc": ["body", "uuid"],
+      "msg": "field required",
+      "type": "value_error.missing"
+    }
+  ]
+}
+```
+
+#### Best Practices
+
+1. **Generate Strong API Keys**: Use cryptographically secure random strings
+2. **Rotate Keys Regularly**: Update API keys periodically for security
+3. **Monitor Usage**: Track API usage per partner for billing and monitoring
+4. **Rate Limiting**: Consider implementing rate limiting for external partners
+5. **Logging**: Monitor external submissions for security and compliance
+
+#### Integration Examples
+
+**Python Integration:**
+```python
+import requests
+import json
+
+def submit_vcon_to_partner_ingress(vcon_data, ingress_list, api_key, base_url):
+    """Submit vCon to external ingress endpoint."""
+    url = f"{base_url}/vcon/external-ingress"
+    headers = {
+        "Content-Type": "application/json",
+        "x-conserver-api-token": api_key
+    }
+    params = {"ingress_list": ingress_list}
+    
+    response = requests.post(url, json=vcon_data, headers=headers, params=params)
+    
+    if response.status_code == 204:
+        return {"success": True}
+    else:
+        return {"success": False, "error": response.json()}
+
+# Usage
+result = submit_vcon_to_partner_ingress(
+    vcon_data=my_vcon,
+    ingress_list="customer_data", 
+    api_key="customer-api-key-12345",
+    base_url="https://your-domain.com"
+)
+```
+
+**Node.js Integration:**
+```javascript
+async function submitVconToIngress(vconData, ingressList, apiKey, baseUrl) {
+  const response = await fetch(`${baseUrl}/vcon/external-ingress?ingress_list=${ingressList}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-conserver-api-token': apiKey
+    },
+    body: JSON.stringify(vconData)
+  });
+  
+  if (response.status === 204) {
+    return { success: true };
+  } else {
+    const error = await response.json();
+    return { success: false, error };
+  }
+}
 ```
 
 ## Deployment

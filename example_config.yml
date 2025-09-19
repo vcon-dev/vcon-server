@@ -1,4 +1,43 @@
 ---
+# Ingress-specific API key authentication
+# This section defines API keys that are authorized to push vCons to specific ingress lists
+# Each key grants access only to the specified ingress list, providing secure isolation
+# Multiple API keys can be configured per ingress list for different clients/systems
+ingress_auth:
+  # Single API key for the 'customer_data' ingress list
+  customer_data: "customer-api-key-12345"
+
+  # Multiple API keys for the 'support_calls' ingress list (different clients)
+  support_calls:
+    - "support-api-key-67890"
+    - "support-client-2-key"
+    - "support-vendor-key-xyz"
+
+  # Multiple API keys for the 'sales_leads' ingress list
+  sales_leads:
+    - "sales-api-key-abcdef"
+    - "sales-partner-key-123"
+
+  # Single API key using string format (backward compatible)
+  analytics_data: "analytics-api-key-789"
+
+# Optional imports section for dynamically installed modules
+imports:
+  # Example of importing a PyPI package
+  custom_utility:
+    module: custom_utils
+    pip_name: custom-utils-package
+  # Example of importing from GitHub
+  github_helper:
+    module: github_helper
+    pip_name: git+https://github.com/username/helper-repo.git
+  # Example where module name matches pip package name
+  requests_import:
+    module: requests
+    # pip_name not needed since it matches module name
+  # Legacy format still supported (string value)
+  legacy_module: some.legacy.module
+
 links:
   transcribe:
     module: links.transcribe
@@ -31,6 +70,24 @@ links:
     options:
       webhook-urls:
       - notreal.com
+  # Example of a link that uses a PyPI package
+  custom_pypi_link:
+    module: custom_link_module
+    pip_name: custom-link-package
+    options:
+      api_key: your_api_key_here
+  # Example of a link that uses a GitHub repository
+  custom_github_link:
+    module: github_link_module
+    pip_name: git+https://github.com/username/repo.git
+    options:
+      config_param: value
+  # Example of a link where module name matches pip package name
+  requests_link:
+    module: requests
+    # pip_name not needed since it matches module name
+    options:
+      timeout: 30
 storages:
   mongo:
     module: storage.mongo
@@ -99,3 +156,18 @@ chains:
     egress_lists:
     - test_output
     enabled: 1
+  # Example chain using custom links with dynamic installation
+  custom_chain:
+    links:
+    - custom_pypi_link
+    - custom_github_link
+    - requests_link
+    ingress_lists:
+    - custom_test_list
+    storages:
+    - mongo
+    egress_lists:
+    - custom_output
+    enabled: 1
+
+

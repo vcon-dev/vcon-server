@@ -16,6 +16,7 @@ default_options = {
     "url": "mongodb://localhost:27017/"
 }
 
+
 def convert_date_to_mongo_date(date_str) -> datetime:
     """
     Convert ISO 8601 date string to datetime object.
@@ -33,6 +34,26 @@ def convert_date_to_mongo_date(date_str) -> datetime:
         except Exception as e:
             logger.error(f"Failed to parse date: {date_str}, error: {e}")
             raise
+
+
+def convert_datetime_to_iso_string(obj):
+    """
+    Recursively convert datetime objects to ISO strings in a dictionary or list.
+    
+    Args:
+        obj: The object to convert (dict, list, or any other type)
+        
+    Returns:
+        The object with datetime objects converted to ISO strings
+    """
+    if isinstance(obj, dict):
+        return {key: convert_datetime_to_iso_string(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_datetime_to_iso_string(item) for item in obj]
+    elif isinstance(obj, datetime):
+        return obj.isoformat()
+    else:
+        return obj
 
 def prepare_vcon_for_mongo(vcon: Vcon) -> Dict[str, Any]:
     """
@@ -129,7 +150,7 @@ def fetch(vcon_uuid: str, opts: Dict[str, str] = default_options) -> Vcon:
         raise ValueError(msg)
     
     try:
-        client = pymongo.MongoClient(opts["url"])
+        client = pymongo.MongoClient(opts["url"], uuidRepresentation="standard")
         logger.debug(f"Successfully connected to MongoDB at {opts['url']}")
         
         db = client[opts["database"]]
@@ -138,7 +159,9 @@ def fetch(vcon_uuid: str, opts: Dict[str, str] = default_options) -> Vcon:
         result = collection.find_one({"_id": vcon_uuid})
         if result:
             logger.info(f"vCon {vcon_uuid} found in MongoDB")
-            return Vcon.from_dict(result)
+            # Convert datetime objects to ISO strings before creating Vcon object
+            result_with_iso_dates = convert_datetime_to_iso_string(result)
+            return Vcon(result_with_iso_dates)
         else:
             logger.info(f"vCon {vcon_uuid} not found in MongoDB")
             return None

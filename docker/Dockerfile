@@ -11,18 +11,23 @@ RUN apt-get install -y libsox-fmt-all sox
 RUN apt-get install -y redis-tools
 RUN pip install --upgrade pip
 
-# Install PyTorch for local LLM tests
-RUN pip install torch torchvision torchaudio
+# PyTorch removed to reduce Docker image size
 
 WORKDIR /app
 
-# TODO Update to use Poetry
-ADD  pyproject.toml /app
-ADD  poetry.lock /app
-RUN pip install poetry==1.8.0
+# Install Poetry
+RUN pip install poetry==2.1.3
 RUN poetry config virtualenvs.create false
-RUN poetry install --no-dev --no-interaction --no-root
-ADD  . /app
+
+# Copy dependency files first for better caching
+COPY pyproject.toml poetry.lock* /app/
+
+# Regenerate lock file if needed and install dependencies
+RUN poetry lock --no-update || poetry lock
+RUN poetry install --only=main --no-interaction
+
+# Copy the rest of the application
+COPY . /app
 
 ENV PYTHONPATH "${PYTHONPATH}:/app/:/app/server/"
 

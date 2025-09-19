@@ -27,6 +27,7 @@ Thumbs.db
 # Docker
 docker-compose.override.yml
 .data
+docker-compose.yml
 
 # Temporary and backup files
 tmp
@@ -121,3 +122,4 @@ build/
 dist/
 *.egg-info/
 .eggs/
+traefik/
