@@ -31,7 +31,7 @@ def setup_test_environment():
     import shutil
     try:
         shutil.rmtree(test_dir)
-    except:
+    except OSError:
         pass
 
 
