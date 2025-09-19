@@ -11,7 +11,8 @@ RUN apt-get install -y libsox-fmt-all sox
 RUN apt-get install -y redis-tools
 RUN pip install --upgrade pip
 
-# PyTorch removed to reduce Docker image size
+# Install watchdog
+RUN pip install watchdog
 
 WORKDIR /app
 
