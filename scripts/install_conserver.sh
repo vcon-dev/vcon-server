@@ -245,7 +245,13 @@ if [ -d "/opt/vcon-server/.git" ]; then
     sudo -u vcon git pull
 else
     log "Cloning vcon-server repository..."
-    rm -rf /opt/vcon-server
+    # Safety check before deleting /opt/vcon-server
+    if [ -d "/opt/vcon-server" ] && [ "/opt/vcon-server" = "/opt/vcon-server" ] && [ -n "/opt/vcon-server" ]; then
+        rm -rf /opt/vcon-server
+    else
+        log "ERROR: Refusing to delete unexpected directory: /opt/vcon-server"
+        exit 1
+    fi
     sudo -u vcon git clone https://github.com/vcon-dev/vcon-server /opt/vcon-server
     cd /opt/vcon-server
 fi
