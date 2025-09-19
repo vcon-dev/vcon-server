@@ -31,7 +31,7 @@ if not VCON_STORAGE:
 try:
     os.makedirs(VCON_STORAGE, exist_ok=True)
     logger.info(f"Using VCON storage directory: {VCON_STORAGE}")
-except Exception as e:
+except OSError as e:
     logger.warning(f"Could not create storage directory {VCON_STORAGE}: {e}")
 
 INDEX_NAME = "vcon"
