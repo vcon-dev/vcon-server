@@ -172,7 +172,10 @@ if [ -d "/opt/vcon-admin/.git" ]; then
     sudo -u vcon git pull
 else
     log "Cloning vcon-admin repository..."
-    rm -rf /opt/vcon-admin
+    # Safety check before deleting /opt/vcon-admin
+    if [ -d "/opt/vcon-admin" ] && [ "/opt/vcon-admin" != "/" ] && [ -n "/opt/vcon-admin" ]; then
+        rm -rf /opt/vcon-admin
+    fi
     sudo -u vcon git clone https://github.com/vcon-dev/vcon-admin /opt/vcon-admin
     cd /opt/vcon-admin
 fi
