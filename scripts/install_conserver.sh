@@ -30,6 +30,27 @@ command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
+# Function to safely copy file with existence check
+safe_copy_file() {
+    local source_file="$1"
+    local dest_file="$2"
+    local description="${3:-file}"
+    
+    if [ ! -f "$source_file" ]; then
+        log "ERROR: Source $description '$source_file' does not exist"
+        return 1
+    fi
+    
+    log "Copying $description from '$source_file' to '$dest_file'"
+    if cp "$source_file" "$dest_file"; then
+        log "Successfully copied $description"
+        return 0
+    else
+        log "ERROR: Failed to copy $description"
+        return 1
+    fi
+}
+
 # Parse command line arguments
 RANDOM_TOKEN=$(openssl rand -hex 8)
 API_TOKEN=${RANDOM_TOKEN}
@@ -74,6 +95,21 @@ if [ -z "$EMAIL" ]; then
     exit 1
 fi
 
+# Display configuration and confirm
+echo "========================================"
+echo "Conserver vCon Server Installation"
+echo "========================================"
+echo "Domain: $DOMAIN"
+echo "Email: $EMAIL"
+echo "API Token: $API_TOKEN"
+echo "========================================"
+echo ""
+read -p "Do you want to proceed with this configuration? (yes/no): " CONFIRM
+if [[ "${CONFIRM,,}" != "yes" && "${CONFIRM,,}" != "y" ]]; then
+    echo "Installation cancelled."
+    exit 0
+fi
+
 # Welcome message
 log "Starting Conserver vCon Server installation"
 log "Domain: $DOMAIN"
@@ -91,9 +127,6 @@ if ! id "vcon" &>/dev/null; then
     log "Creating user 'vcon'..."
     useradd -m -s /bin/bash vcon
 fi
-# Add vcon user to docker group
-log "Adding user 'vcon' to docker group..."
-usermod -aG docker vcon
 mkdir -p /opt/vcon-admin /opt/vcon-server /opt/vcon-data/redis
 chown -R vcon:vcon /opt/vcon-admin /opt/vcon-server /opt/vcon-data
 
@@ -113,6 +146,10 @@ else
     log "Docker is already installed"
 fi
 
+# Add vcon user to docker group (after Docker is installed so the group exists)
+log "Adding user 'vcon' to docker group..."
+usermod -aG docker vcon
+
 # Install git if not already installed
 if ! command_exists git; then
     log "Installing git..."
@@ -127,10 +164,35 @@ fi
 log "Creating docker network 'conserver'..."
 docker network create conserver || log "Network already exists"
 
-# Clone vcon-admin repository as vcon user
-log "Cloning vcon-admin repository..."
-sudo -u vcon git clone https://github.com/vcon-dev/vcon-admin /opt/vcon-admin
-cd /opt/vcon-admin
+# Clone or update vcon-admin repository as vcon user
+if [ -d "/opt/vcon-admin/.git" ]; then
+    log "Updating existing vcon-admin repository..."
+    cd /opt/vcon-admin
+    sudo -u vcon git pull
+else
+    log "Cloning vcon-admin repository..."
+    # Safety check before deleting /opt/vcon-admin
+    if [ -d "/opt/vcon-admin" ] && [ "/opt/vcon-admin" != "/" ] && [ -n "/opt/vcon-admin" ]; then
+        rm -rf /opt/vcon-admin
+    fi
+    sudo -u vcon git clone https://github.com/vcon-dev/vcon-admin /opt/vcon-admin
+    cd /opt/vcon-admin
+fi
+
+# Ensure docker-compose.yml exists for vcon-admin (copy from example if needed)
+if [ ! -f "/opt/vcon-admin/docker-compose.yml" ]; then
+    log "docker-compose.yml not found in vcon-admin, checking for example file..."
+    if [ -f "/opt/vcon-admin/example_docker-compose.yml" ]; then
+        log "Copying example_docker-compose.yml to docker-compose.yml for vcon-admin..."
+        sudo -u vcon cp /opt/vcon-admin/example_docker-compose.yml /opt/vcon-admin/docker-compose.yml
+        log "Successfully created docker-compose.yml from example for vcon-admin"
+    else
+        log "WARNING: Neither docker-compose.yml nor example_docker-compose.yml found in vcon-admin repository"
+        log "Continuing with installation - docker-compose.yml may be created by the build process"
+    fi
+else
+    log "docker-compose.yml already exists in vcon-admin"
+fi
 
 # Create .env file
 log "Creating .env file for vcon-admin..."
@@ -178,10 +240,39 @@ log "Building and starting vcon-admin..."
 cd /opt/vcon-admin
 sudo -u vcon docker compose up --build -d
 
-# Clone vcon-server repository as vcon user
-log "Cloning vcon-server repository..."
-sudo -u vcon git clone https://github.com/vcon-dev/vcon-server /opt/vcon-server
-cd /opt/vcon-server
+# Clone or update vcon-server repository as vcon user  
+if [ -d "/opt/vcon-server/.git" ]; then
+    log "Updating existing vcon-server repository..."
+    cd /opt/vcon-server
+    sudo -u vcon git pull
+else
+    log "Cloning vcon-server repository..."
+    # Safety check before deleting /opt/vcon-server
+    if [ -d "/opt/vcon-server" ] && [ "/opt/vcon-server" = "/opt/vcon-server" ] && [ -n "/opt/vcon-server" ]; then
+        rm -rf /opt/vcon-server
+    else
+        log "ERROR: Refusing to delete unexpected directory: /opt/vcon-server"
+        exit 1
+    fi
+    sudo -u vcon git clone https://github.com/vcon-dev/vcon-server /opt/vcon-server
+    cd /opt/vcon-server
+fi
+
+# Ensure docker-compose.yml exists (copy from example if needed)
+if [ ! -f "/opt/vcon-server/docker-compose.yml" ]; then
+    log "docker-compose.yml not found, checking for example file..."
+    if [ -f "/opt/vcon-server/example_docker-compose.yml" ]; then
+        log "Copying example_docker-compose.yml to docker-compose.yml..."
+        sudo -u vcon cp /opt/vcon-server/example_docker-compose.yml /opt/vcon-server/docker-compose.yml
+        log "Successfully created docker-compose.yml from example"
+    else
+        log "ERROR: Neither docker-compose.yml nor example_docker-compose.yml found in vcon-server repository"
+        log "Please ensure the repository contains the required docker-compose configuration files"
+        exit 1
+    fi
+else
+    log "docker-compose.yml already exists"
+fi
 
 # Create .env file
 log "Creating .env file for vcon-server..."
