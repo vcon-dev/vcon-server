@@ -106,7 +106,7 @@ echo "API Token: $API_TOKEN"
 echo "========================================"
 echo ""
 read -p "Do you want to proceed with this configuration? (yes/no): " CONFIRM
-if [ "$CONFIRM" != "yes" ]; then
+if [[ "${CONFIRM,,}" != "yes" && "${CONFIRM,,}" != "y" ]]; then
     echo "Installation cancelled."
     exit 0
 fi
