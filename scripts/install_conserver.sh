@@ -42,8 +42,7 @@ safe_copy_file() {
     fi
     
     log "Copying $description from '$source_file' to '$dest_file'"
-    cp "$source_file" "$dest_file"
-    if [ $? -eq 0 ]; then
+    if cp "$source_file" "$dest_file"; then
         log "Successfully copied $description"
         return 0
     else
