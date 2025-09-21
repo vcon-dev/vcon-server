@@ -11,7 +11,7 @@ The module supports:
 - Connection pooling and proper resource cleanup
 """
 
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Type
 from lib.logging_utils import init_logger
 from server.lib.vcon_redis import VconRedis
 from playhouse.postgres_ext import PostgresqlExtDatabase, BinaryJSONField
@@ -33,33 +33,48 @@ default_options = {
     "password": "",         # Password should be provided in options
     "host": "localhost",    # Default host
     "port": 5432,          # Default PostgreSQL port
+    "table_name": "vcons",  # Default table name
 }
 
-class BaseModel(Model):
-    """Base model class for Peewee ORM models."""
-    class Meta:
-        database = None  # Will be set when database connection is established
 
-class Vcons(BaseModel):
+def create_vcons_model(database: PostgresqlExtDatabase, table_name: str = "vcons") -> Type[Model]:
     """
-    vCon storage model for PostgreSQL.
+    Dynamically create a Vcons model class for the specified database and table.
     
-    Attributes:
-        id (UUID): Primary key, same as vCon UUID
-        vcon (Text): Raw vCon data
-        uuid (UUID): vCon UUID (duplicated for indexing)
-        created_at (DateTime): vCon creation timestamp
-        updated_at (DateTime): Last update timestamp
-        subject (Text): vCon subject for quick access
-        vcon_json (JSONB): vCon data in JSON format for querying
+    Args:
+        database: The database connection to use
+        table_name: The name of the table to use
+        
+    Returns:
+        Type[Model]: A dynamically created Vcons model class
     """
-    id = UUIDField(primary_key=True)
-    vcon = TextField()
-    uuid = UUIDField()
-    created_at = DateTimeField()
-    updated_at = DateTimeField(null=True)
-    subject = TextField(null=True)
-    vcon_json = BinaryJSONField(null=True)
+    class DynamicVcons(Model):
+        """
+        vCon storage model for PostgreSQL.
+        
+        Attributes:
+            id (UUID): Primary key, same as vCon UUID
+            vcon (Text): Raw vCon data
+            uuid (UUID): vCon UUID (duplicated for indexing)
+            created_at (DateTime): vCon creation timestamp
+            updated_at (DateTime): Last update timestamp
+            subject (Text): vCon subject for quick access
+            vcon_json (JSONB): vCon data in JSON format for querying
+        """
+        id = UUIDField(primary_key=True)
+        vcon = TextField()
+        uuid = UUIDField()
+        created_at = DateTimeField()
+        updated_at = DateTimeField(null=True)
+        subject = TextField(null=True)
+        vcon_json = BinaryJSONField(null=True)
+    
+    # Set the database and table_name after class creation
+    DynamicVcons._meta.database = database
+    DynamicVcons._meta.table_name = table_name
+    
+    return DynamicVcons
+
 
 def get_db_connection(opts: Dict[str, Any]) -> PostgresqlExtDatabase:
     """
@@ -81,6 +96,7 @@ def get_db_connection(opts: Dict[str, Any]) -> PostgresqlExtDatabase:
         host=opts["host"],
         port=opts["port"],
     )
+
 
 def save(
     vcon_uuid: str,
@@ -104,10 +120,13 @@ def save(
         
         # Connect to Postgres
         db = get_db_connection(opts)
-        Vcons._meta.database = db
+        table_name = opts.get("table_name", "vcons")
+        
+        # Create dynamic model for this database and table
+        VconsModel = create_vcons_model(db, table_name)
         
         # Ensure table exists
-        db.create_tables([Vcons], safe=True)
+        db.create_tables([VconsModel], safe=True)
 
         # Prepare vCon data
         vcon_data = {
@@ -121,8 +140,8 @@ def save(
         }
         
         # Insert or update the vCon
-        Vcons.insert(**vcon_data).on_conflict(
-            conflict_target=(Vcons.id),
+        VconsModel.insert(**vcon_data).on_conflict(
+            conflict_target=(VconsModel.id),
             update=vcon_data
         ).execute()
 
@@ -135,6 +154,7 @@ def save(
     finally:
         if db:
             db.close()
+
 
 def get(
     vcon_uuid: str,
@@ -160,13 +180,16 @@ def get(
     try:
         # Connect to Postgres
         db = get_db_connection(opts)
-        Vcons._meta.database = db
-
+        table_name = opts.get("table_name", "vcons")
+        
+        # Create dynamic model for this database and table
+        VconsModel = create_vcons_model(db, table_name)
+        
         # Attempt to retrieve the vCon
         try:
-            vcon = Vcons.get(Vcons.id == vcon_uuid)
+            vcon = VconsModel.get(VconsModel.id == vcon_uuid)
             return vcon.vcon_json
-        except Vcons.DoesNotExist:
+        except VconsModel.DoesNotExist:
             logger.info(f"vCon {vcon_uuid} not found in Postgres storage")
             return None
             
