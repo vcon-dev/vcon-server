@@ -156,6 +156,14 @@ class VconChainRequest:
                     self.vcon_id,
                 )
                 break
+            if should_continue_chain != self.vcon_id:
+                logger.info(
+                    "Link %s updated vCon %s to %s",
+                    self.chain_details["links"][i],
+                    self.vcon_id,
+                    should_continue_chain,
+                )
+                self.vcon_id = should_continue_chain
 
         self._wrap_up()
         vcon_processing_time = round(time.time() - vcon_started, 3)

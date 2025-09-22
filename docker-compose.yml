@@ -66,7 +66,7 @@ services:
       REDIS_ARGS: --save 20 1 --notify-keyspace-events Ex --dir /data --appendonly yes
     mem_limit: 1gb # <===== IMPORTANT!!!! We're overriding this in the docker-compose.override.yml file
     volumes:
-      - /opt/vcon-data/redis:/data # Production: use a persistent host directory
+      - redis_data:/data
     healthcheck:
       test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
       interval: 30s
@@ -78,6 +78,28 @@ services:
       - "com.datadoghq.ad.check_names=['conserver.redis']"
       - "com.datadoghq.ad.init_configs=[{}]"
       - "com.datadoghq.ad.instances=[{'host': 'redis', 'port': 6379}]"
+
+  postgres:
+    image: "postgres:15"
+    ports:
+      - "${POSTGRES_EXTERNAL_PORT:-5432}:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-conserver}
+      POSTGRES_USER: ${POSTGRES_USER:-conserver}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-conserver}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-conserver} -d ${POSTGRES_DB:-conserver}"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - conserver
+    labels:
+      - "com.datadoghq.ad.check_names=['postgres']"
+      - "com.datadoghq.ad.init_configs=[{}]"
+      - "com.datadoghq.ad.instances=[{'host': 'postgres', 'port': 5432}]"
 
   datadog-agent:
     image: "datadog/agent:latest"
@@ -103,4 +125,8 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+
+volumes:
+  postgres_data:
+  redis_data:
     
