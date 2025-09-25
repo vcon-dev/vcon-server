@@ -16,6 +16,10 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y docker-compose
+    
+    - name: Copy example_docker-compose.yml to docker-compose.yml
+      run: |
+        cp example_docker-compose.yml docker-compose.yml
 
     - name: Create .env file
       run: |
