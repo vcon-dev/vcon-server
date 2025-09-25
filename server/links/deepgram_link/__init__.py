@@ -56,7 +56,7 @@ def transcribe_dg(dg_client, dialog, opts) -> Optional[dict]:
     Retries on failure with exponential backoff.
     """
     url = dialog["url"]
-    logger.debug(f"Preparing to transcribe URL: {url} with options: {opts}")
+    logger.debug(f"Preparing to transcribe URL: {url}")
     source = {"url": url}
     options = PrerecordedOptions(**opts)
     url_response = dg_client.listen.rest.v("1").transcribe_url(source, options)
@@ -108,7 +108,7 @@ def run(
     merged_opts = default_options.copy()
     merged_opts.update(opts)
     opts = merged_opts
-    logger.info(f"Starting deepgram plugin for vCon: {vcon_uuid} with options: {opts}")
+    logger.info(f"Starting deepgram plugin for vCon: {vcon_uuid}")
 
     vcon_redis = VconRedis()
     vCon = vcon_redis.get_vcon(vcon_uuid)
