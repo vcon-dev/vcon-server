@@ -65,19 +65,24 @@ git clone https://github.com/vcon-dev/vcon-server.git
 cd vcon-server
 ```
 
-2. Create and configure the environment file:
+2. Set up a docker-compose.yml file:
+```bash
+cp example_docker-compose.yml docker-compose.yml
+# Edit to customize as needed
+
+3. Create and configure the environment file:
 ```bash
 cp .env.example .env
 # Edit .env with your configuration
 ```
 
-3. Create the Docker network:
+4. Create the Docker network:
 ```bash
 docker network create conserver
 
 ```
 
-4. Build and start the services:
+5. Build and start the services:
 ```bash
 docker compose build
 docker compose up -d
