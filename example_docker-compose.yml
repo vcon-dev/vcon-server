@@ -57,7 +57,7 @@ services:
       REDIS_ARGS: --save 20 1 --notify-keyspace-events Ex --dir /data --appendonly yes
     mem_limit: 1gb # <===== IMPORTANT!!!! We're overriding this in the docker-compose.override.yml file
     volumes:
-      - /opt/vcon-data/redis:/data # Production: use a persistent host directory
+      - redis_data:/data
     healthcheck:
       test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
       interval: 30s
@@ -78,6 +78,29 @@ services:
       POSTGRES_PASSWORD: postgres
     networks:
       - conserver
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+    environment:
+      - discovery.type=single-node
+      - ELASTIC_USERNAME=elastic
+      - ELASTIC_PASSWORD=changeme
+      - xpack.security.enabled=true
+      - xpack.security.transport.ssl.enabled=false
+      - xpack.security.http.ssl.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    networks:
+      - conserver
+    healthcheck:
+      test: ["CMD-SHELL", "curl -u elastic:changeme -s http://localhost:9200/_cluster/health | grep -q '\"status\":\"green\"\\|\"status\":\"yellow\"'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
 
   datadog-agent:
     image: "datadog/agent:latest"
@@ -222,3 +245,7 @@ services:
   #     retries: 3
   #   networks:
   #     - conserver
+
+volumes:
+  es_data: {}
+  redis_data: {}
