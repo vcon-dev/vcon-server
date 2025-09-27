@@ -4,7 +4,6 @@ import logging
 import elasticsearch
 import json
 import os
-from typing import Optional
 
 
 logger = init_logger(__name__)
@@ -16,6 +15,11 @@ default_options = {
     "cloud_id": "",
     "api_key": "",
     "index": "vcon_index",
+    "ca_certs": None,
+    "url": None,
+    "username": None,
+    "password": None,
+    "index_prefix": "",
 }
 
 
@@ -79,13 +83,16 @@ def save(
                 tenant = tenant_attachment["body"]
             common_attributes["tenant_id"] = tenant["id"]
 
+        index_prefix = opts.get("index_prefix", "")
+        index_prefix = index_prefix.strip()
+
         # Index the parties, separated by 'role' - id=f"{vcon_uuid}_{party_index}"
         for ind, party in enumerate(vcon_dict["parties"]):
             role = party.get("role")
             do_vcon_parts_indexing(
                 es=es,
                 part=party,
-                index_name=f"vcon_parties_{role}" if role else "vcon_parties",
+                index_name=f"{index_prefix}vcon_parties_{role}" if role else "vcon_parties",
                 id=f"{vcon_uuid}_{ind}",
                 common_attributes=common_attributes,
             )
@@ -101,7 +108,7 @@ def save(
             do_vcon_parts_indexing(
                 es=es,
                 part=attachment,
-                index_name=f"vcon_attachments_{attachment_type}",
+                index_name=f"{index_prefix}vcon_attachments_{attachment_type}",
                 id=f"{vcon_dict['uuid']}_{ind}",
                 common_attributes=common_attributes,
             )
@@ -114,7 +121,7 @@ def save(
             do_vcon_parts_indexing(
                 es=es,
                 part=analysis,
-                index_name=f"vcon_analysis_{analysis_type}",
+                index_name=f"{index_prefix}vcon_analysis_{analysis_type}",
                 id=f"{vcon_dict['uuid']}_{ind}",
                 common_attributes=common_attributes,
             )
@@ -125,7 +132,7 @@ def save(
             do_vcon_parts_indexing(
                 es=es,
                 part=dialog,
-                index_name="vcon_dialog",
+                index_name=f"{index_prefix}vcon_dialog",
                 id=f"{vcon_dict['uuid']}_{ind}",
                 common_attributes=common_attributes,
             )
