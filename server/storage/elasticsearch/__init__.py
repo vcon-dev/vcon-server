@@ -92,7 +92,7 @@ def save(
             do_vcon_parts_indexing(
                 es=es,
                 part=party,
-                index_name=f"{index_prefix}vcon_parties_{role}" if role else "vcon_parties",
+                index_name=f"{index_prefix}vcon_parties_{role}" if role else f"{index_prefix}vcon_parties",
                 id=f"{vcon_uuid}_{ind}",
                 common_attributes=common_attributes,
             )
