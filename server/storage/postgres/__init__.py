@@ -201,3 +201,54 @@ def get(
     finally:
         if db:
             db.close()
+
+
+def delete(
+    vcon_uuid: str,
+    opts: Dict[str, Any] = default_options,
+) -> bool:
+    """
+    Delete a vCon from PostgreSQL storage by UUID.
+    
+    Args:
+        vcon_uuid: UUID of the vCon to delete
+        opts: Dictionary containing database connection parameters
+        
+    Returns:
+        bool: True if the vCon was successfully deleted, False if it was not found
+        
+    Raises:
+        Exception: If there's an error deleting the vCon
+    """
+    logger.info("Starting the Postgres storage delete for vCon: %s", vcon_uuid)
+    db = None
+    try:
+        # Connect to Postgres
+        db = get_db_connection(opts)
+        table_name = opts.get("table_name", "vcons")
+        
+        # Create dynamic model for this database and table
+        VconsModel = create_vcons_model(db, table_name)
+        
+        # Attempt to delete the vCon
+        try:
+            deleted_count = VconsModel.delete().where(VconsModel.id == vcon_uuid).execute()
+            if deleted_count > 0:
+                logger.info("Successfully deleted vCon: %s", vcon_uuid)
+                return True
+            else:
+                logger.info("vCon %s not found in Postgres storage", vcon_uuid)
+                return False
+                
+        except Exception as e:
+            logger.error(f"Failed to delete vCon {vcon_uuid}: {e}")
+            raise e
+            
+    except Exception as e:
+        logger.error(
+            f"postgres storage plugin: failed to delete vCon: {vcon_uuid}, error: {e}"
+        )
+        raise e
+    finally:
+        if db:
+            db.close()

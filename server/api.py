@@ -81,6 +81,7 @@ if CONSERVER_API_TOKEN_FILE:
 if not api_keys:
     logger.info("No API keys found, skipping authentication")
 
+
 async def get_api_key(api_key_header: str = Security(api_key_header)) -> Optional[str]:
     """Validate the API key from the request header.
     
@@ -433,6 +434,7 @@ async def get_vcons(
 
     return JSONResponse(content=results, status_code=200)
 
+
 @api_router.get(
     "/vcons/search",
     response_model=List[UUID],
@@ -669,6 +671,10 @@ async def external_ingress_vcon(
 async def delete_vcon(vcon_uuid: UUID) -> None:
     """Delete a vCon from the system.
 
+    This function deletes the vCon from Redis and all configured storage backends.
+    It will attempt to delete from all storages even if some fail, ensuring
+    maximum cleanup of the vCon data.
+
     Args:
         vcon_uuid: UUID of the vCon to delete
 
@@ -676,7 +682,18 @@ async def delete_vcon(vcon_uuid: UUID) -> None:
         HTTPException: If there is an error deleting the vCon
     """
     try:
+        # Delete from Redis
         await redis_async.json().delete(f"vcon:{str(vcon_uuid)}")
+        
+        # Delete from all configured storage backends
+        for storage_name in Configuration.get_storages():
+            try:
+                Storage(storage_name=storage_name).delete(str(vcon_uuid))
+                logger.info(f"Successfully deleted vCon {vcon_uuid} from storage: {storage_name}")
+            except Exception as e:
+                logger.warning(f"Failed to delete vCon {vcon_uuid} from storage {storage_name}: {e}")
+                # Continue with other storages even if one fails
+                
     except Exception:
         # Print all of the details of the exception
         logger.info(traceback.format_exc())

@@ -139,3 +139,160 @@ def save(
     except Exception as e:
         logger.error(f"Elasticsearch storage plugin: failed to insert vCon: {vcon_uuid}, error: {e} ", exc_info=True)
         raise e
+
+
+def delete(
+    vcon_uuid,
+    opts=default_options,
+):
+    """
+    Delete a vCon from Elasticsearch storage by UUID.
+    
+    This function removes all documents related to the vCon from all indices:
+    - Parties (by role)
+    - Attachments (by type) 
+    - Analysis (by type)
+    - Dialog
+    
+    Args:
+        vcon_uuid: UUID of the vCon to delete
+        opts: Dictionary containing Elasticsearch connection parameters
+        
+    Returns:
+        bool: True if the vCon was successfully deleted, False if it was not found
+        
+    Raises:
+        Exception: If there's an error deleting the vCon
+    """
+    logger.info("Starting the Elasticsearch storage delete for vCon: %s", vcon_uuid)
+    try:
+        # Establish Elasticsearch connection
+        if opts.get("cloud_id", None) or opts.get("api_key", None):
+            es = elasticsearch.Elasticsearch(
+                cloud_id=opts["cloud_id"],
+                api_key=opts["api_key"],
+            )
+        else:
+            url = opts["url"]
+            username = opts["username"]
+            password = opts["password"]
+            ca_certs = opts.get("ca_certs", None)
+            if ca_certs and os.path.exists(ca_certs):
+                es = elasticsearch.Elasticsearch(url, basic_auth=(username, password), ca_certs=ca_certs)
+            else:
+                es = elasticsearch.Elasticsearch(url, basic_auth=(username, password), verify_certs=False)
+        
+        index_prefix = opts.get("index_prefix", "")
+        index_prefix = index_prefix.strip()
+        
+        deleted_count = 0
+        total_deleted = 0
+        
+        # Delete from parties indices
+        try:
+            # Get all party indices
+            party_indices = es.indices.get_alias(index=f"{index_prefix}vcon_parties*")
+            logger.info(f"Found party indices: {list(party_indices.keys())}")
+            for index_name in party_indices.keys():
+                # Delete all documents with vcon_id matching the UUID
+                logger.info(f"Deleting from index {index_name} with vcon_id: {vcon_uuid}")
+                response = es.delete_by_query(
+                    index=index_name,
+                    query={
+                        "match": {
+                            "vcon_id": vcon_uuid
+                        }
+                    },
+                    refresh=True
+                )
+                deleted_count = response.get("deleted", 0)
+                total_deleted += deleted_count
+                if deleted_count > 0:
+                    logger.info(f"Deleted {deleted_count} party documents from {index_name}")
+                else:
+                    logger.info(f"No party documents found for vCon {vcon_uuid} in {index_name}")
+        except Exception as e:
+            logger.warning(f"Failed to delete parties for vCon {vcon_uuid}: {e}")
+        
+        # Delete from attachments indices
+        try:
+            # Get all attachment indices
+            attachment_indices = es.indices.get_alias(index=f"{index_prefix}vcon_attachments*")
+            logger.info(f"Found attachment indices: {list(attachment_indices.keys())}")
+            for index_name in attachment_indices.keys():
+                # Delete all documents with vcon_id matching the UUID
+                response = es.delete_by_query(
+                    index=index_name,
+                    query={
+                        "match": {
+                            "vcon_id": vcon_uuid
+                        }
+                    },
+                    refresh=True
+                )
+                deleted_count = response.get("deleted", 0)
+                total_deleted += deleted_count
+                if deleted_count > 0:
+                    logger.info(f"Deleted {deleted_count} attachment documents from {index_name}")
+                else:
+                    logger.info(f"No attachment documents found for vCon {vcon_uuid} in {index_name}")
+        except Exception as e:
+            logger.warning(f"Failed to delete attachments for vCon {vcon_uuid}: {e}")
+        
+        # Delete from analysis indices
+        try:
+            # Get all analysis indices
+            analysis_indices = es.indices.get_alias(index=f"{index_prefix}vcon_analysis*")
+            logger.info(f"Found analysis indices: {list(analysis_indices.keys())}")
+            for index_name in analysis_indices.keys():
+                # Delete all documents with vcon_id matching the UUID
+                response = es.delete_by_query(
+                    index=index_name,
+                    query={
+                        "match": {
+                            "vcon_id": vcon_uuid
+                        }
+                    },
+                    refresh=True
+                )
+                deleted_count = response.get("deleted", 0)
+                total_deleted += deleted_count
+                if deleted_count > 0:
+                    logger.info(f"Deleted {deleted_count} analysis documents from {index_name}")
+                else:
+                    logger.info(f"No analysis documents found for vCon {vcon_uuid} in {index_name}")
+        except Exception as e:
+            logger.warning(f"Failed to delete analysis for vCon {vcon_uuid}: {e}")
+        
+        # Delete from dialog index
+        try:
+            dialog_index = f"{index_prefix}vcon_dialog"
+            if es.indices.exists(index=dialog_index):
+                response = es.delete_by_query(
+                    index=dialog_index,
+                    query={
+                        "match": {
+                            "vcon_id": vcon_uuid
+                        }
+                    },
+                    refresh=True
+                )
+                deleted_count = response.get("deleted", 0)
+                total_deleted += deleted_count
+                if deleted_count > 0:
+                    logger.info(f"Deleted {deleted_count} dialog documents from {dialog_index}")
+                else:
+                    logger.info(f"No dialog documents found for vCon {vcon_uuid} in {dialog_index}")
+        except Exception as e:
+            logger.warning(f"Failed to delete dialog for vCon {vcon_uuid}: {e}")
+        
+        if total_deleted > 0:
+            logger.info(f"Successfully deleted {total_deleted} total documents for vCon: {vcon_uuid}")
+            return True
+        else:
+            logger.info(f"No documents found for vCon: {vcon_uuid}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"Elasticsearch storage plugin: failed to delete vCon: {vcon_uuid}, error: {e}", exc_info=True)
+        raise e
