@@ -230,7 +230,7 @@ def delete(
         # Create dynamic model for this database and table
         VconsModel = create_vcons_model(db, table_name)
         
-        # Attempt to delete the vCon]
+        # Attempt to delete the vCon
         deleted_count = VconsModel.delete().where(VconsModel.id == vcon_uuid).execute()
         if deleted_count > 0:
             logger.info("Successfully deleted vCon: %s", vcon_uuid)
