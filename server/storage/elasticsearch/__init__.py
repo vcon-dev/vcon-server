@@ -185,106 +185,31 @@ def delete(
         index_prefix = opts.get("index_prefix", "")
         index_prefix = index_prefix.strip()
         
-        deleted_count = 0
         total_deleted = 0
         
-        # Delete from parties indices
+        # Get all vCon-related indices with a single pattern
         try:
-            # Get all party indices
-            party_indices = es.indices.get_alias(index=f"{index_prefix}vcon_parties*")
-            logger.info(f"Found party indices: {list(party_indices.keys())}")
-            for index_name in party_indices.keys():
-                # Delete all documents with vcon_id matching the UUID
-                logger.info(f"Deleting from index {index_name} with vcon_id: {vcon_uuid}")
-                response = es.delete_by_query(
-                    index=index_name,
-                    query={
-                        "match": {
-                            "vcon_id": vcon_uuid
-                        }
-                    },
-                    refresh=True
-                )
-                deleted_count = response.get("deleted", 0)
-                total_deleted += deleted_count
-                if deleted_count > 0:
-                    logger.info(f"Deleted {deleted_count} party documents from {index_name}")
-                else:
-                    logger.info(f"No party documents found for vCon {vcon_uuid} in {index_name}")
+            all_indices = es.indices.get_alias(index=f"{index_prefix}vcon*")
+            all_indices = list(all_indices.keys())
+            logger.info(f"Found vCon indices: {all_indices}")
         except Exception as e:
-            logger.warning(f"Failed to delete parties for vCon {vcon_uuid}: {e}")
+            logger.warning(f"Failed to get vCon indices: {e}")
+            all_indices = []
         
-        # Delete from attachments indices
-        try:
-            # Get all attachment indices
-            attachment_indices = es.indices.get_alias(index=f"{index_prefix}vcon_attachments*")
-            logger.info(f"Found attachment indices: {list(attachment_indices.keys())}")
-            for index_name in attachment_indices.keys():
-                # Delete all documents with vcon_id matching the UUID
-                response = es.delete_by_query(
-                    index=index_name,
-                    query={
-                        "match": {
-                            "vcon_id": vcon_uuid
-                        }
-                    },
-                    refresh=True
-                )
-                deleted_count = response.get("deleted", 0)
-                total_deleted += deleted_count
-                if deleted_count > 0:
-                    logger.info(f"Deleted {deleted_count} attachment documents from {index_name}")
-                else:
-                    logger.info(f"No attachment documents found for vCon {vcon_uuid} in {index_name}")
-        except Exception as e:
-            logger.warning(f"Failed to delete attachments for vCon {vcon_uuid}: {e}")
-        
-        # Delete from analysis indices
-        try:
-            # Get all analysis indices
-            analysis_indices = es.indices.get_alias(index=f"{index_prefix}vcon_analysis*")
-            logger.info(f"Found analysis indices: {list(analysis_indices.keys())}")
-            for index_name in analysis_indices.keys():
-                # Delete all documents with vcon_id matching the UUID
-                response = es.delete_by_query(
-                    index=index_name,
-                    query={
-                        "match": {
-                            "vcon_id": vcon_uuid
-                        }
-                    },
-                    refresh=True
-                )
-                deleted_count = response.get("deleted", 0)
-                total_deleted += deleted_count
-                if deleted_count > 0:
-                    logger.info(f"Deleted {deleted_count} analysis documents from {index_name}")
-                else:
-                    logger.info(f"No analysis documents found for vCon {vcon_uuid} in {index_name}")
-        except Exception as e:
-            logger.warning(f"Failed to delete analysis for vCon {vcon_uuid}: {e}")
-        
-        # Delete from dialog index
-        try:
-            dialog_index = f"{index_prefix}vcon_dialog"
-            if es.indices.exists(index=dialog_index):
-                response = es.delete_by_query(
-                    index=dialog_index,
-                    query={
-                        "match": {
-                            "vcon_id": vcon_uuid
-                        }
-                    },
-                    refresh=True
-                )
-                deleted_count = response.get("deleted", 0)
-                total_deleted += deleted_count
-                if deleted_count > 0:
-                    logger.info(f"Deleted {deleted_count} dialog documents from {dialog_index}")
-                else:
-                    logger.info(f"No dialog documents found for vCon {vcon_uuid} in {dialog_index}")
-        except Exception as e:
-            logger.warning(f"Failed to delete dialog for vCon {vcon_uuid}: {e}")
+        # Delete from all collected indices using bulk delete_by_query
+        if all_indices:
+            logger.info(f"Deleting from {len(all_indices)} indices with vcon_id: {vcon_uuid}")
+            response = es.delete_by_query(
+                index=all_indices,
+                query={
+                    "match": {
+                        "vcon_id": vcon_uuid
+                    }
+                },
+                refresh=True
+            )
+            total_deleted = response.get("deleted", 0)
+            logger.info(f"Successfully deleted {total_deleted} documents from all indices")
         
         if total_deleted > 0:
             logger.info(f"Successfully deleted {total_deleted} total documents for vCon: {vcon_uuid}")

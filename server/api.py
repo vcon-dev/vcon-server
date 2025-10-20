@@ -681,23 +681,37 @@ async def delete_vcon(vcon_uuid: UUID) -> None:
     Raises:
         HTTPException: If there is an error deleting the vCon
     """
+    errors = []
+    
+    # Delete from Redis
     try:
-        # Delete from Redis
         await redis_async.json().delete(f"vcon:{str(vcon_uuid)}")
-        
-        # Delete from all configured storage backends
-        for storage_name in Configuration.get_storages():
-            try:
-                Storage(storage_name=storage_name).delete(str(vcon_uuid))
+        logger.info(f"Successfully deleted vCon {vcon_uuid} from Redis")
+    except Exception as e:
+        logger.warning(f"Failed to delete vCon {vcon_uuid} from Redis: {e}")
+        errors.append(f"Redis deletion failed: {e}")
+    
+    # Delete from all configured storage backends
+    for storage_name in Configuration.get_storages():
+        try:
+            delete_result = Storage(storage_name=storage_name).delete(str(vcon_uuid))
+            if not delete_result:
+                logger.warning(
+                    f"Delete operation for vCon {vcon_uuid} in storage {storage_name} "
+                    f"did not succeed (returned {delete_result})."
+                )
+            else:
                 logger.info(f"Successfully deleted vCon {vcon_uuid} from storage: {storage_name}")
-            except Exception as e:
-                logger.warning(f"Failed to delete vCon {vcon_uuid} from storage {storage_name}: {e}")
-                # Continue with other storages even if one fails
-                
-    except Exception:
-        # Print all of the details of the exception
-        logger.info(traceback.format_exc())
-        raise HTTPException(status_code=500)
+        except Exception as e:
+            logger.warning(f"Failed to delete vCon {vcon_uuid} from storage {storage_name}: {e}")
+            errors.append(f"Storage {storage_name} deletion failed: {e}")
+            # Continue with other storages even if one fails
+    
+    # Log completion - always return 200 for delete operations
+    if errors:
+        logger.warning(f"vCon {vcon_uuid} deletion completed with some failures: {'; '.join(errors)}")
+    else:
+        logger.info(f"vCon {vcon_uuid} deletion completed")
 
 
 # Ingress and egress endpoints for vCon IDs

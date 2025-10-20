@@ -230,19 +230,14 @@ def delete(
         # Create dynamic model for this database and table
         VconsModel = create_vcons_model(db, table_name)
         
-        # Attempt to delete the vCon
-        try:
-            deleted_count = VconsModel.delete().where(VconsModel.id == vcon_uuid).execute()
-            if deleted_count > 0:
-                logger.info("Successfully deleted vCon: %s", vcon_uuid)
-                return True
-            else:
-                logger.info("vCon %s not found in Postgres storage", vcon_uuid)
-                return False
-                
-        except Exception as e:
-            logger.error(f"Failed to delete vCon {vcon_uuid}: {e}")
-            raise e
+        # Attempt to delete the vCon]
+        deleted_count = VconsModel.delete().where(VconsModel.id == vcon_uuid).execute()
+        if deleted_count > 0:
+            logger.info("Successfully deleted vCon: %s", vcon_uuid)
+            return True
+        else:
+            logger.info("vCon %s not found in Postgres storage", vcon_uuid)
+            return False
             
     except Exception as e:
         logger.error(
