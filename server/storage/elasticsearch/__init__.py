@@ -139,3 +139,85 @@ def save(
     except Exception as e:
         logger.error(f"Elasticsearch storage plugin: failed to insert vCon: {vcon_uuid}, error: {e} ", exc_info=True)
         raise e
+
+
+def delete(
+    vcon_uuid,
+    opts=default_options,
+):
+    """
+    Delete a vCon from Elasticsearch storage by UUID.
+    
+    This function removes all documents related to the vCon from all indices:
+    - Parties (by role)
+    - Attachments (by type) 
+    - Analysis (by type)
+    - Dialog
+    
+    Args:
+        vcon_uuid: UUID of the vCon to delete
+        opts: Dictionary containing Elasticsearch connection parameters
+        
+    Returns:
+        bool: True if the vCon was successfully deleted, False if it was not found
+        
+    Raises:
+        Exception: If there's an error deleting the vCon
+    """
+    logger.info("Starting the Elasticsearch storage delete for vCon: %s", vcon_uuid)
+    try:
+        # Establish Elasticsearch connection
+        if opts.get("cloud_id", None) or opts.get("api_key", None):
+            es = elasticsearch.Elasticsearch(
+                cloud_id=opts["cloud_id"],
+                api_key=opts["api_key"],
+            )
+        else:
+            url = opts["url"]
+            username = opts["username"]
+            password = opts["password"]
+            ca_certs = opts.get("ca_certs", None)
+            if ca_certs and os.path.exists(ca_certs):
+                es = elasticsearch.Elasticsearch(url, basic_auth=(username, password), ca_certs=ca_certs)
+            else:
+                es = elasticsearch.Elasticsearch(url, basic_auth=(username, password), verify_certs=False)
+        
+        index_prefix = opts.get("index_prefix", "")
+        index_prefix = index_prefix.strip()
+        
+        total_deleted = 0
+        
+        # Get all vCon-related indices with a single pattern
+        try:
+            all_indices = es.indices.get_alias(index=f"{index_prefix}vcon*")
+            all_indices = list(all_indices.keys())
+            logger.info(f"Found vCon indices: {all_indices}")
+        except Exception as e:
+            logger.warning(f"Failed to get vCon indices: {e}")
+            all_indices = []
+        
+        # Delete from all collected indices using bulk delete_by_query
+        if all_indices:
+            logger.info(f"Deleting from {len(all_indices)} indices with vcon_id: {vcon_uuid}")
+            response = es.delete_by_query(
+                index=all_indices,
+                query={
+                    "match": {
+                        "vcon_id": vcon_uuid
+                    }
+                },
+                refresh=True
+            )
+            total_deleted = response.get("deleted", 0)
+            logger.info(f"Successfully deleted {total_deleted} documents from all indices")
+        
+        if total_deleted > 0:
+            logger.info(f"Successfully deleted {total_deleted} total documents for vCon: {vcon_uuid}")
+            return True
+        else:
+            logger.info(f"No documents found for vCon: {vcon_uuid}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"Elasticsearch storage plugin: failed to delete vCon: {vcon_uuid}, error: {e}", exc_info=True)
+        raise e

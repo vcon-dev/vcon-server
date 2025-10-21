@@ -69,3 +69,9 @@ class Storage:
         if hasattr(self.module, "get"):
             return self.module.get(vcon_id, self.options)
         return None
+
+    @log_metrics
+    def delete(self, vcon_id) -> bool:
+        if hasattr(self.module, "delete"):
+            return self.module.delete(vcon_id, self.options)
+        return False
