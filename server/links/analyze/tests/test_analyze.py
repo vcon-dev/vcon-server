@@ -19,7 +19,7 @@ from server.links.analyze import (
     run,
     default_options,
     navigate_dict,
-    get_analysys_for_type,
+    get_analysis_for_type,
 )
 from server.vcon import Vcon
 from lib.vcon_redis import VconRedis
@@ -120,7 +120,7 @@ class TestGetAnalysysForType:
             {"dialog": 0, "type": "summary", "body": "test3"},
         ]
         
-        result = get_analysys_for_type(vcon, 0, "transcript")
+        result = get_analysis_for_type(vcon, 0, "transcript")
         assert result == {"dialog": 0, "type": "transcript", "body": "test1"}
     
     def test_get_analysys_for_type_not_found(self):
@@ -130,7 +130,7 @@ class TestGetAnalysysForType:
             {"dialog": 0, "type": "transcript", "body": "test1"},
         ]
         
-        result = get_analysys_for_type(vcon, 0, "summary")
+        result = get_analysis_for_type(vcon, 0, "summary")
         assert result is None
 
 

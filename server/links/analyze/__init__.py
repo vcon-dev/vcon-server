@@ -30,7 +30,7 @@ default_options = {
 }
 
 
-def get_analysys_for_type(vcon, index, analysis_type):
+def get_analysis_for_type(vcon, index, analysis_type):
     for a in vcon.analysis:
         if a["dialog"] == index and a["type"] == analysis_type:
             return a
@@ -99,7 +99,7 @@ def run(
     text_location = navigate_dict(opts, "source.text_location")
 
     for index, dialog in enumerate(vCon.dialog):
-        source = get_analysys_for_type(vCon, index, source_type)
+        source = get_analysis_for_type(vCon, index, source_type)
         if not source:
             logger.warning("No %s found for vCon: %s", source_type, vCon.uuid)
             continue
@@ -107,7 +107,7 @@ def run(
         if not source_text:
             logger.warning("No source_text found at %s for vCon: %s", text_location, vCon.uuid)
             continue
-        analysis = get_analysys_for_type(vCon, index, opts["analysis_type"])
+        analysis = get_analysis_for_type(vCon, index, opts["analysis_type"])
 
         # See if it already has the analysis
         if analysis:
