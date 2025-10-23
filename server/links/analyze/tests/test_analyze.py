@@ -11,9 +11,7 @@ Environment variables are loaded from .env using python-dotenv.
 """
 import os
 import pytest
-from unittest.mock import Mock, patch, MagicMock
-import json
-from tenacity import RetryError
+from unittest.mock import Mock, patch
 from server.links.analyze import (
     generate_analysis,
     run,
@@ -22,7 +20,6 @@ from server.links.analyze import (
     get_analysis_for_type,
 )
 from server.vcon import Vcon
-from lib.vcon_redis import VconRedis
 from dotenv import load_dotenv
 
 # Load environment variables from .env file for API keys, etc.
@@ -108,10 +105,10 @@ class TestNavigateDict:
         assert result is None
 
 
-class TestGetAnalysysForType:
-    """Test the get_analysys_for_type function"""
+class TestGetAnalysisForType:
+    """Test the get_analysis_for_type function"""
     
-    def test_get_analysys_for_type_found(self):
+    def test_get_analysis_for_type_found(self):
         """Test finding an analysis of the correct type"""
         vcon = Mock()
         vcon.analysis = [
@@ -123,7 +120,7 @@ class TestGetAnalysysForType:
         result = get_analysis_for_type(vcon, 0, "transcript")
         assert result == {"dialog": 0, "type": "transcript", "body": "test1"}
     
-    def test_get_analysys_for_type_not_found(self):
+    def test_get_analysis_for_type_not_found(self):
         """Test when analysis type is not found"""
         vcon = Mock()
         vcon.analysis = [
