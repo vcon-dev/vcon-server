@@ -17,11 +17,12 @@ init_metrics()
 logger = init_logger(__name__)
 
 default_options = {
-    "prompt": "Summarize this transcript in a few sentences.",
+    "prompt": "",
     "analysis_type": "summary",
     "model": "gpt-3.5-turbo-16k",
     "sampling_rate": 1,
     "temperature": 0,
+    "system_prompt": "You are a helpful assistant.",
     "source": {
         "analysis_type": "transcript",
         "text_location": "body.paragraphs.transcript",
@@ -29,7 +30,7 @@ default_options = {
 }
 
 
-def get_analysys_for_type(vcon, index, analysis_type):
+def get_analysis_for_type(vcon, index, analysis_type):
     for a in vcon.analysis:
         if a["dialog"] == index and a["type"] == analysis_type:
             return a
@@ -41,11 +42,11 @@ def get_analysys_for_type(vcon, index, analysis_type):
     stop=stop_after_attempt(6),
     before_sleep=before_sleep_log(logger, logging.INFO),
 )
-def generate_analysis(transcript, prompt, model, temperature, client) -> str:
+def generate_analysis(transcript, prompt, model, temperature, client, system_prompt="You are a helpful assistant.") -> str:
     # logger.info(f"TRANSCRIPT: {transcript}")
     # logger.info(f"PROMPT: {prompt}")
     messages = [
-        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "system", "content": system_prompt},
         {"role": "user", "content": prompt + "\n\n" + transcript},
     ]
     # logger.info(f"messages: {messages}")
@@ -98,7 +99,7 @@ def run(
     text_location = navigate_dict(opts, "source.text_location")
 
     for index, dialog in enumerate(vCon.dialog):
-        source = get_analysys_for_type(vCon, index, source_type)
+        source = get_analysis_for_type(vCon, index, source_type)
         if not source:
             logger.warning("No %s found for vCon: %s", source_type, vCon.uuid)
             continue
@@ -106,7 +107,7 @@ def run(
         if not source_text:
             logger.warning("No source_text found at %s for vCon: %s", text_location, vCon.uuid)
             continue
-        analysis = get_analysys_for_type(vCon, index, opts["analysis_type"])
+        analysis = get_analysis_for_type(vCon, index, opts["analysis_type"])
 
         # See if it already has the analysis
         if analysis:
@@ -131,6 +132,7 @@ def run(
                 model=opts["model"],
                 temperature=opts["temperature"],
                 client=client,
+                system_prompt=opts["system_prompt"],
             )
         except Exception as e:
             logger.error(
@@ -170,6 +172,8 @@ def run(
 
 
 def navigate_dict(dictionary, path):
+    if dictionary is None:
+        return None
     keys = path.split(".")
     current = dictionary
     for key in keys:
