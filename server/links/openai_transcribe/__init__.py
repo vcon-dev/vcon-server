@@ -18,6 +18,8 @@ import tempfile
 import os
 import ffmpeg
 from openai import OpenAI, AzureOpenAI
+from pydub import AudioSegment
+from pydub.silence import detect_nonsilent
 
 # Initialize error tracking and metrics systems for observability
 init_error_tracker()
@@ -39,6 +41,9 @@ default_options = {
     "language": "en",
     "minimum_duration": 3,
     "max_chunk_duration": 480,  # 8 minutes in seconds (OpenAI context window limit)
+    "use_silence_chunking": True,  # Enable silence-based chunking by default
+    "silence_thresh": -40,  # Silence threshold in dBFS
+    "silence_len": 2000,  # Minimum silence length in milliseconds
 }
 
 
@@ -72,17 +77,128 @@ def get_audio_duration(audio_file_path: str) -> float:
         raise e
 
 
-def split_audio_file(audio_file_path: str, max_duration: int = 480) -> list:
+def find_silence_split_points(
+    audio_file_path: str, 
+    max_duration: int = 480, 
+    silence_thresh: int = -40, 
+    silence_len: int = 2000
+) -> list:
+    """
+    Find optimal split points in audio based on silence detection.
+    Uses a simple approach: find silence ranges, calculate their middle points,
+    and pick the one closest to target time marks (8, 16, 24... minutes).
+    
+    Args:
+        audio_file_path: Path to the audio file to analyze
+        max_duration: Target duration per chunk in seconds (default: 480 = 8 minutes)
+        silence_thresh: Silence threshold in dBFS (default: -40)
+        silence_len: Minimum silence length in milliseconds (default: 2000ms)
+        
+    Returns:
+        list: List of split points in milliseconds
+    """
+    try:
+        # Load audio with pydub
+        audio = AudioSegment.from_file(audio_file_path)
+        duration_ms = len(audio)
+        duration_seconds = duration_ms / 1000.0
+        
+        logger.info(f"Audio duration: {duration_seconds:.2f} seconds")
+        
+        if duration_seconds <= max_duration:
+            logger.info("Audio is within duration limit, no splitting needed")
+            return []
+        
+        # Detect non-silent chunks with timing
+        silence_detection_start = time.time()
+        non_silent_chunks = detect_nonsilent(
+            audio, 
+            min_silence_len=silence_len, 
+            silence_thresh=silence_thresh
+        )
+        silence_detection_time = time.time() - silence_detection_start
+        logger.info(f"Silence detection took {silence_detection_time:.3f} seconds")
+        
+        if not non_silent_chunks:
+            logger.warning("No non-silent chunks detected, falling back to time-based splitting")
+            return []
+        
+        # Calculate silence ranges as gaps between non-silent chunks
+        range_calculation_start = time.time()
+        silence_ranges = []
+        for i in range(len(non_silent_chunks) - 1):
+            silence_start = non_silent_chunks[i][1]  # End of current chunk
+            silence_end = non_silent_chunks[i + 1][0]  # Start of next chunk
+            if silence_end > silence_start:  # Valid silence range
+                silence_ranges.append((silence_start, silence_end))
+        
+        # Also check for silence at the beginning and end
+        if non_silent_chunks[0][0] > 0:
+            silence_ranges.insert(0, (0, non_silent_chunks[0][0]))
+        if non_silent_chunks[-1][1] < duration_ms:
+            silence_ranges.append((non_silent_chunks[-1][1], duration_ms))
+        
+        # Calculate middle points of each silence range directly
+        silence_middle_points = [(start + end) / 2 for start, end in silence_ranges]
+        range_calculation_time = time.time() - range_calculation_start
+        logger.info(f"Silence range calculation took {range_calculation_time:.3f} seconds")
+        
+        logger.info(f"Found {len(silence_middle_points)} silence ranges")
+        
+        # Find split points closest to target marks (8, 16, 24... minutes)
+        split_selection_start = time.time()
+        target_duration_ms = max_duration * 1000
+        split_points = []
+        
+        for i in range(1, int(duration_seconds / max_duration) + 1):
+            target_time_ms = i * target_duration_ms
+            
+            # Find the silence middle point closest to this target
+            best_point = None
+            min_distance = float('inf')
+            
+            for middle_point in silence_middle_points:
+                distance = abs(middle_point - target_time_ms)
+                if distance < min_distance:
+                    min_distance = distance
+                    best_point = middle_point
+            
+            if best_point is not None:
+                split_points.append(best_point)
+                logger.info(f"Found silence split point at {best_point / 1000:.2f}s "
+                            f"(target: {target_time_ms / 1000:.2f}s, distance: {min_distance / 1000:.2f}s)")
+            else:
+                # Fall back to exact time-based split if no silence found
+                split_points.append(target_time_ms)
+                logger.info(f"Using time-based split at {target_time_ms / 1000:.2f}s "
+                            f"(no silence ranges found)")
+        
+        split_selection_time = time.time() - split_selection_start
+        logger.info(f"Split point selection took {split_selection_time:.3f} seconds")
+        
+        return split_points
+        
+    except Exception as e:
+        logger.error(f"Failed to find silence split points for {audio_file_path}: {e}")
+        return []
+
+
+def split_audio_file(audio_file_path: str, max_duration: int = 480, opts: dict = None) -> list:
     """
     Split an audio file into chunks that are under the maximum duration.
+    Uses silence detection to find optimal split points around the target duration.
     
     Args:
         audio_file_path: Path to the audio file to split
         max_duration: Maximum duration per chunk in seconds (default: 480 = 8 minutes)
+        opts: Configuration options dictionary
         
     Returns:
         list: List of paths to the split audio files
     """
+    if opts is None:
+        opts = default_options
+    
     try:
         duration = get_audio_duration(audio_file_path)
         logger.info(f"Audio duration: {duration:.2f} seconds")
@@ -91,35 +207,78 @@ def split_audio_file(audio_file_path: str, max_duration: int = 480) -> list:
             logger.info("Audio is within duration limit, no splitting needed")
             return [audio_file_path]
         
-        # Calculate number of chunks needed
-        num_chunks = int(duration / max_duration) + 1
-        chunk_files = []
+        # Get configuration options
+        use_silence_chunking = opts.get("use_silence_chunking", True)
+        silence_thresh = opts.get("silence_thresh", -40)
+        silence_len = opts.get("silence_len", 2000)
+        
+        # Initialize split points
+        split_points_ms = []
+        
+        # Try silence-based splitting if enabled
+        if use_silence_chunking:
+            logger.info("Using silence-based chunking")
+            split_points_ms = find_silence_split_points(
+                audio_file_path, 
+                max_duration, 
+                silence_thresh, 
+                silence_len
+            )
+        
+        # Use time-based splitting if silence chunking is disabled or failed
+        if not use_silence_chunking or not split_points_ms:
+            logger.info("Using time-based chunking (silence chunking disabled or no silence splits found)")
+            
+            num_chunks = int(duration / max_duration) + 1
+            split_points_ms = [i * max_duration * 1000 for i in range(1, num_chunks)]
         
         # Create temporary directory for chunks
         temp_dir = tempfile.mkdtemp()
         base_name = os.path.splitext(os.path.basename(audio_file_path))[0]
+        chunk_files = []
         
-        for i in range(num_chunks):
-            start_time = i * max_duration
-            chunk_duration = min(max_duration, duration - start_time)
-            
-            if chunk_duration <= 0:
-                break
-                
+        # Load audio with pydub for precise splitting
+        audio = AudioSegment.from_file(audio_file_path)
+        
+        # Create chunks based on split points
+        start_time = 0
+        for i, split_point in enumerate(split_points_ms):
             chunk_filename = f"{base_name}_chunk_{i:03d}.mp3"
             chunk_path = os.path.join(temp_dir, chunk_filename)
             
-            # Use ffmpeg to extract the chunk
-            (
-                ffmpeg
-                .input(audio_file_path, ss=start_time, t=chunk_duration)
-                .output(chunk_path, acodec='mp3', ac=1, ar=16000)  # Convert to mono 16kHz for better transcription
-                .overwrite_output()
-                .run(quiet=True)
+            # Extract chunk from start_time to split_point
+            chunk = audio[start_time:split_point]
+            
+            # Export chunk with optimal settings for transcription
+            chunk.export(
+                chunk_path,
+                format="mp3",
+                bitrate="128k",
+                parameters=["-ac", "1", "-ar", "16000"]  # Mono, 16kHz for better transcription
             )
             
+            chunk_duration = (split_point - start_time) / 1000.0
             chunk_files.append(chunk_path)
-            logger.info(f"Created chunk {i + 1}/{num_chunks}: {chunk_filename} ({chunk_duration:.2f}s)")
+            logger.info(f"Created chunk {i + 1}/{len(split_points_ms) + 1}: {chunk_filename} ({chunk_duration:.2f}s)")
+            
+            start_time = split_point
+        
+        # Create final chunk if there's remaining audio
+        if start_time < len(audio):
+            chunk_filename = f"{base_name}_chunk_{len(split_points_ms):03d}.mp3"
+            chunk_path = os.path.join(temp_dir, chunk_filename)
+            
+            final_chunk = audio[start_time:]
+            final_chunk.export(
+                chunk_path,
+                format="mp3",
+                bitrate="128k",
+                parameters=["-ac", "1", "-ar", "16000"]
+            )
+            
+            final_duration = (len(audio) - start_time) / 1000.0
+            chunk_files.append(chunk_path)
+            logger.info(f"Created final chunk: {chunk_filename} ({final_duration:.2f}s)")
         
         return chunk_files
         
@@ -249,7 +408,7 @@ def transcribe_openai(url: str, opts: dict = None) -> dict:
 
         try:
             # Split audio into chunks if needed
-            chunk_files = split_audio_file(temp_file_path, max_chunk_duration)
+            chunk_files = split_audio_file(temp_file_path, max_chunk_duration, opts)
             logger.info(f"Split audio into {len(chunk_files)} chunks")
 
             # Transcribe each chunk
