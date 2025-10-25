@@ -150,16 +150,21 @@ def find_silence_split_points(
         target_duration_ms = max_duration * 1000
         split_points = []
         
+        # Define a reasonable search range around each target (±25% of target duration)
+        search_range_ms = target_duration_ms // 4  # 25% of target duration on each side
+        
         for i in range(1, int(duration_seconds / max_duration) + 1):
             target_time_ms = i * target_duration_ms
             
-            # Find the silence middle point closest to this target
+            # Find the silence middle point closest to this target within search range
             best_point = None
             min_distance = float('inf')
             
             for middle_point in silence_middle_points:
                 distance = abs(middle_point - target_time_ms)
-                if distance < min_distance:
+                
+                # Only consider silence points within the search range
+                if distance <= search_range_ms and distance < min_distance:
                     min_distance = distance
                     best_point = middle_point
             
@@ -168,10 +173,10 @@ def find_silence_split_points(
                 logger.info(f"Found silence split point at {best_point / 1000:.2f}s "
                             f"(target: {target_time_ms / 1000:.2f}s, distance: {min_distance / 1000:.2f}s)")
             else:
-                # Fall back to exact time-based split if no silence found
+                # Fall back to exact time-based split if no suitable silence found
                 split_points.append(target_time_ms)
                 logger.info(f"Using time-based split at {target_time_ms / 1000:.2f}s "
-                            f"(no silence ranges found)")
+                            f"(no suitable silence found within {search_range_ms/1000:.1f}s range)")
         
         split_selection_time = time.time() - split_selection_start
         logger.info(f"Split point selection took {split_selection_time:.3f} seconds")
