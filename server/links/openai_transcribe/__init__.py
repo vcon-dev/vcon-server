@@ -40,7 +40,7 @@ default_options = {
     "model": "gpt-4o-transcribe",
     "language": "en",
     "minimum_duration": 3,
-    "max_chunk_duration": 480,  # 8 minutes in seconds (OpenAI context window limit)
+    "max_chunk_duration": 480,  # 8 minutes in seconds to be on safer side (OpenAI context window limit is 16000 input tokens (approx 10 minutes) and 20000 output tokens)
     "use_silence_chunking": True,  # Enable silence-based chunking by default
     "silence_thresh": -40,  # Silence threshold in dBFS
     "silence_len": 2000,  # Minimum silence length in milliseconds
@@ -406,6 +406,8 @@ def transcribe_openai(url: str, opts: dict = None) -> dict:
             temp_file.write(audio_response.content)
             temp_file_path = temp_file.name
 
+        # Initialize chunk_files to avoid NameError in finally block
+        chunk_files = []
         try:
             # Split audio into chunks if needed
             chunk_files = split_audio_file(temp_file_path, max_chunk_duration, opts)
@@ -427,7 +429,6 @@ def transcribe_openai(url: str, opts: dict = None) -> dict:
                     )
                     # Convert response to dict format
                     result = transcription.dict()
-                    logger.info(f"Transcription result: {result}")  
                     transcription_results.append(result)
                     logger.info(f"Completed transcription for chunk {i + 1}/{len(chunk_files)}")
 
@@ -444,16 +445,14 @@ def transcribe_openai(url: str, opts: dict = None) -> dict:
             # Clean up temporary files
             try:
                 os.unlink(temp_file_path)
-                # TEMPORARILY COMMENTED OUT - Keep chunks for debugging
-                # for chunk_path in chunk_files:
-                #     if chunk_path != temp_file_path:  # Don't try to delete the original temp file twice
-                #         os.unlink(chunk_path)
-                # # Remove the temporary directory if it was created
-                # if len(chunk_files) > 1:
-                #     temp_dir = os.path.dirname(chunk_files[0])
-                #     if temp_dir and temp_dir != os.path.dirname(temp_file_path):
-                #         os.rmdir(temp_dir)
-                logger.info(f"DEBUG: Chunk files preserved for inspection: {chunk_files}")
+                for chunk_path in chunk_files:
+                    if chunk_path != temp_file_path:  # Don't try to delete the original temp file twice
+                        os.unlink(chunk_path)
+                # Remove the temporary directory if it was created
+                if len(chunk_files) > 1:
+                    temp_dir = os.path.dirname(chunk_files[0])
+                    if temp_dir and temp_dir != os.path.dirname(temp_file_path):
+                        os.rmdir(temp_dir)
             except Exception as cleanup_error:
                 logger.warning(f"Failed to clean up temporary files: {cleanup_error}")
 
