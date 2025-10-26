@@ -40,7 +40,7 @@ default_options = {
     "model": "gpt-4o-transcribe",
     "language": "en",
     "minimum_duration": 3,
-    "max_chunk_duration": 480,  # 8 minutes in seconds to be on safer side (OpenAI context window limit is 16000 input tokens (approx 10 minutes) and 20000 output tokens)
+    "max_chunk_duration": 480,  # 8 minutes in seconds to be on the safer side (OpenAI context window limit is 16000 input tokens (approx 10 minutes) and 20000 output tokens)
     "use_silence_chunking": True,  # Enable silence-based chunking by default
     "silence_thresh": -40,  # Silence threshold in dBFS
     "silence_len": 2000,  # Minimum silence length in milliseconds
