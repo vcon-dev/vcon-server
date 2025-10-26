@@ -259,7 +259,7 @@ def split_audio_file(audio_file_path: str, max_duration: int = 480, opts: dict =
                 chunk_path,
                 format="mp3",
                 bitrate="128k",
-                parameters=["-ac", "1", "-ar", "16000"]  # Mono, 16kHz for better transcription
+                parameters=["-ac", "1", "-ar", "16000"]  # Mono, 16kHz
             )
             
             chunk_duration = (split_point - start_time) / 1000.0
