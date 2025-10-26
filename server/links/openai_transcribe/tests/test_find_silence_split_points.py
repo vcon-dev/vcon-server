@@ -16,14 +16,12 @@ class TestFindSilenceSplitPoints:
     @classmethod
     def setup_class(cls):
         """Set up test file paths."""
-        # Get the directory containing this test file
+        # Get the directory containing this test file (tests directory)
         test_dir = os.path.dirname(os.path.abspath(__file__))
-        # Go up one level to the openai_transcribe directory
-        openai_transcribe_dir = os.path.dirname(test_dir)
         
-        # Paths to the actual MP3 files
-        cls.audio_54s_gap = os.path.join(openai_transcribe_dir, "Snooze Story 54s.mp3")
-        cls.audio_73s_gap = os.path.join(openai_transcribe_dir, "Snooze Story 73s.mp3")
+        # Paths to the actual MP3 files in the tests directory
+        cls.audio_54s_gap = os.path.join(test_dir, "Snooze Story 54s.mp3")
+        cls.audio_73s_gap = os.path.join(test_dir, "Snooze Story 73s.mp3")
 
     def test_audio_with_54_second_gap(self):
         """Test audio file with 2-second gap at 54 seconds, split at 1-minute intervals."""
