@@ -7,7 +7,7 @@ readme = "README.md"
 package-mode = false
 
 [tool.poetry.dependencies]
-python = ">=3.12,<3.13"
+python = ">=3.12,<3.14"
 gunicorn = ">=23.0.0"
 datadog = "^0.48.0"
 uvicorn = "0.23.2"
@@ -45,6 +45,8 @@ pymilvus = ">=2.3.0"
 python-dateutil = "^2.8.2"
 pytest-dotenv = "^0.5.2"
 msal = "^1.32.3"
+ffmpeg-python = "^0.2.0"
+pydub = "^0.25.1"
 
 
 [tool.poetry.group.dev.dependencies]

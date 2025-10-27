@@ -1,7 +1,8 @@
 name: Python conserver unit test
 on: 
-  push: # all
-  pull_request: # all PRs for now
+  push:
+    branches: [ main ] # only run on pushes to main branch
+  pull_request: # all PRs
 
 jobs:
   test:
