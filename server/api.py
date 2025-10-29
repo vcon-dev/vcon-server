@@ -247,11 +247,11 @@ if VCON_STORAGE:
             database = PostgresqlExtDatabase(VCON_STORAGE)
 
 
-async def add_vcon_to_set(vcon_uuid: UUID, timestamp: int) -> None:
+async def add_vcon_to_set(vcon_uuid: str, timestamp: int) -> None:
     """Add a vCon to the sorted set in Redis.
     
     Args:
-        vcon_uuid: UUID of the vCon to add
+        vcon_uuid: UUID string of the vCon to add
         timestamp: Unix timestamp to use as score
     """
     await redis_async.zadd(VCON_SORTED_SET_NAME, {vcon_uuid: timestamp})
