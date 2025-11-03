@@ -755,15 +755,16 @@ async def delete_vcon(vcon_uuid: UUID) -> None:
     tags=["chain"],
 )
 async def post_vcon_ingress(
-    vcon_uuids: List[str],
+    vcon_uuids: List[UUID],
     ingress_list: str = Query(..., description="Name of ingress list to add to")
 ) -> None:
     """Add vCon UUIDs to a processing chain's ingress list.
 
     Before adding vCon UUIDs to the ingress list, ensures each vCon exists in Redis
-    by syncing from storage backends if necessary. Non-existent vCons are logged
-    as warnings and skipped, maintaining the original behavior of not throwing
-    exceptions for missing vCons.
+    by syncing from storage backends if necessary. Uses efficient batch operations
+    (mget) to check vCon existence and syncs missing vCons from storage.
+    Non-existent vCons are logged as warnings and skipped, maintaining the original
+    behavior of not throwing exceptions for missing vCons.
 
     Args:
         vcon_uuids: List of vCon UUIDs to add
@@ -773,23 +774,30 @@ async def post_vcon_ingress(
         HTTPException: Only for Redis operation failures, not for missing vCons
     """
     try:
-        for vcon_id in vcon_uuids:
-            # Parse UUID and handle invalid format gracefully
-            try:
-                vcon_uuid = UUID(vcon_id)
-            except ValueError:
-                logger.warning(f"Invalid UUID format for vCon ID '{vcon_id}', skipping ingress list addition")
-                continue
-            
-            # Ensure the vCon exists in Redis before adding to ingress list
-            vcon = await ensure_vcon_in_redis(vcon_uuid)
-            
+        # Use mget for efficient batch retrieval from Redis
+        keys = [f"vcon:{vcon_uuid}" for vcon_uuid in vcon_uuids]
+        vcons = await redis_async.json().mget(keys=keys, path=".")
+
+        # Track which vCons to add to ingress list
+        valid_vcon_uuids = []
+        
+        for vcon_uuid, vcon in zip(vcon_uuids, vcons):
             if not vcon:
-                logger.warning(f"vCon {vcon_id} not found in any storage, skipping ingress list addition")
-                continue
+                # Only sync from storage if not found in Redis (avoids redundant Redis check)
+                vcon = await sync_vcon_from_storage(vcon_uuid)
                 
-            await redis_async.rpush(ingress_list, vcon_id)
-            logger.debug(f"Added vCon {vcon_id} to ingress list {ingress_list}")
+            if vcon:
+                valid_vcon_uuids.append(str(vcon_uuid))
+                logger.debug(f"vCon {vcon_uuid} verified, will add to ingress list {ingress_list}")
+            else:
+                logger.warning(f"vCon {vcon_uuid} not found in any storage, skipping ingress list addition")
+
+        # Add all valid vCon UUIDs to ingress list in batch
+        if valid_vcon_uuids:
+            await redis_async.rpush(ingress_list, *valid_vcon_uuids)
+            logger.info(f"Added {len(valid_vcon_uuids)} vCon UUIDs to ingress list {ingress_list}")
+        else:
+            logger.warning(f"No valid vCons found to add to ingress list {ingress_list}")
                 
     except Exception as e:
         logger.error(f"Error adding to ingress list: {str(e)}")
