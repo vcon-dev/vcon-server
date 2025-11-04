@@ -247,14 +247,65 @@ if VCON_STORAGE:
             database = PostgresqlExtDatabase(VCON_STORAGE)
 
 
-async def add_vcon_to_set(vcon_uuid: UUID, timestamp: int) -> None:
+async def add_vcon_to_set(vcon_uuid: str, timestamp: int) -> None:
     """Add a vCon to the sorted set in Redis.
     
     Args:
-        vcon_uuid: UUID of the vCon to add
+        vcon_uuid: UUID string of the vCon to add
         timestamp: Unix timestamp to use as score
     """
     await redis_async.zadd(VCON_SORTED_SET_NAME, {vcon_uuid: timestamp})
+
+
+async def ensure_vcon_in_redis(vcon_uuid: UUID) -> Optional[dict]:
+    """Ensure a vCon exists in Redis, syncing from storage if necessary.
+    
+    First checks if the vCon exists in Redis. If not found, attempts to retrieve
+    it from configured storage backends and syncs it back to Redis with proper
+    indexing and expiration.
+    
+    Args:
+        vcon_uuid: UUID of the vCon to ensure is in Redis
+        
+    Returns:
+        The vCon data if found, None if not found in any storage
+    """
+    # First check if vCon exists in Redis
+    vcon = await redis_async.json().get(f"vcon:{str(vcon_uuid)}")
+    if vcon:
+        return vcon
+    
+    # If not in Redis, try to sync from storage backends
+    return await sync_vcon_from_storage(vcon_uuid)
+
+
+async def sync_vcon_from_storage(vcon_uuid: UUID) -> Optional[dict]:
+    """Sync a vCon from storage backends to Redis.
+    
+    Attempts to retrieve the vCon from configured storage backends and syncs it
+    back to Redis with proper indexing and expiration. This is useful when you
+    already know the vCon is not in Redis (e.g., after a batch mget operation).
+    
+    Args:
+        vcon_uuid: UUID of the vCon to sync from storage
+        
+    Returns:
+        The vCon data if found in storage, None if not found
+    """
+    # Try to get from storage backends
+    for storage_name in Configuration.get_storages():
+        vcon = Storage(storage_name=storage_name).get(str(vcon_uuid))
+        if vcon:
+            # Store the vCon back in Redis with expiration
+            await redis_async.json().set(f"vcon:{str(vcon_uuid)}", "$", vcon)
+            await redis_async.expire(f"vcon:{str(vcon_uuid)}", VCON_REDIS_EXPIRY)
+            # Add to sorted set for timestamp-based retrieval
+            created_at = datetime.fromisoformat(vcon["created_at"])
+            timestamp = int(created_at.timestamp())
+            await add_vcon_to_set(str(vcon_uuid), timestamp)
+            return vcon
+    
+    return None
 
 
 @api_router.get(
@@ -370,20 +421,8 @@ async def get_vcon(vcon_uuid: UUID) -> JSONResponse:
     Raises:
         HTTPException: If vCon is not found (404)
     """
-    vcon = await redis_async.json().get(f"vcon:{str(vcon_uuid)}")
-    if not vcon:
-        for storage_name in Configuration.get_storages():
-            vcon = Storage(storage_name=storage_name).get(str(vcon_uuid))
-            if vcon:
-                # Store the vCon back in Redis with expiration
-                await redis_async.json().set(f"vcon:{str(vcon_uuid)}", "$", vcon)
-                await redis_async.expire(f"vcon:{str(vcon_uuid)}", VCON_REDIS_EXPIRY)
-                # Add to sorted set for timestamp-based retrieval
-                created_at = datetime.fromisoformat(vcon["created_at"])
-                timestamp = int(created_at.timestamp())
-                await add_vcon_to_set(str(vcon_uuid), timestamp)
-                break
-
+    vcon = await ensure_vcon_in_redis(vcon_uuid)
+    
     if not vcon:
         raise HTTPException(status_code=404, detail="vCon not found")
         
@@ -402,9 +441,10 @@ async def get_vcons(
 ) -> JSONResponse:
     """Get multiple vCons by their UUIDs.
 
-    First attempts to retrieve from Redis, then falls back to configured storages
-    for any vCons not found in Redis. If found in storage, they will be stored
-    back in Redis with a configurable expiration time (VCON_REDIS_EXPIRY, default 1 hour).
+    First attempts to retrieve from Redis using efficient batch operation (mget),
+    then falls back to configured storages for any vCons not found in Redis.
+    If found in storage, they will be stored back in Redis with a configurable
+    expiration time (VCON_REDIS_EXPIRY, default 1 hour).
 
     Args:
         vcon_uuids: List of UUIDs of the vCons to retrieve
@@ -412,24 +452,15 @@ async def get_vcons(
     Returns:
         JSONResponse containing a list of found vCons
     """
+    # Use mget for efficient batch retrieval from Redis
     keys = [f"vcon:{vcon_uuid}" for vcon_uuid in vcon_uuids]
     vcons = await redis_async.json().mget(keys=keys, path=".")
 
     results = []
     for vcon_uuid, vcon in zip(vcon_uuids, vcons):
         if not vcon:
-            # Fallback to storages if vCon not found in Redis
-            for storage_name in Configuration.get_storages():
-                vcon = Storage(storage_name=storage_name).get(str(vcon_uuid))
-                if vcon:
-                    # Store the vCon back in Redis with expiration
-                    await redis_async.json().set(f"vcon:{str(vcon_uuid)}", "$", vcon)
-                    await redis_async.expire(f"vcon:{str(vcon_uuid)}", VCON_REDIS_EXPIRY)
-                    # Add to sorted set for timestamp-based retrieval
-                    created_at = datetime.fromisoformat(vcon["created_at"])
-                    timestamp = int(created_at.timestamp())
-                    await add_vcon_to_set(str(vcon_uuid), timestamp)
-                    break
+            # Only sync from storage if not found in Redis (avoids redundant Redis check)
+            vcon = await sync_vcon_from_storage(vcon_uuid)
         results.append(vcon)
 
     return JSONResponse(content=results, status_code=200)
@@ -724,21 +755,50 @@ async def delete_vcon(vcon_uuid: UUID) -> None:
     tags=["chain"],
 )
 async def post_vcon_ingress(
-    vcon_uuids: List[str],
+    vcon_uuids: List[UUID],
     ingress_list: str = Query(..., description="Name of ingress list to add to")
 ) -> None:
     """Add vCon UUIDs to a processing chain's ingress list.
+
+    Before adding vCon UUIDs to the ingress list, ensures each vCon exists in Redis
+    by syncing from storage backends if necessary. Uses efficient batch operations
+    (mget) to check vCon existence and syncs missing vCons from storage.
+    Non-existent vCons are logged as warnings and skipped, maintaining the original
+    behavior of not throwing exceptions for missing vCons.
 
     Args:
         vcon_uuids: List of vCon UUIDs to add
         ingress_list: Name of the Redis list to add the UUIDs to
 
     Raises:
-        HTTPException: If there is an error adding to the ingress list
+        HTTPException: Only for Redis operation failures, not for missing vCons
     """
     try:
-        for vcon_id in vcon_uuids:
-            await redis_async.rpush(ingress_list, vcon_id)
+        # Use mget for efficient batch retrieval from Redis
+        keys = [f"vcon:{vcon_uuid}" for vcon_uuid in vcon_uuids]
+        vcons = await redis_async.json().mget(keys=keys, path=".")
+
+        # Track which vCons to add to ingress list
+        valid_vcon_uuids = []
+        
+        for vcon_uuid, vcon in zip(vcon_uuids, vcons):
+            if not vcon:
+                # Only sync from storage if not found in Redis (avoids redundant Redis check)
+                vcon = await sync_vcon_from_storage(vcon_uuid)
+                
+            if vcon:
+                valid_vcon_uuids.append(str(vcon_uuid))
+                logger.debug(f"vCon {vcon_uuid} verified, will add to ingress list {ingress_list}")
+            else:
+                logger.warning(f"vCon {vcon_uuid} not found in any storage, skipping ingress list addition")
+
+        # Add all valid vCon UUIDs to ingress list in batch
+        if valid_vcon_uuids:
+            await redis_async.rpush(ingress_list, *valid_vcon_uuids)
+            logger.info(f"Added {len(valid_vcon_uuids)} vCon UUIDs to ingress list {ingress_list}")
+        else:
+            logger.warning(f"No valid vCons found to add to ingress list {ingress_list}")
+                
     except Exception as e:
         logger.error(f"Error adding to ingress list: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to add to ingress list")
