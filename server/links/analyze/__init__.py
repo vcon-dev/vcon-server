@@ -11,6 +11,7 @@ from tenacity import (
 from lib.metrics import init_metrics, stats_gauge, stats_count
 import time
 from lib.links.filters import is_included, randomly_execute_with_sampling
+from lib.ai_usage import send_ai_usage_data_for_tracking
 
 init_metrics()
 
@@ -42,7 +43,17 @@ def get_analysis_for_type(vcon, index, analysis_type):
     stop=stop_after_attempt(6),
     before_sleep=before_sleep_log(logger, logging.INFO),
 )
-def generate_analysis(transcript, prompt, model, temperature, client, system_prompt="You are a helpful assistant.") -> str:
+def generate_analysis(
+    transcript, client, vcon_uuid, opts
+) -> str:
+    # Extract parameters from opts
+    prompt = opts.get("prompt", "")
+    model = opts["model"]
+    temperature = opts["temperature"]
+    system_prompt = opts.get("system_prompt", "You are a helpful assistant.")
+    send_ai_usage_data_to_url = opts.get("send_ai_usage_data_to_url", "")
+    ai_usage_api_token = opts.get("ai_usage_api_token", "")
+    
     # logger.info(f"TRANSCRIPT: {transcript}")
     # logger.info(f"PROMPT: {prompt}")
     messages = [
@@ -53,6 +64,17 @@ def generate_analysis(transcript, prompt, model, temperature, client, system_pro
     # logger.info(f"MODEL: {model}")
 
     sentiment_result = client.chat.completions.create(model=model, messages=messages, temperature=temperature)
+    send_ai_usage_data_for_tracking(
+        vcon_uuid=vcon_uuid,
+        input_units=sentiment_result.usage.prompt_tokens,
+        output_units=sentiment_result.usage.completion_tokens,
+        unit_type="tokens",
+        type="VCON_PROCESSING",
+        send_ai_usage_data_to_url=send_ai_usage_data_to_url,
+        ai_usage_api_token=ai_usage_api_token,
+        model=model,
+        sub_type="ANALYZE",
+    )
     return sentiment_result.choices[0].message.content
 
 
@@ -78,7 +100,6 @@ def run(
         logger.info(f"Skipping {link_name} vCon {vcon_uuid} due to sampling")
         return vcon_uuid
 
-
     # Extract credentials from options
     openai_api_key = opts.get("OPENAI_API_KEY")
     azure_openai_api_key = opts.get("AZURE_OPENAI_API_KEY")
@@ -93,7 +114,10 @@ def run(
         client = AzureOpenAI(api_key=azure_openai_api_key, azure_endpoint=azure_openai_endpoint, api_version=api_version)
         logger.info(f"Using Azure OpenAI client at endpoint:{azure_openai_endpoint}")
     else:
-        raise ValueError("OpenAI or Azure OpenAI credentials not provided. Need OPENAI_API_KEY or AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT")
+        raise ValueError(
+            "OpenAI or Azure OpenAI credentials not provided. "
+            "Need OPENAI_API_KEY or AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT"
+        )
 
     source_type = navigate_dict(opts, "source.analysis_type")
     text_location = navigate_dict(opts, "source.text_location")
@@ -119,20 +143,26 @@ def run(
             )
             continue
 
+        # Filter out sensitive keys from logging
+        filtered_opts = {
+            k: v for k, v in opts.items()
+            if k not in (
+                "OPENAI_API_KEY", "AZURE_OPENAI_API_KEY",
+                "AZURE_OPENAI_ENDPOINT", "ai_usage_api_token"
+            )
+        }
         logger.info(
             "Analysing dialog %s with options: %s",
             index,
-            {k: v for k, v in opts.items() if k != "OPENAI_API_KEY" and k != "AZURE_OPENAI_API_KEY" and k != "AZURE_OPENAI_ENDPOINT"},
+            filtered_opts,
         )
         start = time.time()
         try:
             analysis = generate_analysis(
                 transcript=source_text,
-                prompt=opts["prompt"],
-                model=opts["model"],
-                temperature=opts["temperature"],
                 client=client,
-                system_prompt=opts["system_prompt"],
+                vcon_uuid=vcon_uuid,
+                opts=opts,
             )
         except Exception as e:
             logger.error(
