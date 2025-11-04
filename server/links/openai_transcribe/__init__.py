@@ -11,6 +11,7 @@ from tenacity import (
 from server.lib.vcon_redis import VconRedis
 from lib.error_tracking import init_error_tracker
 from lib.metrics import init_metrics, stats_gauge, stats_count
+from lib.ai_usage import send_ai_usage_data_for_tracking
 import time
 import io
 import requests
@@ -40,7 +41,9 @@ default_options = {
     "model": "gpt-4o-transcribe",
     "language": "en",
     "minimum_duration": 3,
-    "max_chunk_duration": 480,  # 8 minutes in seconds to be on the safer side (OpenAI context window limit is 16000 input tokens (approx 10 minutes) and 20000 output tokens)
+    # 8 minutes in seconds to be on the safer side (OpenAI context window limit is
+    # 16000 input tokens (approx 10 minutes) and 20000 output tokens)
+    "max_chunk_duration": 480,
     "use_silence_chunking": True,  # Enable silence-based chunking by default
     "silence_thresh": -40,  # Silence threshold in dBFS
     "silence_len": 2000,  # Minimum silence length in milliseconds
@@ -176,7 +179,7 @@ def find_silence_split_points(
                 # Fall back to exact time-based split if no suitable silence found
                 split_points.append(target_time_ms)
                 logger.info(f"Using time-based split at {target_time_ms / 1000:.2f}s "
-                            f"(no suitable silence found within {search_range_ms/1000:.1f}s range)")
+                            f"(no suitable silence found within {search_range_ms / 1000:.1f}s range)")
         
         split_selection_time = time.time() - split_selection_start
         logger.info(f"Split point selection took {split_selection_time:.3f} seconds")
@@ -346,7 +349,7 @@ def combine_transcription_results(results: list) -> dict:
     stop=stop_after_attempt(6),  # Retry up to 6 times
     before_sleep=before_sleep_log(logger, logging.INFO),
 )
-def transcribe_openai(url: str, opts: dict = None) -> dict:
+def transcribe_openai(url: str, opts: dict = None, vcon_uuid: str = None) -> dict:
     """
     Get the transcription result from the Azure OpenAI Whisper API.
     This function handles audio files longer than 25 minutes by splitting them into chunks.
@@ -354,6 +357,7 @@ def transcribe_openai(url: str, opts: dict = None) -> dict:
     Args:
         url: URL of the audio file to transcribe
         opts: Optional configuration dict with Azure OpenAI credentials
+        vcon_uuid: Optional vCon UUID for AI usage tracking
 
     Returns:
         dict: Transcription result with text, confidence, language, duration, and segments
@@ -443,6 +447,28 @@ def transcribe_openai(url: str, opts: dict = None) -> dict:
                 result = combine_transcription_results(transcription_results)
             else:
                 result = transcription_results[0]
+
+            # Extract usage information and send AI usage data for tracking
+            send_ai_usage_data_to_url = opts.get("send_ai_usage_data_to_url", "")
+            ai_usage_api_token = opts.get("ai_usage_api_token", "")
+            
+            if vcon_uuid:
+                usage_info = result.get("usage", {})
+                input_units = usage_info.get("input_tokens", 0)
+                output_units = usage_info.get("output_tokens", 0)
+                
+                # Send usage data if available (function handles empty URL/token gracefully)
+                send_ai_usage_data_for_tracking(
+                    vcon_uuid=vcon_uuid,
+                    input_units=input_units,
+                    output_units=output_units,
+                    unit_type="tokens",
+                    type="VCON_PROCESSING",
+                    send_ai_usage_data_to_url=send_ai_usage_data_to_url,
+                    ai_usage_api_token=ai_usage_api_token,
+                    model=model,
+                    sub_type="OPENAI_TRANSCRIBE",
+                )
 
             return result
 
@@ -535,7 +561,7 @@ def run(
         result = None
         try:
             logger.info(f"Transcribing dialog {index} in vCon {vCon.uuid} via OpenAI API...")
-            result = transcribe_openai(dialog["url"], opts)
+            result = transcribe_openai(dialog["url"], opts, vcon_uuid)
         except Exception as e:
             logger.error("Failed to transcribe vCon %s after multiple retries: %s", vcon_uuid, e, exc_info=True)
             stats_count("conserver.link.openai.transcription_failures")
