@@ -57,7 +57,13 @@ def sample_vcon():
         "type": "transcript",
         "body": {
             "paragraphs": {
-                "transcript": "Customer: Hi, I'm calling about my recent bill. I think there's an error. Agent: I apologize for the issue. Let me check that for you. Customer: I was charged twice for the same service on March 15th. Agent: You're right, I see the duplicate charge. I'll process a refund right away. Customer: Thank you, I appreciate that."
+                "transcript": (
+                    "Customer: Hi, I'm calling about my recent bill. I think there's an error. "
+                    "Agent: I apologize for the issue. Let me check that for you. "
+                    "Customer: I was charged twice for the same service on March 15th. "
+                    "Agent: You're right, I see the duplicate charge. "
+                    "I'll process a refund right away. Customer: Thank you, I appreciate that."
+                )
             }
         }
     }
@@ -134,48 +140,67 @@ class TestGetAnalysisForType:
 class TestGenerateAnalysis:
     """Test the generate_analysis function"""
     
+    @patch('server.links.analyze.send_ai_usage_data_for_tracking')
     @patch('server.links.analyze.OpenAI')
-    def test_generate_analysis_basic(self, mock_openai):
+    def test_generate_analysis_basic(self, mock_openai, mock_send_usage):
         """Test basic analysis generation with mocked client"""
         # Setup mock client
         mock_client = Mock()
         mock_response = Mock()
         mock_response.choices = [Mock()]
         mock_response.choices[0].message.content = "This is a test analysis."
+        mock_response.usage = Mock()
+        mock_response.usage.prompt_tokens = 10
+        mock_response.usage.completion_tokens = 20
         mock_client.chat.completions.create.return_value = mock_response
         mock_openai.return_value = mock_client
         
+        opts = {
+            "prompt": "Summarize this",
+            "model": "gpt-3.5-turbo",
+            "temperature": 0,
+            "system_prompt": "You are a helpful assistant.",
+        }
+        
         result = generate_analysis(
             transcript="Test transcript",
-            prompt="Summarize this",
-            model="gpt-3.5-turbo",
-            temperature=0,
-            client=mock_client
+            client=mock_client,
+            vcon_uuid="test-uuid",
+            opts=opts
         )
         
         assert result == "This is a test analysis."
         mock_client.chat.completions.create.assert_called_once()
     
+    @patch('server.links.analyze.send_ai_usage_data_for_tracking')
     @patch('server.links.analyze.OpenAI')
-    def test_generate_analysis_with_custom_system_prompt(self, mock_openai):
+    def test_generate_analysis_with_custom_system_prompt(self, mock_openai, mock_send_usage):
         """Test analysis generation with custom system prompt"""
         # Setup mock client
         mock_client = Mock()
         mock_response = Mock()
         mock_response.choices = [Mock()]
         mock_response.choices[0].message.content = "Custom analysis."
+        mock_response.usage = Mock()
+        mock_response.usage.prompt_tokens = 10
+        mock_response.usage.completion_tokens = 20
         mock_client.chat.completions.create.return_value = mock_response
         mock_openai.return_value = mock_client
         
         custom_system_prompt = "You are a specialized financial analyst."
         
+        opts = {
+            "prompt": "Analyze this financial data",
+            "model": "gpt-3.5-turbo",
+            "temperature": 0,
+            "system_prompt": custom_system_prompt,
+        }
+        
         result = generate_analysis(
             transcript="Test transcript",
-            prompt="Analyze this financial data",
-            model="gpt-3.5-turbo",
-            temperature=0,
             client=mock_client,
-            system_prompt=custom_system_prompt
+            vcon_uuid="test-uuid",
+            opts=opts
         )
         
         assert result == "Custom analysis."
@@ -188,23 +213,33 @@ class TestGenerateAnalysis:
         assert messages[1]['role'] == 'user'
         assert 'Analyze this financial data' in messages[1]['content']
     
+    @patch('server.links.analyze.send_ai_usage_data_for_tracking')
     @patch('server.links.analyze.OpenAI')
-    def test_generate_analysis_with_empty_prompt(self, mock_openai):
+    def test_generate_analysis_with_empty_prompt(self, mock_openai, mock_send_usage):
         """Test analysis generation with empty prompt"""
         # Setup mock client
         mock_client = Mock()
         mock_response = Mock()
         mock_response.choices = [Mock()]
         mock_response.choices[0].message.content = "Analysis with empty prompt."
+        mock_response.usage = Mock()
+        mock_response.usage.prompt_tokens = 10
+        mock_response.usage.completion_tokens = 20
         mock_client.chat.completions.create.return_value = mock_response
         mock_openai.return_value = mock_client
         
+        opts = {
+            "prompt": "",
+            "model": "gpt-3.5-turbo",
+            "temperature": 0,
+            "system_prompt": "You are a helpful assistant.",
+        }
+        
         result = generate_analysis(
             transcript="Test transcript",
-            prompt="",
-            model="gpt-3.5-turbo",
-            temperature=0,
-            client=mock_client
+            client=mock_client,
+            vcon_uuid="test-uuid",
+            opts=opts
         )
         
         assert result == "Analysis with empty prompt."
@@ -214,23 +249,32 @@ class TestGenerateAnalysis:
         messages = call_args[1]['messages']
         assert messages[1]['content'] == "\n\nTest transcript"
     
+    @patch('server.links.analyze.send_ai_usage_data_for_tracking')
     @patch('server.links.analyze.OpenAI')
-    def test_generate_analysis_with_default_system_prompt(self, mock_openai):
+    def test_generate_analysis_with_default_system_prompt(self, mock_openai, mock_send_usage):
         """Test analysis generation uses default system prompt when not provided"""
         # Setup mock client
         mock_client = Mock()
         mock_response = Mock()
         mock_response.choices = [Mock()]
         mock_response.choices[0].message.content = "Default analysis."
+        mock_response.usage = Mock()
+        mock_response.usage.prompt_tokens = 10
+        mock_response.usage.completion_tokens = 20
         mock_client.chat.completions.create.return_value = mock_response
         mock_openai.return_value = mock_client
         
-        result = generate_analysis(
+        opts = {
+            "prompt": "Test prompt",
+            "model": "gpt-3.5-turbo",
+            "temperature": 0,
+        }
+        
+        generate_analysis(
             transcript="Test transcript",
-            prompt="Test prompt",
-            model="gpt-3.5-turbo",
-            temperature=0,
-            client=mock_client
+            client=mock_client,
+            vcon_uuid="test-uuid",
+            opts=opts
         )
         
         # Verify the default system prompt was used
@@ -299,7 +343,10 @@ class TestRunFunction:
     @patch('server.links.analyze.generate_analysis')
     @patch('server.links.analyze.is_included', return_value=True)
     @patch('server.links.analyze.randomly_execute_with_sampling', return_value=True)
-    def test_run_with_custom_system_prompt(self, mock_sampling, mock_is_included, mock_generate_analysis, mock_redis_with_vcon, sample_vcon):
+    def test_run_with_custom_system_prompt(
+        self, mock_sampling, mock_is_included, mock_generate_analysis, 
+        mock_redis_with_vcon, sample_vcon
+    ):
         """Test run function with custom system prompt"""
         # Set up mock to return analysis
         mock_generate_analysis.return_value = "Custom analysis with custom system prompt."
@@ -320,11 +367,11 @@ class TestRunFunction:
         # Check that vCon was processed and returned
         assert result == "test-uuid"
         
-        # Verify analysis generation was called with custom system prompt
+        # Verify analysis generation was called with opts containing custom system prompt
         mock_generate_analysis.assert_called_once()
         call_args = mock_generate_analysis.call_args
-        assert call_args[1]['system_prompt'] == "You are a specialized customer service analyst."
-        assert call_args[1]['prompt'] == "Analyze this customer interaction."
+        assert call_args[1]['opts']['system_prompt'] == "You are a specialized customer service analyst."
+        assert call_args[1]['opts']['prompt'] == "Analyze this customer interaction."
     
     @patch('server.links.analyze.is_included', return_value=False)
     def test_run_skipped_due_to_filters(self, mock_is_included, mock_redis_with_vcon):
@@ -360,7 +407,10 @@ class TestRunFunction:
     @patch('server.links.analyze.generate_analysis')
     @patch('server.links.analyze.is_included', return_value=True)
     @patch('server.links.analyze.randomly_execute_with_sampling', return_value=True)
-    def test_run_with_azure_openai(self, mock_sampling, mock_is_included, mock_generate_analysis, mock_redis_with_vcon, sample_vcon):
+    def test_run_with_azure_openai(
+        self, mock_sampling, mock_is_included, mock_generate_analysis,
+        mock_redis_with_vcon, sample_vcon
+    ):
         """Test run function with Azure OpenAI credentials"""
         # Set up mock to return analysis
         mock_generate_analysis.return_value = "Azure OpenAI analysis."
@@ -390,13 +440,17 @@ class TestRunFunction:
     
     def test_run_missing_credentials(self, mock_redis_with_vcon):
         """Test that run raises error when no credentials are provided"""
-        with pytest.raises(ValueError, match="OpenAI or Azure OpenAI credentials not provided"):
+        error_msg = "OpenAI or Azure OpenAI credentials not provided"
+        with pytest.raises(ValueError, match=error_msg):
             run("test-uuid", "analyze", {})
     
     @patch('server.links.analyze.generate_analysis')
     @patch('server.links.analyze.is_included', return_value=True)
     @patch('server.links.analyze.randomly_execute_with_sampling', return_value=True)
-    def test_run_already_has_analysis(self, mock_sampling, mock_is_included, mock_generate_analysis, mock_redis_with_vcon, sample_vcon):
+    def test_run_already_has_analysis(
+        self, mock_sampling, mock_is_included, mock_generate_analysis,
+        mock_redis_with_vcon, sample_vcon
+    ):
         """Test that run skips when analysis already exists"""
         # Add existing analysis to the vCon
         existing_analysis = {
@@ -419,7 +473,10 @@ class TestRunFunction:
     @patch('server.links.analyze.generate_analysis')
     @patch('server.links.analyze.is_included', return_value=True)
     @patch('server.links.analyze.randomly_execute_with_sampling', return_value=True)
-    def test_run_analysis_failure(self, mock_sampling, mock_is_included, mock_generate_analysis, mock_redis_with_vcon, sample_vcon):
+    def test_run_analysis_failure(
+        self, mock_sampling, mock_is_included, mock_generate_analysis,
+        mock_redis_with_vcon, sample_vcon
+    ):
         """Test that run handles analysis generation failures"""
         # Set up mock to raise exception
         mock_generate_analysis.side_effect = Exception("API Error")
@@ -456,13 +513,20 @@ class TestRealAPIIntegration:
         # Create real client
         client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
         
+        # Prepare opts
+        opts = {
+            "prompt": "Summarize this customer service interaction in one sentence.",
+            "model": "gpt-3.5-turbo",  # Use cheaper model for tests
+            "temperature": 0,
+            "system_prompt": "You are a helpful assistant.",
+        }
+        
         # Call the function
         result = generate_analysis(
             transcript=transcript,
-            prompt="Summarize this customer service interaction in one sentence.",
-            model="gpt-3.5-turbo",  # Use cheaper model for tests
-            temperature=0,
-            client=client
+            client=client,
+            vcon_uuid="test-uuid",
+            opts=opts
         )
         
         # Check that we get a valid response
@@ -483,14 +547,20 @@ class TestRealAPIIntegration:
         # Create real client
         client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
         
+        # Prepare opts with custom system prompt
+        opts = {
+            "prompt": "Analyze the customer's emotional state.",
+            "model": "gpt-3.5-turbo",
+            "temperature": 0,
+            "system_prompt": "You are a customer service expert specializing in emotional analysis.",
+        }
+        
         # Call the function with custom system prompt
         result = generate_analysis(
             transcript=transcript,
-            prompt="Analyze the customer's emotional state.",
-            model="gpt-3.5-turbo",
-            temperature=0,
             client=client,
-            system_prompt="You are a customer service expert specializing in emotional analysis."
+            vcon_uuid="test-uuid",
+            opts=opts
         )
         
         # Check that we get a valid response
