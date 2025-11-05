@@ -33,7 +33,8 @@ def send_ai_usage_data_for_tracking(
         response = requests.post(
             send_ai_usage_data_to_url,
             json=data, 
-            headers={"Authorization": f"Bearer {ai_usage_api_token}"}
+            headers={"Authorization": f"Bearer {ai_usage_api_token}"},
+            timeout=30
         )
         if response.ok:
             logger.info(f"AI usage data sent to portal endpoint for tracking: {data}")
