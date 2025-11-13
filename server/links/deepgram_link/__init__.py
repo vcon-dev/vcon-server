@@ -217,7 +217,8 @@ def run(
 
         # Prepare vendor schema, omitting credentials
         vendor_schema = {}
-        vendor_schema["opts"] = {k: v for k, v in opts.items() if k != "DEEPGRAM_KEY"}
+        sensitive_keys = {"DEEPGRAM_KEY", "ai_usage_api_token", "send_ai_usage_data_to_url"}
+        vendor_schema["opts"] = {k: v for k, v in opts.items() if k not in sensitive_keys}
 
         # Add the transcript analysis to the vCon
         vCon.add_analysis(
