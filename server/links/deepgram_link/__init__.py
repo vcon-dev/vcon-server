@@ -12,6 +12,7 @@ from server.lib.vcon_redis import VconRedis
 import json
 from lib.error_tracking import init_error_tracker
 from lib.metrics import init_metrics, stats_gauge, stats_count
+from lib.ai_usage import send_ai_usage_data_for_tracking
 import time
 import io
 import requests
@@ -49,11 +50,18 @@ def get_transcription(vcon, index):
     stop=stop_after_attempt(6),  # Retry up to 6 times
     before_sleep=before_sleep_log(logger, logging.INFO),
 )
-def transcribe_dg(dg_client, dialog, opts) -> Optional[dict]:
+def transcribe_dg(dg_client, dialog, opts, vcon_uuid=None, run_opts=None) -> Optional[dict]:
     """
     Call Deepgram API to transcribe the audio at dialog['url'] with given options.
     Returns the transcript dict with detected language, or None on failure.
     Retries on failure with exponential backoff.
+    
+    Args:
+        dg_client: Deepgram client instance
+        dialog: Dialog dict containing the audio URL
+        opts: Deepgram API options
+        vcon_uuid: Optional vCon UUID for usage tracking
+        run_opts: Optional full options dict containing usage tracking config
     """
     url = dialog["url"]
     logger.debug(f"Preparing to transcribe URL: {url}")
@@ -62,6 +70,28 @@ def transcribe_dg(dg_client, dialog, opts) -> Optional[dict]:
     url_response = dg_client.listen.rest.v("1").transcribe_url(source, options)
     response = json.loads(url_response.to_json())
     logger.debug(f"Deepgram API response: {response}")
+
+    # Extract duration from response metadata (in seconds, per Deepgram API docs)
+    # Reference: https://developers.deepgram.com/docs/pre-recorded-audio#results
+    metadata = response.get("metadata", {})
+    duration_seconds = round(metadata.get("duration", 0))
+    
+    # Send AI usage data for tracking (Deepgram bills on input seconds)
+    if vcon_uuid and run_opts:
+        send_ai_usage_data_to_url = run_opts.get("send_ai_usage_data_to_url", "")
+        ai_usage_api_token = run_opts.get("ai_usage_api_token", "")
+        
+        send_ai_usage_data_for_tracking(
+            vcon_uuid=vcon_uuid,
+            input_units=duration_seconds,
+            output_units=0,  # Deepgram doesn't bill on output
+            unit_type="seconds",
+            type="VCON_PROCESSING",
+            send_ai_usage_data_to_url=send_ai_usage_data_to_url,
+            ai_usage_api_token=ai_usage_api_token,
+            model="nova-3",
+            sub_type="DEEPGRAM_TRANSCRIBE",
+        )
 
     alternatives = response["results"]["channels"][0]["alternatives"]
     detected_language = response["results"]["channels"][0].get("detected_language", "en")
@@ -156,7 +186,7 @@ def run(
         start = time.time()
         try:
             logger.info(f"Transcribing dialog {index} in vCon {vCon.uuid} via Deepgram API...")
-            result = transcribe_dg(dg_client, dialog, opts["api"])
+            result = transcribe_dg(dg_client, dialog, opts["api"], vcon_uuid=vcon_uuid, run_opts=opts)
         except Exception as e:
             logger.error("Failed to transcribe vCon %s after multiple retries: %s", vcon_uuid, e, exc_info=True)
             stats_count("conserver.link.deepgram.transcription_failures")
@@ -184,7 +214,8 @@ def run(
 
         # Prepare vendor schema, omitting credentials
         vendor_schema = {}
-        vendor_schema["opts"] = {k: v for k, v in opts.items() if k != "DEEPGRAM_KEY"}
+        sensitive_keys = {"DEEPGRAM_KEY", "ai_usage_api_token", "send_ai_usage_data_to_url"}
+        vendor_schema["opts"] = {k: v for k, v in opts.items() if k not in sensitive_keys}
 
         # Add the transcript analysis to the vCon
         vCon.add_analysis(
