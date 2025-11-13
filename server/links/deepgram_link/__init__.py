@@ -75,9 +75,6 @@ def transcribe_dg(dg_client, dialog, opts, vcon_uuid=None, run_opts=None) -> Opt
     # Reference: https://developers.deepgram.com/docs/pre-recorded-audio#results
     metadata = response.get("metadata", {})
     duration_seconds = round(metadata.get("duration", 0))
-
-    print(f"Duration seconds: {duration_seconds}")
-    print(f"Metadata: {metadata}")
     
     # Send AI usage data for tracking (Deepgram bills on input seconds)
     if vcon_uuid and run_opts:
