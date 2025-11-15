@@ -386,48 +386,63 @@ class VconChainRequest:
         link_name = links[link_index]
         logger.info("Processing link %s for vCon: %s", link_name, self.vcon_id)
         link = config["links"][link_name]
+# Create a span for this link - automatically inherits parent span context
+        tracer = trace.get_tracer(__name__)
+        with tracer.start_as_current_span(
+            f"link.{link_name}",
+            attributes={
+                "vcon_id": self.vcon_id,
+                "link_name": link_name,
+                "link_index": link_index,
+                "chain_name": self.chain_details["name"]
+            }
+        ):
+            module_name = link["module"]
+            if module_name not in imported_modules:
+                logger.debug("Importing module %s for link %s", module_name, link_name)
+                pip_name = link.get("pip_name")  # Optional pip package name from config
+                imported_modules[module_name] = import_or_install(module_name, pip_name)
+            module = imported_modules[module_name]
+            options = link.get("options")
 
-        module_name = link["module"]
-        if module_name not in imported_modules:
-            logger.debug("Importing module %s for link %s", module_name, link_name)
-            pip_name = link.get("pip_name")  # Optional pip package name from config
-            imported_modules[module_name] = import_or_install(module_name, pip_name)
-        module = imported_modules[module_name]
-        options = link.get("options")
-        
-        try:
-            if link_index == 0:
-                self._process_tracers(self.vcon_id, self.vcon_id, links, -1)
-            started = time.time()
-            should_continue_chain = module.run(self.vcon_id, link_name, options)
-            link_processing_time = round(time.time() - started, 3)
-            logger.info(
-                "Completed link %s (module: %s) for vCon: %s in %s seconds",
-                link_name,
-                module_name,
-                self.vcon_id,
-                link_processing_time,
-                extra={
-                    "link_processing_time": link_processing_time,
-                    "link_name": link_name,
-                    "module_name": module_name
-                }
-            )
-            if should_continue_chain:
-                self._process_tracers(should_continue_chain, self.vcon_id, links, link_index)
-            else:
-                self._process_tracers(self.vcon_id, self.vcon_id, links, link_index)
-            return should_continue_chain
-        except Exception as e:
-            logger.error(
-                "Error in link %s (module: %s) for vCon %s: %s",
-                link_name,
-                module_name,
-                self.vcon_id,
-                str(e),
-                exc_info=True
-            )
-            raise
+            try:
+                if link_index == 0:
+                    self._process_tracers(self.vcon_id, self.vcon_id, links, -1)
+                started = time.time()
+                should_continue_chain = module.run(self.vcon_id, link_name, options)
+                link_processing_time = round(time.time() - started, 3)
+                logger.info(
+                    "Completed link %s (module: %s) for vCon: %s in %s seconds",
+                    link_name,
+                    module_name,
+                    self.vcon_id,
+                    link_processing_time,
+                    extra={
+                        "link_processing_time": link_processing_time,
+                        "link_name": link_name,
+                        "module_name": module_name
+                    }
+                )
+                if should_continue_chain:
+                    self._process_tracers(should_continue_chain, self.vcon_id, links, link_index)
+                else:
+                    self._process_tracers(self.vcon_id, self.vcon_id, links, link_index)
+                return should_continue_chain
+            except Exception as e:
+                # Record exception in the span
+                current_span = trace.get_current_span()
+                if current_span:
+                    current_span.set_status(Status(StatusCode.ERROR, str(e)))
+                    current_span.record_exception(e)
+                logger.error(
+                    "Error in link %s (module: %s) for vCon %s: %s",
+                    link_name,
+                    module_name,
+                    self.vcon_id,
+                    str(e),
+                    exc_info=True
+                )
+                raise
 
 
 def get_ingress_chain_map() -> IngressChainMap:
