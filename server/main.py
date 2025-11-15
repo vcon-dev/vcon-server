@@ -19,7 +19,7 @@ import redis_mgr
 from config import get_config
 from dlq_utils import get_ingress_list_dlq_name
 from lib.error_tracking import init_error_tracker
-from lib.metrics import init_metrics, stats_count, stats_gauge
+from lib.metrics import record_histogram, increment_counter
 from storage.base import Storage
 
 logger = logging.getLogger("main")
@@ -105,7 +105,6 @@ def import_or_install(module_name: str, pip_name: Optional[str] = None) -> objec
 signal.signal(signal.SIGTERM, signal_handler)
 
 init_error_tracker()
-init_metrics()
 imported_modules: Dict[str, object] = {}
 
 # Initialize Redis client
@@ -177,8 +176,8 @@ class VconChainRequest:
                 "chain_name": self.chain_details["name"]
             }
         )
-        stats_gauge("conserver.main_loop.vcon_processing_time", vcon_processing_time)
-        stats_count("conserver.main_loop.count_vcons_processed")
+        record_histogram("conserver.main_loop.vcon_processing_time", vcon_processing_time)
+        increment_counter("conserver.main_loop.count_vcons_processed")
 
     def _wrap_up(self) -> None:
         """Handle post-processing operations for the vCon.
