@@ -8,13 +8,11 @@ from tenacity import (
     wait_exponential,
     before_sleep_log,
 )  # for exponential backoff
-from lib.metrics import init_metrics, stats_gauge, stats_count
+from lib.metrics import record_histogram, increment_counter
 import time
 import json
 import copy
 from lib.links.filters import is_included, randomly_execute_with_sampling
-
-init_metrics()
 
 logger = init_logger(__name__)
 
@@ -148,9 +146,9 @@ def run(
                 "Invalid JSON response from OpenAI for vCon %s",
                 vcon_uuid,
             )
-            stats_count(
+            increment_counter(
                 "conserver.link.openai.invalid_json",
-                tags=[f"analysis_type:{opts['analysis_type']}"],
+                attributes={"analysis_type": opts['analysis_type']},
             )
             raise ValueError("Invalid JSON response from OpenAI")
             
@@ -160,16 +158,16 @@ def run(
             vcon_uuid,
             e,
         )
-        stats_count(
+        increment_counter(
             "conserver.link.openai.analysis_failures",
-            tags=[f"analysis_type:{opts['analysis_type']}"],
+            attributes={"analysis_type": opts['analysis_type']},
         )
         raise e
 
-    stats_gauge(
+    record_histogram(
         "conserver.link.openai.analysis_time",
         time.time() - start,
-        tags=[f"analysis_type:{opts['analysis_type']}"],
+        attributes={"analysis_type": opts['analysis_type']},
     )
 
     vendor_schema = {}

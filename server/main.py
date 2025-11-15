@@ -18,9 +18,14 @@ import redis_mgr
 
 from config import get_config
 from dlq_utils import get_ingress_list_dlq_name
+from lib.context_utils import retrieve_context
 from lib.error_tracking import init_error_tracker
-from lib.metrics import init_metrics, stats_count, stats_gauge
+from lib.metrics import record_histogram, increment_counter
 from storage.base import Storage
+
+# OpenTelemetry trace context propagation
+from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode, SpanContext, TraceFlags, NonRecordingSpan
 
 logger = logging.getLogger("main")
 shutdown_requested = False
@@ -105,7 +110,6 @@ def import_or_install(module_name: str, pip_name: Optional[str] = None) -> objec
 signal.signal(signal.SIGTERM, signal_handler)
 
 init_error_tracker()
-init_metrics()
 imported_modules: Dict[str, object] = {}
 
 # Initialize Redis client
@@ -121,17 +125,22 @@ class VconChainRequest:
     Attributes:
         vcon_id: Unique identifier for the vCon being processed
         chain_details: Configuration details for the processing chain
+        context: Optional context data propagated from the API
     """
 
-    def __init__(self, chain_details: ChainConfig, vcon_id: str) -> None:
+    def __init__(self, chain_details: ChainConfig, vcon_id: str, context: Optional[Dict] = None) -> None:
         """Initialize a new vCon chain processing request.
 
         Args:
             chain_details: Configuration for the processing chain
             vcon_id: Unique identifier for the vCon
+            context: Optional context data propagated from the API (contains trace_id, span_id, etc.)
         """
         self.vcon_id = vcon_id
         self.chain_details = chain_details
+        self.context = context
+        self._span = None
+        self._span_context_manager = None
 
     def process(self) -> None:
         """Process the vCon through all configured chain links.
@@ -139,7 +148,34 @@ class VconChainRequest:
         Executes each link in sequence, handles timing metrics, and manages
         the overall processing flow. Will stop processing if any link indicates
         the chain should not continue.
+        
+        Creates a new span from context if available for trace propagation (POC).
         """
+        # Create span from context if available (POC) - use as context manager
+        if self.context:
+            self._span_context_manager = self._create_span_from_context()
+            if self._span_context_manager:
+                # Enter the context manager to make the span current
+                # This links the span to the parent trace
+                self._span = self._span_context_manager.__enter__()
+                # Verify trace linkage
+                if self._span:
+                    span_ctx = self._span.get_span_context()
+                    parent_trace_id = self.context.get("trace_id", "")
+                    logger.info(
+                        f"Span activated for vCon {self.vcon_id}: "
+                        f"trace_id={format(span_ctx.trace_id, '032x')}, "
+                        f"span_id={format(span_ctx.span_id, '016x')}, "
+                        f"expected_trace_id={parent_trace_id}, "
+                        f"match={format(span_ctx.trace_id, '032x') == parent_trace_id}"
+                    )
+            else:
+                self._span = None
+                self._span_context_manager = None
+        else:
+            self._span = None
+            self._span_context_manager = None
+        
         vcon_started = time.time()
         logger.info(
             "Started processing vCon %s with chain %s",
@@ -177,8 +213,75 @@ class VconChainRequest:
                 "chain_name": self.chain_details["name"]
             }
         )
-        stats_gauge("conserver.main_loop.vcon_processing_time", vcon_processing_time)
-        stats_count("conserver.main_loop.count_vcons_processed")
+        record_histogram("conserver.main_loop.vcon_processing_time", vcon_processing_time)
+        increment_counter("conserver.main_loop.count_vcons_processed")
+        
+        # End span if created - exit the context manager
+        if self._span_context_manager:
+            try:
+                current_span = trace.get_current_span()
+                if current_span:
+                    current_span.set_status(Status(StatusCode.OK))
+                # Exit the context manager which will end the span
+                self._span_context_manager.__exit__(None, None, None)
+            except Exception as e:
+                logger.debug(f"Failed to end span: {e}")
+
+    def _create_span_from_context(self):
+        """Create a new span from propagated trace context (POC).
+        
+        This demonstrates how to create a span from the context retrieved
+        from Redis, allowing trace propagation through the processing pipeline.
+        
+        Returns:
+            The span context manager, or None if creation failed
+        """
+        if not self.context:
+            return None
+        
+        try:
+            tracer = trace.get_tracer(__name__)
+            
+            # Extract trace context from stored context
+            trace_id = int(self.context.get("trace_id", "0"), 16)
+            span_id = int(self.context.get("span_id", "0"), 16)
+            trace_flags = self.context.get("trace_flags", 0)
+            
+            # Create span context from the propagated values
+            parent_span_context = SpanContext(
+                trace_id=trace_id,
+                span_id=span_id,
+                is_remote=True,
+                trace_flags=TraceFlags(trace_flags)
+            )
+            
+            # Create a new span as a child of the propagated context
+            # Use NonRecordingSpan to represent the remote parent span context
+            # This allows OpenTelemetry to link the new span to the parent trace
+            parent_span = NonRecordingSpan(parent_span_context)
+            parent_context = trace.set_span_in_context(parent_span)
+            
+            # Use start_as_current_span with the parent context
+            # This will create a child span linked to the parent trace
+            span_context_manager = tracer.start_as_current_span(
+                f"vcon_processing.{self.chain_details['name']}",
+                context=parent_context,
+                attributes={
+                    "vcon_id": self.vcon_id,
+                    "chain_name": self.chain_details["name"],
+                    "vcon.uuid": self.vcon_id
+                }
+            )
+            
+            logger.debug(
+                f"Created span context manager for vCon {self.vcon_id}: "
+                f"parent_trace_id={format(trace_id, '032x')}, parent_span_id={format(span_id, '016x')}"
+            )
+            
+            return span_context_manager
+        except Exception as e:
+            logger.warning(f"Failed to create span from context for vCon {self.vcon_id}: {e}")
+            return None
 
     def _wrap_up(self) -> None:
         """Handle post-processing operations for the vCon.
@@ -283,48 +386,63 @@ class VconChainRequest:
         link_name = links[link_index]
         logger.info("Processing link %s for vCon: %s", link_name, self.vcon_id)
         link = config["links"][link_name]
+# Create a span for this link - automatically inherits parent span context
+        tracer = trace.get_tracer(__name__)
+        with tracer.start_as_current_span(
+            f"link.{link_name}",
+            attributes={
+                "vcon_id": self.vcon_id,
+                "link_name": link_name,
+                "link_index": link_index,
+                "chain_name": self.chain_details["name"]
+            }
+        ):
+            module_name = link["module"]
+            if module_name not in imported_modules:
+                logger.debug("Importing module %s for link %s", module_name, link_name)
+                pip_name = link.get("pip_name")  # Optional pip package name from config
+                imported_modules[module_name] = import_or_install(module_name, pip_name)
+            module = imported_modules[module_name]
+            options = link.get("options")
 
-        module_name = link["module"]
-        if module_name not in imported_modules:
-            logger.debug("Importing module %s for link %s", module_name, link_name)
-            pip_name = link.get("pip_name")  # Optional pip package name from config
-            imported_modules[module_name] = import_or_install(module_name, pip_name)
-        module = imported_modules[module_name]
-        options = link.get("options")
-        
-        try:
-            if link_index == 0:
-                self._process_tracers(self.vcon_id, self.vcon_id, links, -1)
-            started = time.time()
-            should_continue_chain = module.run(self.vcon_id, link_name, options)
-            link_processing_time = round(time.time() - started, 3)
-            logger.info(
-                "Completed link %s (module: %s) for vCon: %s in %s seconds",
-                link_name,
-                module_name,
-                self.vcon_id,
-                link_processing_time,
-                extra={
-                    "link_processing_time": link_processing_time,
-                    "link_name": link_name,
-                    "module_name": module_name
-                }
-            )
-            if should_continue_chain:
-                self._process_tracers(should_continue_chain, self.vcon_id, links, link_index)
-            else:
-                self._process_tracers(self.vcon_id, self.vcon_id, links, link_index)
-            return should_continue_chain
-        except Exception as e:
-            logger.error(
-                "Error in link %s (module: %s) for vCon %s: %s",
-                link_name,
-                module_name,
-                self.vcon_id,
-                str(e),
-                exc_info=True
-            )
-            raise
+            try:
+                if link_index == 0:
+                    self._process_tracers(self.vcon_id, self.vcon_id, links, -1)
+                started = time.time()
+                should_continue_chain = module.run(self.vcon_id, link_name, options)
+                link_processing_time = round(time.time() - started, 3)
+                logger.info(
+                    "Completed link %s (module: %s) for vCon: %s in %s seconds",
+                    link_name,
+                    module_name,
+                    self.vcon_id,
+                    link_processing_time,
+                    extra={
+                        "link_processing_time": link_processing_time,
+                        "link_name": link_name,
+                        "module_name": module_name
+                    }
+                )
+                if should_continue_chain:
+                    self._process_tracers(should_continue_chain, self.vcon_id, links, link_index)
+                else:
+                    self._process_tracers(self.vcon_id, self.vcon_id, links, link_index)
+                return should_continue_chain
+            except Exception as e:
+                # Record exception in the span
+                current_span = trace.get_current_span()
+                if current_span:
+                    current_span.set_status(Status(StatusCode.ERROR, str(e)))
+                    current_span.record_exception(e)
+                logger.error(
+                    "Error in link %s (module: %s) for vCon %s: %s",
+                    link_name,
+                    module_name,
+                    self.vcon_id,
+                    str(e),
+                    exc_info=True
+                )
+                raise
 
 
 def get_ingress_chain_map() -> IngressChainMap:
@@ -433,6 +551,18 @@ def main() -> None:
             r.lpush(ingress_list, vcon_id)
             break
 
+        # Retrieve context data if available
+        context = retrieve_context(r, ingress_list, vcon_id)
+        if context:
+            logger.debug(
+                "Retrieved context for vCon %s from ingress list %s: %s",
+                vcon_id,
+                ingress_list,
+                context
+            )
+        else:
+            logger.debug("No context found for vCon %s from ingress list %s", vcon_id, ingress_list)
+
         log_llen(ingress_list)
         chain_details = ingress_chain_map[ingress_list]
         logger.debug(
@@ -447,7 +577,7 @@ def main() -> None:
             }
         )
         
-        vcon_chain_request = VconChainRequest(chain_details, vcon_id)
+        vcon_chain_request = VconChainRequest(chain_details, vcon_id, context)
         try:
             vcon_chain_request.process()
         except Exception as e:

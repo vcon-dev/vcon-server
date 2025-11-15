@@ -43,8 +43,12 @@ from starlette.status import HTTP_403_FORBIDDEN
 
 from config import Configuration
 from dlq_utils import get_ingress_list_dlq_name
+from lib.context_utils import store_context_async
 from lib.logging_utils import init_logger
 import redis_mgr
+
+# OpenTelemetry trace context extraction
+from opentelemetry import trace
 from settings import (
     VCON_SORTED_SET_NAME,
     VCON_STORAGE,
@@ -217,6 +221,45 @@ class Vcon(BaseModel):
     dialog: List[Dict] = []
     analysis: List[Dict] = []
     attachments: List[Dict] = []
+
+
+def extract_otel_trace_context() -> Optional[Dict]:
+    """Extract trace context from OpenTelemetry instrumentation.
+    
+    When using opentelemetry-instrument, trace context is automatically available.
+    This function extracts the current span's trace context as a JSON object.
+    
+    Returns:
+        Dictionary containing trace context data (trace_id, span_id, trace_flags), or None if not available
+    """
+    try:
+        span = trace.get_current_span()
+        if not span:
+            return None
+        
+        span_context = span.get_span_context()
+        if not span_context or not span_context.is_valid:
+            return None
+        
+        # Format trace_id and span_id as hex strings
+        trace_id = format(span_context.trace_id, '032x')
+        span_id = format(span_context.span_id, '016x')
+        
+        # Extract trace_flags (sampled or not)
+        trace_flags = span_context.trace_flags & trace.TraceFlags.SAMPLED
+        is_sampled = bool(trace_flags)
+        
+        context = {
+            "trace_id": trace_id,
+            "span_id": span_id,
+            "trace_flags": int(trace_flags),
+            "is_sampled": is_sampled
+        }
+        
+        return context
+    except Exception as e:
+        logger.debug(f"Failed to extract OpenTelemetry trace context: {e}")
+        return None
 
 
 if VCON_STORAGE:
@@ -572,6 +615,8 @@ async def post_vcon(
         HTTPException: If there is an error storing the vCon
     """
     try:
+        context = extract_otel_trace_context()
+        
         dict_vcon = inbound_vcon.model_dump()
         dict_vcon["uuid"] = str(inbound_vcon.uuid)
         key = f"vcon:{str(dict_vcon['uuid'])}"
@@ -590,9 +635,14 @@ async def post_vcon(
 
         # Add to ingress lists if specified
         if ingress_lists:
+            vcon_uuid_str = str(inbound_vcon.uuid)
             for ingress_list in ingress_lists:
                 logger.debug(f"Adding vCon {inbound_vcon.uuid} to ingress list {ingress_list}")
-                await redis_async.rpush(ingress_list, str(inbound_vcon.uuid))
+                # Store context BEFORE adding to ingress list to avoid race condition
+                # The conserver might pick up the vCon before context is stored
+                if context:
+                    await store_context_async(redis_async, ingress_list, vcon_uuid_str, context)
+                await redis_async.rpush(ingress_list, vcon_uuid_str)
 
         return JSONResponse(content=dict_vcon, status_code=201)
 
@@ -636,6 +686,7 @@ async def external_ingress_vcon(
     in the specified ingress list.
 
     Args:
+        request: FastAPI Request object for accessing headers
         inbound_vcon: The vCon record to submit
         ingress_list: Target ingress queue name (must match configured access)
 
@@ -657,6 +708,8 @@ async def external_ingress_vcon(
     validate_ingress_api_key(ingress_list, api_key)
 
     try:
+        context = extract_otel_trace_context()
+        
         dict_vcon = inbound_vcon.model_dump()
         dict_vcon["uuid"] = str(inbound_vcon.uuid)
         key = f"vcon:{str(dict_vcon['uuid'])}"
@@ -676,8 +729,13 @@ async def external_ingress_vcon(
         await index_vcon(inbound_vcon.uuid)
 
         # Always add to the specified ingress list (required for this endpoint)
+        vcon_uuid_str = str(inbound_vcon.uuid)
         logger.debug(f"Adding vCon {inbound_vcon.uuid} to ingress list {ingress_list}")
-        await redis_async.rpush(ingress_list, str(inbound_vcon.uuid))
+        # Store context BEFORE adding to ingress list to avoid race condition
+        # The conserver might pick up the vCon before context is stored
+        if context:
+            await store_context_async(redis_async, ingress_list, vcon_uuid_str, context)
+        await redis_async.rpush(ingress_list, vcon_uuid_str)
 
         logger.info(
             f"Successfully stored vCon {inbound_vcon.uuid} and added to ingress list {ingress_list}"
@@ -774,6 +832,8 @@ async def post_vcon_ingress(
         HTTPException: Only for Redis operation failures, not for missing vCons
     """
     try:
+        context = extract_otel_trace_context()
+        
         # Use mget for efficient batch retrieval from Redis
         keys = [f"vcon:{vcon_uuid}" for vcon_uuid in vcon_uuids]
         vcons = await redis_async.json().mget(keys=keys, path=".")
@@ -794,6 +854,11 @@ async def post_vcon_ingress(
 
         # Add all valid vCon UUIDs to ingress list in batch
         if valid_vcon_uuids:
+            # Store context BEFORE adding to ingress list to avoid race condition
+            # The conserver might pick up the vCon before context is stored
+            if context:
+                for vcon_uuid_str in valid_vcon_uuids:
+                    await store_context_async(redis_async, ingress_list, vcon_uuid_str, context)
             await redis_async.rpush(ingress_list, *valid_vcon_uuids)
             logger.info(f"Added {len(valid_vcon_uuids)} vCon UUIDs to ingress list {ingress_list}")
         else:

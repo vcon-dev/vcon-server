@@ -8,12 +8,10 @@ from tenacity import (
     wait_exponential,
     before_sleep_log,
 )  # for exponential backoff
-from lib.metrics import init_metrics, stats_gauge, stats_count
+from lib.metrics import record_histogram, increment_counter
 import time
 from lib.links.filters import is_included, randomly_execute_with_sampling
 from lib.ai_usage import send_ai_usage_data_for_tracking
-
-init_metrics()
 
 logger = init_logger(__name__)
 
@@ -170,16 +168,16 @@ def run(
                 vcon_uuid,
                 e,
             )
-            stats_count(
+            increment_counter(
                 "conserver.link.openai.analysis_failures",
-                tags=[f"analysis_type:{opts['analysis_type']}"],
+                attributes={"analysis_type": opts['analysis_type']},
             )
             raise e
 
-        stats_gauge(
+        record_histogram(
             "conserver.link.openai.analysis_time",
             time.time() - start,
-            tags=[f"analysis_type:{opts['analysis_type']}"],
+            attributes={"analysis_type": opts['analysis_type']},
         )
 
         vendor_schema = {}

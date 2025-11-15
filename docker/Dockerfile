@@ -27,6 +27,9 @@ COPY pyproject.toml poetry.lock* /app/
 RUN poetry lock --no-update || poetry lock
 RUN poetry install --only=main --no-interaction
 
+# Install OpenTelemetry instrumentation libraries for detected packages
+RUN opentelemetry-bootstrap -a install
+
 # Copy the rest of the application
 COPY . /app
 
@@ -34,4 +37,4 @@ ENV PYTHONPATH "${PYTHONPATH}:/app/:/app/server/"
 
 ENTRYPOINT ["/app/docker/wait_for_redis.sh"]
 
-CMD [ "python", "./server/conserver.py" ]
+CMD [ "opentelemetry-instrument", "python", "./server/main.py" ]

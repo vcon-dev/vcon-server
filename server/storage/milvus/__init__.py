@@ -5,12 +5,11 @@ This module provides integration with the Milvus vector database
 for storing vCons as vector embeddings for semantic search.
 """
 import logging
-import tempfile
 from typing import List, Dict, Any, Optional, Union
 import time
 
 from lib.logging_utils import init_logger
-from lib.metrics import stats_gauge, stats_count
+from lib.metrics import record_histogram, increment_counter
 from server.lib.vcon_redis import VconRedis
 
 try:
@@ -95,11 +94,11 @@ def get_embedding(text: str, openai_client, model: str) -> List[float]:
             model=model
         )
         embedding_time = time.time() - start_time
-        stats_gauge("conserver.storage.milvus.embedding_time", embedding_time)
+        record_histogram("conserver.storage.milvus.embedding_time", embedding_time)
         return response.data[0].embedding
     except Exception as e:
         logger.error(f"Failed to get embedding: {e}")
-        stats_count("conserver.storage.milvus.embedding_failures")
+        increment_counter("conserver.storage.milvus.embedding_failures")
         # Return zero vector as fallback
         return [0] * default_options["embedding_dim"]
 
@@ -204,7 +203,7 @@ def extract_text_from_vcon(vcon: dict) -> str:
     logger.info(f"Raw text length: {raw_text_length} characters")
     
     extraction_time = time.time() - start_time
-    stats_gauge("conserver.storage.milvus.text_extraction_time", extraction_time)
+    record_histogram("conserver.storage.milvus.text_extraction_time", extraction_time)
     return raw_text
 
 def extract_party_id(vcon: dict) -> str:
@@ -508,12 +507,13 @@ def save(vcon_uuid: str, opts=default_options) -> None:
         collection.flush()
         
         logger.info(f"Successfully saved vCon {vcon_uuid} to Milvus collection {collection_name}")
-        stats_count("conserver.storage.milvus.vcons_stored")
+        increment_counter("conserver.storage.milvus.vcons_stored")
         
     except Exception as e:
         logger.error(f"Failed to save vCon {vcon_uuid} to Milvus: {e}")
-        stats_count("conserver.storage.milvus.storage_failures")
+        increment_counter("conserver.storage.milvus.storage_failures")
         raise e
+
 
 def get(vcon_uuid: str, opts=default_options) -> Optional[dict]:
     """

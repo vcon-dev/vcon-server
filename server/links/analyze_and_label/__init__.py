@@ -9,11 +9,9 @@ from tenacity import (
     wait_exponential,
     before_sleep_log,
 )  # for exponential backoff
-from lib.metrics import init_metrics, stats_gauge, stats_count
+from lib.metrics import record_histogram, increment_counter
 import time
 from lib.links.filters import is_included, randomly_execute_with_sampling
-
-init_metrics()
 
 logger = init_logger(__name__)
 
@@ -148,17 +146,17 @@ def run(
                     vCon.add_tag(tag_name=label, tag_value=label)
                     logger.info(f"Applied label as tag: {label}")
                 
-                stats_gauge(
+                increment_counter(
                     "conserver.link.openai.labels_added",
-                    len(labels),
-                    tags=[f"analysis_type:{opts['analysis_type']}"],
+                    value=len(labels),
+                    attributes={"analysis_type": opts['analysis_type']},
                 )
                 
             except json.JSONDecodeError as e:
                 logger.error(f"Failed to parse JSON response for vCon {vcon_uuid}: {e}")
-                stats_count(
+                increment_counter(
                     "conserver.link.openai.json_parse_failures",
-                    tags=[f"analysis_type:{opts['analysis_type']}"],
+                    attributes={"analysis_type": opts['analysis_type']},
                 )
                 # Add the raw text anyway as the analysis
                 vCon.add_analysis(
@@ -182,16 +180,16 @@ def run(
                 vcon_uuid,
                 e,
             )
-            stats_count(
+            increment_counter(
                 "conserver.link.openai.analysis_failures",
-                tags=[f"analysis_type:{opts['analysis_type']}"],
+                attributes={"analysis_type": opts['analysis_type']},
             )
             raise e
 
-        stats_gauge(
+        record_histogram(
             "conserver.link.openai.analysis_time",
             time.time() - start,
-            tags=[f"analysis_type:{opts['analysis_type']}"],
+            attributes={"analysis_type": opts['analysis_type']},
         )
 
     vcon_redis.store_vcon(vCon)

@@ -10,7 +10,7 @@ from tenacity import (
 )  # for exponential backoff
 from server.lib.vcon_redis import VconRedis
 from lib.error_tracking import init_error_tracker
-from lib.metrics import init_metrics, stats_gauge, stats_count
+from lib.metrics import record_histogram, increment_counter
 from lib.ai_usage import send_ai_usage_data_for_tracking
 import time
 import io
@@ -24,7 +24,6 @@ from pydub.silence import detect_nonsilent
 
 # Initialize error tracking and metrics systems for observability
 init_error_tracker()
-init_metrics()
 # Set up a module-level logger
 logger = init_logger(__name__)
 
@@ -564,15 +563,15 @@ def run(
             result = transcribe_openai(dialog["url"], opts, vcon_uuid)
         except Exception as e:
             logger.error("Failed to transcribe vCon %s after multiple retries: %s", vcon_uuid, e, exc_info=True)
-            stats_count("conserver.link.openai.transcription_failures")
+            increment_counter("conserver.link.openai.transcription_failures")
             raise e
         elapsed = time.time() - start
-        stats_gauge("conserver.link.openai.transcription_time", elapsed)
+        record_histogram("conserver.link.openai.transcription_time", elapsed)
         logger.info(f"Transcription for dialog {index} took {elapsed:.2f} seconds.")
 
         if not result:
             logger.warning("No transcription generated for vCon %s, dialog %s", vcon_uuid, index)
-            stats_count("conserver.link.openai.transcription_failures")
+            increment_counter("conserver.link.openai.transcription_failures")
             break
 
         logger.info("Transcribed vCon: %s, dialog: %s", vCon.uuid, index)
