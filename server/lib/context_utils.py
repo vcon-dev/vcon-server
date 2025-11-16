@@ -13,6 +13,9 @@ from redis.asyncio import Redis as RedisAsync
 from lib.logging_utils import init_logger
 from settings import VCON_CONTEXT_EXPIRY
 
+# OpenTelemetry trace context extraction
+from opentelemetry import trace
+
 logger = init_logger(__name__)
 
 
@@ -147,5 +150,44 @@ def retrieve_context(
         logger.warning(
             f"Failed to retrieve context for vCon {vcon_uuid} in ingress list {ingress_list}: {e}"
         )
+        return None
+
+
+def extract_otel_trace_context() -> Optional[Dict]:
+    """Extract trace context from OpenTelemetry instrumentation.
+    
+    When using opentelemetry-instrument, trace context is automatically available.
+    This function extracts the current span's trace context as a JSON object.
+    
+    Returns:
+        Dictionary containing trace context data (trace_id, span_id, trace_flags), or None if not available
+    """
+    try:
+        span = trace.get_current_span()
+        if not span:
+            return None
+        
+        span_context = span.get_span_context()
+        if not span_context or not span_context.is_valid:
+            return None
+        
+        # Format trace_id and span_id as hex strings
+        trace_id = format(span_context.trace_id, '032x')
+        span_id = format(span_context.span_id, '016x')
+        
+        # Extract trace_flags (sampled or not)
+        trace_flags = span_context.trace_flags & trace.TraceFlags.SAMPLED
+        is_sampled = bool(trace_flags)
+        
+        context = {
+            "trace_id": trace_id,
+            "span_id": span_id,
+            "trace_flags": int(trace_flags),
+            "is_sampled": is_sampled
+        }
+        
+        return context
+    except Exception as e:
+        logger.debug(f"Failed to extract OpenTelemetry trace context: {e}")
         return None
 

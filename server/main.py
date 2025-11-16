@@ -18,14 +18,14 @@ import redis_mgr
 
 from config import get_config
 from dlq_utils import get_ingress_list_dlq_name
-from lib.context_utils import retrieve_context
+from lib.context_utils import retrieve_context, store_context_sync, extract_otel_trace_context
 from lib.error_tracking import init_error_tracker
 from lib.metrics import record_histogram, increment_counter
 from storage.base import Storage
 
 # OpenTelemetry trace context propagation
 from opentelemetry import trace
-from opentelemetry.trace import Status, StatusCode, SpanContext, TraceFlags, NonRecordingSpan
+from opentelemetry.trace import Status, StatusCode, SpanContext, TraceFlags, Link
 
 logger = logging.getLogger("main")
 shutdown_requested = False
@@ -228,10 +228,11 @@ class VconChainRequest:
                 logger.debug(f"Failed to end span: {e}")
 
     def _create_span_from_context(self):
-        """Create a new span from propagated trace context (POC).
+        """Create a new span from propagated trace context using span links.
         
-        This demonstrates how to create a span from the context retrieved
-        from Redis, allowing trace propagation through the processing pipeline.
+        Since vCon processing is asynchronous (queued and processed later),
+        we use span links instead of parent-child relationships to represent
+        the causal relationship between the API request and the async processing.
         
         Returns:
             The span context manager, or None if creation failed
@@ -255,17 +256,12 @@ class VconChainRequest:
                 trace_flags=TraceFlags(trace_flags)
             )
             
-            # Create a new span as a child of the propagated context
-            # Use NonRecordingSpan to represent the remote parent span context
-            # This allows OpenTelemetry to link the new span to the parent trace
-            parent_span = NonRecordingSpan(parent_span_context)
-            parent_context = trace.set_span_in_context(parent_span)
-            
-            # Use start_as_current_span with the parent context
-            # This will create a child span linked to the parent trace
+            # Create a new span with a link to the parent span context
+            # This represents an async relationship rather than a parent-child relationship
+            # The span will be in the same trace but linked rather than nested
             span_context_manager = tracer.start_as_current_span(
                 f"vcon_processing.{self.chain_details['name']}",
-                context=parent_context,
+                links=[Link(parent_span_context)],
                 attributes={
                     "vcon_id": self.vcon_id,
                     "chain_name": self.chain_details["name"],
@@ -274,8 +270,8 @@ class VconChainRequest:
             )
             
             logger.debug(
-                f"Created span context manager for vCon {self.vcon_id}: "
-                f"parent_trace_id={format(trace_id, '032x')}, parent_span_id={format(span_id, '016x')}"
+                f"Created linked span for vCon {self.vcon_id}: "
+                f"linked_trace_id={format(trace_id, '032x')}, linked_span_id={format(span_id, '016x')}"
             )
             
             return span_context_manager
@@ -296,7 +292,13 @@ class VconChainRequest:
                 self.vcon_id,
                 ", ".join(egress_lists)
             )
+            # Extract current trace context to propagate to next chain
+            context = extract_otel_trace_context()
             for egress_list in egress_lists:
+                # Store context BEFORE adding to egress list to avoid race condition
+                # The conserver might pick up the vCon before context is stored
+                if context:
+                    store_context_sync(r, egress_list, self.vcon_id, context)
                 r.lpush(egress_list, self.vcon_id)
 
         storage_backends = self.chain_details.get("storages", [])

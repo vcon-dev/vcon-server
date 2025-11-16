@@ -43,12 +43,11 @@ from starlette.status import HTTP_403_FORBIDDEN
 
 from config import Configuration
 from dlq_utils import get_ingress_list_dlq_name
-from lib.context_utils import store_context_async
+from lib.context_utils import store_context_async, extract_otel_trace_context
 from lib.logging_utils import init_logger
 import redis_mgr
 
-# OpenTelemetry trace context extraction
-from opentelemetry import trace
+# OpenTelemetry trace context extraction is now in lib.context_utils
 from settings import (
     VCON_SORTED_SET_NAME,
     VCON_STORAGE,
@@ -221,45 +220,6 @@ class Vcon(BaseModel):
     dialog: List[Dict] = []
     analysis: List[Dict] = []
     attachments: List[Dict] = []
-
-
-def extract_otel_trace_context() -> Optional[Dict]:
-    """Extract trace context from OpenTelemetry instrumentation.
-    
-    When using opentelemetry-instrument, trace context is automatically available.
-    This function extracts the current span's trace context as a JSON object.
-    
-    Returns:
-        Dictionary containing trace context data (trace_id, span_id, trace_flags), or None if not available
-    """
-    try:
-        span = trace.get_current_span()
-        if not span:
-            return None
-        
-        span_context = span.get_span_context()
-        if not span_context or not span_context.is_valid:
-            return None
-        
-        # Format trace_id and span_id as hex strings
-        trace_id = format(span_context.trace_id, '032x')
-        span_id = format(span_context.span_id, '016x')
-        
-        # Extract trace_flags (sampled or not)
-        trace_flags = span_context.trace_flags & trace.TraceFlags.SAMPLED
-        is_sampled = bool(trace_flags)
-        
-        context = {
-            "trace_id": trace_id,
-            "span_id": span_id,
-            "trace_flags": int(trace_flags),
-            "is_sampled": is_sampled
-        }
-        
-        return context
-    except Exception as e:
-        logger.debug(f"Failed to extract OpenTelemetry trace context: {e}")
-        return None
 
 
 if VCON_STORAGE:
