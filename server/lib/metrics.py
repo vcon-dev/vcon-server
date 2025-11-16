@@ -122,10 +122,8 @@ def record_histogram(metric_name, value, attributes=None):
     """
     # Lazy initialization on first use
     _init_otel_metrics()
-    
-    logger.info(f"Record histogram metric {metric_name} to OpenTelemetry to {OTEL_EXPORTER_OTLP_ENDPOINT}, initialized: {_otel_initialized}, value: {value}")
+
     if not OTEL_EXPORTER_OTLP_ENDPOINT or not meter:
-        logger.info(f"Failed to record histogram metric {metric_name} to OpenTelemetry to {OTEL_EXPORTER_OTLP_ENDPOINT}")
         return
     
     try:
@@ -144,6 +142,5 @@ def record_histogram(metric_name, value, attributes=None):
         
         # Record the value
         histogram_metrics[metric_name].record(value, attributes=attributes)
-        logger.info("Recorded histogram metric data to OpenTelemetry")
     except Exception as e:
         logger.warning(f"Failed to publish histogram metric to OpenTelemetry: {e}")
