@@ -29,7 +29,7 @@ logger = init_logger(__name__)
 # - DEEPGRAM_KEY: API key for Deepgram
 # - api: dictionary of Deepgram API options
 # (Note: 'api' is not present in the original default_options, but is expected in opts in run)
-default_options = {"minimum_duration": 60, "DEEPGRAM_KEY": None}
+default_options = {"minimum_duration": 60, "DEEPGRAM_KEY": None, "minimum_confidence": 0.5}
 
 
 def get_transcription(vcon, index):
@@ -205,7 +205,7 @@ def run(
         logger.info(f"Transcription confidence for dialog {index}: {result['confidence']}")
 
         # If the confidence is too low, don't store the transcript
-        if result["confidence"] < 0.5:
+        if result["confidence"] < opts["minimum_confidence"]:
             logger.warning("Low confidence result for vCon %s, dialog %s: %s", vcon_uuid, index, result["confidence"])
             stats_count("conserver.link.deepgram.transcription_failures")
             break
