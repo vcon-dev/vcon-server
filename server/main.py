@@ -321,17 +321,32 @@ class VconChainRequest:
         Args:
             storage_name: Name of the storage backend to use
         """
-        try:
-            logger.debug("Saving vCon %s to storage %s", self.vcon_id, storage_name)
-            Storage(storage_name).save(self.vcon_id)
-        except Exception as e:
-            logger.error(
-                "Failed to save vCon %s to storage %s: %s",
-                self.vcon_id,
-                storage_name,
-                str(e),
-                exc_info=True
-            )
+        # Create a span for this storage operation - automatically inherits parent span context
+        tracer = trace.get_tracer(__name__)
+        with tracer.start_as_current_span(
+            f"storage.{storage_name}",
+            attributes={
+                "vcon_id": self.vcon_id,
+                "storage_name": storage_name,
+                "chain_name": self.chain_details["name"]
+            }
+        ):
+            try:
+                logger.debug("Saving vCon %s to storage %s", self.vcon_id, storage_name)
+                Storage(storage_name).save(self.vcon_id)
+            except Exception as e:
+                # Record exception in the span
+                current_span = trace.get_current_span()
+                if current_span:
+                    current_span.set_status(Status(StatusCode.ERROR, str(e)))
+                    current_span.record_exception(e)
+                logger.error(
+                    "Failed to save vCon %s to storage %s: %s",
+                    self.vcon_id,
+                    storage_name,
+                    str(e),
+                    exc_info=True
+                )
 
     def _process_tracers(self, in_vcon_uuid, out_vcon_uuid, links: list[str], link_index: int) -> bool:
         if "tracers" in config:
