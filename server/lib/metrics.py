@@ -23,6 +23,18 @@ logger = logging.getLogger(__name__)
 host_name = socket.gethostname()
 
 
+def init_metrics():
+    logger.warning("This function is deprecated, use increment_counter or record_histogram instead")
+
+
+def stats_gauge(metric_name, value, tags=[]):
+    logger.warning("This function is deprecated, use increment_counter or record_histogram instead")
+
+
+def stats_count(metric_name, value=1, tags=[]):
+    logger.warning("This function is deprecated, use increment_counter or record_histogram instead")
+
+
 def _init_otel_metrics():
     """Lazy initialization of OpenTelemetry metrics.
     
