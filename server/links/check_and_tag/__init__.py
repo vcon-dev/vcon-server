@@ -9,11 +9,9 @@ from tenacity import (
     wait_exponential,
     before_sleep_log,
 )  # for exponential backoff
-from lib.metrics import init_metrics, stats_gauge, stats_count
+from lib.metrics import record_histogram, increment_counter
 import time
 from lib.links.filters import is_included, randomly_execute_with_sampling
-
-init_metrics()
 
 logger = init_logger(__name__)
 
@@ -182,30 +180,28 @@ def run(
             if applies:
                 vCon.add_tag(tag_name=opts["tag_name"], tag_value=opts["tag_value"])
                 logger.info(f"Applied tag: {opts['tag_name']}:{opts['tag_value']} (evaluation: {applies})")
+                increment_counter(
+                    "conserver.link.openai.tags_applied",
+                    attributes={"analysis_type": opts['analysis_type'], "tag_name": opts['tag_name'], "tag_value": opts['tag_value']},
+                )
             else:
                 logger.info(f"Tag not applied: {opts['tag_name']}:{opts['tag_value']} (evaluation: {applies})")
-            
-            stats_gauge(
-                "conserver.link.openai.tags_applied",
-                1 if applies else 0,
-                tags=[f"analysis_type:{opts['analysis_type']}", f"tag_name:{opts['tag_name']}:{opts['tag_value']}"],
-            )
         except Exception as e:
             logger.error(
                 "Failed to generate analysis for vCon %s after multiple retries: %s",
                 vcon_uuid,
                 e,
             )
-            stats_count(
+            increment_counter(
                 "conserver.link.openai.evaluation_failures",
-                tags=[f"analysis_type:{opts['analysis_type']}", f"tag_name:{opts['tag_name']}:{opts['tag_value']}"],
+                attributes={"analysis_type": opts['analysis_type'], "tag_name": opts['tag_name'], "tag_value": opts['tag_value']},
             )
             raise e
 
-        stats_gauge(
+        record_histogram(
             "conserver.link.openai.evaluation_time",
             time.time() - start,
-            tags=[f"analysis_type:{opts['analysis_type']}", f"tag_name:{opts['tag_name']}:{opts['tag_value']}"],
+            attributes={"analysis_type": opts['analysis_type'], "tag_name": opts['tag_name'], "tag_value": opts['tag_value']},
         )
 
     vcon_redis.store_vcon(vCon)

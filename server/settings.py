@@ -37,5 +37,10 @@ VCON_INDEX_EXPIRY = int(os.getenv("VCON_INDEX_EXPIRY", 86400))
 # This improves performance for subsequent requests for the same vCon.
 VCON_REDIS_EXPIRY = int(os.getenv("VCON_REDIS_EXPIRY", 3600))
 
+# Context expiration time in seconds (default 1 day)
+# Context data stored for ingress operations will expire after this time
+# to prevent memory leaks when the same vCon UUID is added multiple times.
+VCON_CONTEXT_EXPIRY = int(os.getenv("VCON_CONTEXT_EXPIRY", 86400))
+
 CONSERVER_CONFIG_FILE = os.getenv("CONSERVER_CONFIG_FILE", "./example_config.yml")
 API_ROOT_PATH = os.getenv("API_ROOT_PATH", "/api")

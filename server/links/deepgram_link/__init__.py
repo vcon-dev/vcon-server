@@ -11,7 +11,7 @@ from tenacity import (
 from server.lib.vcon_redis import VconRedis
 import json
 from lib.error_tracking import init_error_tracker
-from lib.metrics import init_metrics, stats_gauge, stats_count
+from lib.metrics import record_histogram, increment_counter
 from lib.ai_usage import send_ai_usage_data_for_tracking
 import time
 import io
@@ -20,7 +20,6 @@ import wave
 
 # Initialize error tracking and metrics systems for observability
 init_error_tracker()
-init_metrics()
 # Set up a module-level logger
 logger = init_logger(__name__)
 
@@ -189,25 +188,25 @@ def run(
             result = transcribe_dg(dg_client, dialog, opts["api"], vcon_uuid=vcon_uuid, run_opts=opts)
         except Exception as e:
             logger.error("Failed to transcribe vCon %s after multiple retries: %s", vcon_uuid, e, exc_info=True)
-            stats_count("conserver.link.deepgram.transcription_failures")
+            increment_counter("conserver.link.deepgram.transcription_failures")
             raise e
         elapsed = time.time() - start
-        stats_gauge("conserver.link.deepgram.transcription_time", elapsed)
+        record_histogram("conserver.link.deepgram.transcription_time", elapsed)
         logger.info(f"Transcription for dialog {index} took {elapsed:.2f} seconds.")
 
         if not result:
             logger.warning("No transcription generated for vCon %s, dialog %s", vcon_uuid, index)
-            stats_count("conserver.link.deepgram.transcription_failures")
+            increment_counter("conserver.link.deepgram.transcription_failures")
             break
 
         # Log and track confidence
-        stats_gauge("conserver.link.deepgram.confidence", result["confidence"])
+        record_histogram("conserver.link.deepgram.confidence", result["confidence"])
         logger.info(f"Transcription confidence for dialog {index}: {result['confidence']}")
 
         # If the confidence is too low, don't store the transcript
         if result["confidence"] < opts["minimum_confidence"]:
             logger.warning("Low confidence result for vCon %s, dialog %s: %s", vcon_uuid, index, result["confidence"])
-            stats_count("conserver.link.deepgram.transcription_failures")
+            increment_counter("conserver.link.deepgram.transcription_failures")
             break
 
         logger.info("Transcribed vCon: %s, dialog: %s", vCon.uuid, index)

@@ -8,7 +8,6 @@ transcription results.
 import base64
 import hashlib
 import logging
-import tempfile
 import time
 from typing import Optional
 
@@ -23,13 +22,12 @@ from tenacity import (
 
 from lib.error_tracking import init_error_tracker
 from lib.logging_utils import init_logger
-from lib.metrics import init_metrics, stats_gauge, stats_count
+from lib.metrics import record_histogram, increment_counter
 from server.lib.vcon_redis import VconRedis
 
 
 # Initialize services
 init_error_tracker()
-init_metrics()
 logger = init_logger(__name__)
 
 # Default configuration for the Whisper service
@@ -191,15 +189,15 @@ def run(
             start = time.time()
             logger.debug("Transcribing dialog %s in vCon: %s", index, vCon.uuid)
             result = transcribe_hugging_face_whisper(dialog, opts)
-            stats_gauge("conserver.link.hugging_face_whisper.transcription_time", time.time() - start)
+            record_histogram("conserver.link.hugging_face_whisper.transcription_time", time.time() - start)
         except (RetryError, Exception) as e:
             logger.error("Failed to transcribe vCon %s after multiple retries: %s", vcon_uuid, e)
-            stats_count("conserver.link.hugging_face_whisper.transcription_failures")
+            increment_counter("conserver.link.hugging_face_whisper.transcription_failures")
             break
 
         if not result:
             logger.warning("No transcription generated for vCon %s", vcon_uuid)
-            stats_count("conserver.link.hugging_face_whisper.transcription_failures")
+            increment_counter("conserver.link.hugging_face_whisper.transcription_failures")
             break
 
         logger.info("Transcribed vCon: %s", vCon.uuid)

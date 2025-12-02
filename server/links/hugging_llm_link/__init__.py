@@ -38,12 +38,11 @@ import anyio
 # Local imports
 from lib.logging_utils import init_logger
 from lib.error_tracking import init_error_tracker
-from lib.metrics import init_metrics, stats_gauge, stats_count
+from lib.metrics import record_histogram, increment_counter
 from server.lib.vcon_redis import VconRedis
 
 # Initialize services
 init_error_tracker()
-init_metrics()
 logger = init_logger(__name__)
 
 
@@ -272,10 +271,10 @@ class VConLLMProcessor:
         try:
             start = time.time()
             result = self.llm.analyze(transcript_text)
-            stats_gauge("conserver.link.huggingface.llm_time", time.time() - start)
+            record_histogram("conserver.link.huggingface.llm_time", time.time() - start)
         except (RetryError, Exception) as e:
             logger.error("Failed to analyze vCon %s: %s", vcon_uuid, str(e))
-            stats_count("conserver.link.huggingface.llm_failures")
+            increment_counter("conserver.link.huggingface.llm_failures")
             return vcon_uuid
 
         self._add_analysis_to_vcon(vcon, result)

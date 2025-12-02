@@ -1,6 +1,5 @@
 import redis_mgr
 from lib.logging_utils import init_logger
-from lib.metrics import init_metrics
 from lib.error_tracking import init_error_tracker
 from config import Configuration
 import requests
@@ -13,7 +12,6 @@ app = FastAPI()
 config: dict | None = None
 
 init_error_tracker()
-init_metrics()
 logger = init_logger(__name__)
 imported_modules = {}
 

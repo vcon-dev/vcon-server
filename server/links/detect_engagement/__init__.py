@@ -8,12 +8,10 @@ from tenacity import (
     wait_exponential,
     before_sleep_log,
 )
-from lib.metrics import init_metrics, stats_gauge, stats_count
+from lib.metrics import record_histogram, increment_counter
 import time
 from lib.links.filters import is_included, randomly_execute_with_sampling
 import os
-
-init_metrics()
 logger = init_logger(__name__)
 
 default_options = {
@@ -146,10 +144,10 @@ def run(
             vCon.add_tag(tag_name="engagement", tag_value=is_engaged_str)
             logger.info(f"Applied engagement tag: {is_engaged_str}")
 
-            stats_gauge(
+            increment_counter(
                 "conserver.link.openai.engagement_detected",
-                1 if is_engaged else 0,
-                tags=[f"analysis_type:{opts['analysis_type']}"],
+                value=1 if is_engaged else 0,
+                attributes={"analysis_type": opts['analysis_type']},
             )
 
         except Exception as e:
@@ -161,22 +159,23 @@ def run(
                 type(e).__name__,
                 traceback.format_exc()
             )
-            stats_count(
+            increment_counter(
                 "conserver.link.openai.engagement_analysis_failures",
-                tags=[f"analysis_type:{opts['analysis_type']}"],
+                attributes={"analysis_type": opts['analysis_type']},
             )
             raise e
 
-        stats_gauge(
+        record_histogram(
             "conserver.link.openai.engagement_analysis_time",
             time.time() - start,
-            tags=[f"analysis_type:{opts['analysis_type']}"],
+            attributes={"analysis_type": opts['analysis_type']},
         )
 
     vcon_redis.store_vcon(vCon)
     logger.info(f"Finished detect_engagement - {module_name}:{link_name} plugin for: {vcon_uuid}")
 
     return vcon_uuid
+
 
 def navigate_dict(dictionary, path):
     keys = path.split(".")

@@ -79,12 +79,11 @@ from groq import Groq
 
 from lib.error_tracking import init_error_tracker
 from lib.logging_utils import init_logger
-from lib.metrics import init_metrics, stats_gauge, stats_count
+from lib.metrics import record_histogram, increment_counter
 from server.lib.vcon_redis import VconRedis
 
 # Initialize services
 init_error_tracker()
-init_metrics()
 logger = init_logger(__name__)
 
 # Default configuration for the Whisper service
@@ -328,24 +327,26 @@ def run(
             logger.debug("Transcribing dialog %s in vCon: %s", index,
                          vCon.uuid)
             result = transcribe_groq_whisper(dialog, opts)
-            stats_gauge("conserver.link.groq_whisper.transcription_time",
-                        time.time() - start)
+            record_histogram(
+                "conserver.link.groq_whisper.transcription_time",
+                time.time() - start
+            )
         except RetryError as re:
             logger.error(
                 "Failed to transcribe vCon %s after multiple retry attempts: %s",
                 vcon_uuid, re)
-            stats_count("conserver.link.groq_whisper.transcription_failures")
+            increment_counter("conserver.link.groq_whisper.transcription_failures")
             break
         except Exception as e:
             logger.error(
                 "Unexpected error transcribing vCon %s: %s",
                 vcon_uuid, e)
-            stats_count("conserver.link.groq_whisper.transcription_failures")
+            increment_counter("conserver.link.groq_whisper.transcription_failures")
             break
 
         if not result:
             logger.warning("No transcription generated for vCon %s", vcon_uuid)
-            stats_count(
+            increment_counter(
                 "conserver.link.groq_whisper.transcription_failures")
             break
 
@@ -356,7 +357,7 @@ def run(
         # Check if result is a successful transcription
         if not hasattr(result, 'text'):
             logger.warning(f"Unexpected result format: {result}")
-            stats_count("conserver.link.groq_whisper.transcription_failures")
+            increment_counter("conserver.link.groq_whisper.transcription_failures")
             break
 
         # Handle different response formats from the Groq API
