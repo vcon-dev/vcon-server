@@ -183,7 +183,7 @@ class VconChainRequest:
             self.chain_details["name"]
         )
 
-        should_continue_chain = None
+        should_continue_chain = True
         for i in range(len(self.chain_details["links"])):
             should_continue_chain = self._process_link(self.chain_details["links"], i)
             if not should_continue_chain:
