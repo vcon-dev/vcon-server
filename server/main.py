@@ -183,6 +183,7 @@ class VconChainRequest:
             self.chain_details["name"]
         )
 
+        should_continue_chain = None
         for i in range(len(self.chain_details["links"])):
             should_continue_chain = self._process_link(self.chain_details["links"], i)
             if not should_continue_chain:
@@ -201,7 +202,8 @@ class VconChainRequest:
                 )
                 self.vcon_id = should_continue_chain
 
-        self._wrap_up()
+        if should_continue_chain:
+            self._wrap_up()
         vcon_processing_time = round(time.time() - vcon_started, 3)
         logger.info(
             "Completed processing vCon %s in %s seconds - Chain: %s",
