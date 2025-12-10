@@ -3,7 +3,6 @@ from typing import Optional
 from lib.logging_utils import init_logger
 from server.lib.vcon_redis import VconRedis
 import boto3
-from datetime import datetime
 
 logger = init_logger(__name__)
 
@@ -36,6 +35,14 @@ def _create_s3_client(opts: dict):
     return boto3.client("s3", **client_kwargs)
 
 
+def _build_s3_key(vcon_uuid: str, s3_path: Optional[str] = None) -> str:
+    """Build the S3 object key for a vCon."""
+    key = f"{vcon_uuid}.vcon"
+    if not s3_path:
+        return key
+    return f"{s3_path.rstrip('/')}/{key}"
+
+
 def save(
     vcon_uuid,
     opts=default_options,
@@ -46,13 +53,7 @@ def save(
         vcon = vcon_redis.get_vcon(vcon_uuid)
         s3 = _create_s3_client(opts)
 
-        s3_path = opts.get("s3_path")
-        created_at = datetime.fromisoformat(vcon.created_at)
-        timestamp = created_at.strftime("%Y/%m/%d")
-        key = vcon_uuid + ".vcon"
-        destination_directory = f"{timestamp}/{key}"
-        if s3_path:
-            destination_directory = s3_path + "/" + destination_directory
+        destination_directory = _build_s3_key(vcon_uuid, opts.get("s3_path"))
         s3.put_object(
             Bucket=opts["aws_bucket"], Key=destination_directory, Body=vcon.dumps()
         )
@@ -67,10 +68,9 @@ def get(vcon_uuid: str, opts=default_options) -> Optional[dict]:
     """Get a vCon from S3 by UUID."""
     try:
         s3 = _create_s3_client(opts)
-        
-        s3_path = opts.get("s3_path", "")
-        key = f"{s3_path}/{vcon_uuid}.vcon" if s3_path else f"{vcon_uuid}.vcon"
-        
+
+        key = _build_s3_key(vcon_uuid, opts.get("s3_path"))
+
         response = s3.get_object(Bucket=opts["aws_bucket"], Key=key)
         return json.loads(response['Body'].read().decode('utf-8'))
         
