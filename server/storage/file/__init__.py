@@ -55,9 +55,17 @@ def _get_file_path(vcon_uuid: str, opts: dict, created_at: Optional[str] = None)
 def _ensure_directory(file_path: Path, dir_permissions: int) -> None:
     """Ensure the parent directory exists with proper permissions."""
     file_path.parent.mkdir(parents=True, exist_ok=True)
+    # Apply permissions to all directories in the path up to the base
     try:
+        # Walk from the base path up to the parent directory
+        base_path = file_path.anchor if file_path.is_absolute() else Path('.')
+        for parent in file_path.parent.relative_to(base_path).parents:
+            dir_to_chmod = base_path / parent
+            if dir_to_chmod.exists():
+                os.chmod(dir_to_chmod, dir_permissions)
+        # Also chmod the immediate parent directory
         os.chmod(file_path.parent, dir_permissions)
-    except OSError:
+    except Exception:
         pass  # May fail on some systems, not critical
 
 
