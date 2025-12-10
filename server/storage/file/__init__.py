@@ -181,7 +181,7 @@ def get(vcon_uuid: str, opts: dict = None) -> Optional[dict]:
             return None
 
         # Read the file (handle both compressed and uncompressed)
-        if file_path.suffix == ".gz" or str(file_path).endswith(".json.gz"):
+        if str(file_path).endswith(".json.gz"):
             with gzip.open(file_path, "rt", encoding="utf-8") as f:
                 data = json.load(f)
         else:
