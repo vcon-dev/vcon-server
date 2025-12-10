@@ -4,75 +4,151 @@ This module implements local file system storage for the vCon server.
 
 ## Overview
 
-File storage provides simple, local file system storage capabilities, making it ideal for development, testing, and small-scale deployments of vCon data.
+File storage provides local file system storage capabilities, making it ideal for development, testing, and small-scale deployments. Files are stored using the vCon UUID as the filename, with optional date-based directory organization and gzip compression.
 
 ## Configuration
 
-Required configuration options:
+Configuration options in `config.yml`:
 
 ```yaml
 storages:
   file:
     module: storage.file
     options:
-      base_path: /path/to/storage     # Base directory for file storage
-      file_format: json               # File format (json/txt)
-      compression: false              # Enable compression
+      path: /data/vcons              # Base directory for storage
+      organize_by_date: true         # Store in YYYY/MM/DD subdirectories
+      compression: false             # Enable gzip compression
       max_file_size: 10485760        # Max file size in bytes (10MB)
-      file_permissions: 0644          # File permissions
+      file_permissions: 0644         # Unix file permissions (octal)
+      dir_permissions: 0755          # Unix directory permissions (octal)
 ```
+
+### Configuration Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `path` | string | `/data/vcons` | Base directory for vCon file storage |
+| `organize_by_date` | boolean | `true` | Organize files in YYYY/MM/DD subdirectories based on vCon creation date |
+| `compression` | boolean | `false` | Enable gzip compression (files saved as `.json.gz`) |
+| `max_file_size` | integer | `10485760` | Maximum file size in bytes (10MB default) |
+| `file_permissions` | integer | `0644` | Unix permissions for created files |
+| `dir_permissions` | integer | `0755` | Unix permissions for created directories |
 
 ## Features
 
-- Local file storage
-- Multiple file formats
-- Compression support
-- File size limits
-- Automatic metrics logging
-- File organization
-- Permission management
+- **UUID-based filenames**: Files are named `{uuid}.json` or `{uuid}.json.gz`
+- **Date-based organization**: Optional YYYY/MM/DD directory structure based on vCon creation date
+- **Gzip compression**: Reduce storage space with optional compression
+- **File size limits**: Prevent oversized files from consuming disk space
+- **Permission management**: Configure Unix file and directory permissions
+- **Automatic cleanup**: Empty directories are removed when vCons are deleted
+- **Metrics logging**: All operations are automatically timed and logged
+
+## Docker Volume Configuration
+
+When using Docker, mount a volume for persistent file storage:
+
+```yaml
+services:
+  conserver:
+    volumes:
+      - vcon_files:/data/vcons
+
+volumes:
+  vcon_files: {}
+```
 
 ## Usage
 
 ```python
 from storage import Storage
 
-# Initialize File storage
+# Initialize file storage
 file_storage = Storage("file")
 
-# Save vCon data
-file_storage.save(vcon_id)
+# Save vCon data (retrieves from Redis and writes to file)
+file_storage.save(vcon_uuid)
 
 # Retrieve vCon data
-vcon_data = file_storage.get(vcon_id)
+vcon_data = file_storage.get(vcon_uuid)
+
+# Delete vCon file
+file_storage.delete(vcon_uuid)
 ```
 
-## Implementation Details
+### Direct Module Usage
 
-The File storage implementation:
-- Uses standard file system operations
-- Implements file compression
-- Supports multiple file formats
-- Provides file organization
-- Includes automatic metrics logging
+For more control, you can use the module functions directly:
+
+```python
+from server.storage.file import save, get, delete, exists, list_vcons
+
+# Check if vCon exists
+if exists("my-uuid", opts):
+    data = get("my-uuid", opts)
+
+# List all vCons with pagination
+uuids = list_vcons(opts, limit=100, offset=0)
+
+# Delete a vCon
+deleted = delete("my-uuid", opts)
+```
+
+## File Organization
+
+### Flat Structure (`organize_by_date: false`)
+```
+/data/vcons/
+├── abc123.json
+├── def456.json
+└── ghi789.json.gz
+```
+
+### Date-Based Structure (`organize_by_date: true`)
+```
+/data/vcons/
+├── 2024/
+│   ├── 03/
+│   │   ├── 14/
+│   │   │   ├── abc123.json
+│   │   │   └── def456.json
+│   │   └── 15/
+│   │       └── ghi789.json
+│   └── 04/
+│       └── 01/
+│           └── jkl012.json
+```
+
+## API Reference
+
+### `save(vcon_uuid: str, opts: dict = None) -> None`
+Save a vCon to file storage. Retrieves the vCon from Redis and writes it to a file.
+
+### `get(vcon_uuid: str, opts: dict = None) -> Optional[dict]`
+Retrieve a vCon from file storage by UUID. Returns `None` if not found.
+
+### `delete(vcon_uuid: str, opts: dict = None) -> bool`
+Delete a vCon file. Returns `True` if deleted, `False` if not found.
+
+### `exists(vcon_uuid: str, opts: dict = None) -> bool`
+Check if a vCon exists in file storage.
+
+### `list_vcons(opts: dict = None, limit: int = 100, offset: int = 0) -> list[str]`
+List vCon UUIDs in storage with pagination support. Returns UUIDs sorted by modification time (newest first).
 
 ## Dependencies
 
-- json
-- gzip
-- pathlib
+- `json` - JSON serialization
+- `gzip` - Compression support
+- `pathlib` - Path manipulation
+- `glob` - File pattern matching
 
 ## Best Practices
 
-1. Regular file cleanup
-2. Implement file rotation
-3. Use appropriate file formats
-4. Monitor disk space
-5. Implement proper error handling
-6. Use compression for large files
-7. Regular backup
-8. Implement file size limits
-9. Use appropriate file permissions
-10. Monitor file system performance
-11. Implement proper directory structure
-12. Handle file locking 
+1. **Use compression** for large vCons to save disk space
+2. **Enable date organization** for easier manual browsing and archival
+3. **Set appropriate permissions** for security (default 0644 for files)
+4. **Monitor disk space** - implement cleanup policies for old files
+5. **Configure volume mounts** in Docker for data persistence
+6. **Set reasonable file size limits** to prevent runaway storage
+7. **Use S3 or other cloud storage** for production deployments with large volumes

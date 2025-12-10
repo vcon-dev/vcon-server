@@ -105,6 +105,15 @@ tracers:
   #     dlq_vcon_on_error: True
       
 storages:
+  file:
+    module: storage.file
+    options:
+      path: /data/vcons
+      organize_by_date: true
+      compression: false
+      max_file_size: 10485760
+      file_permissions: 0644
+      dir_permissions: 0755
   mongo:
     module: storage.mongo
     options:
