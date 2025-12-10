@@ -19,8 +19,8 @@ storages:
       organize_by_date: true         # Store in YYYY/MM/DD subdirectories
       compression: false             # Enable gzip compression
       max_file_size: 10485760        # Max file size in bytes (10MB)
-      file_permissions: 0644         # Unix file permissions (octal)
-      dir_permissions: 0755          # Unix directory permissions (octal)
+      file_permissions: 0o644        # Unix file permissions (octal)
+      dir_permissions: 0o755         # Unix directory permissions (octal)
 ```
 
 ### Configuration Options
@@ -31,8 +31,8 @@ storages:
 | `organize_by_date` | boolean | `true` | Organize files in YYYY/MM/DD subdirectories based on vCon creation date |
 | `compression` | boolean | `false` | Enable gzip compression (files saved as `.json.gz`) |
 | `max_file_size` | integer | `10485760` | Maximum file size in bytes (10MB default) |
-| `file_permissions` | integer | `0644` | Unix permissions for created files |
-| `dir_permissions` | integer | `0755` | Unix permissions for created directories |
+| `file_permissions` | integer | `0o644` | Unix permissions for created files |
+| `dir_permissions` | integer | `0o755` | Unix permissions for created directories |
 
 ## Features
 
@@ -147,7 +147,7 @@ List vCon UUIDs in storage with pagination support. Returns UUIDs sorted by modi
 
 1. **Use compression** for large vCons to save disk space
 2. **Enable date organization** for easier manual browsing and archival
-3. **Set appropriate permissions** for security (default 0644 for files)
+3. **Set appropriate permissions** for security (default 0o644 for files)
 4. **Monitor disk space** - implement cleanup policies for old files
 5. **Configure volume mounts** in Docker for data persistence
 6. **Set reasonable file size limits** to prevent runaway storage
