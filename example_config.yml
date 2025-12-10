@@ -134,6 +134,9 @@ storages:
       aws_access_key_id: some_key
       aws_secret_access_key: some_secret
       aws_bucket: some_bucket
+      aws_region: us-east-1  # AWS region where the bucket is located
+      # endpoint_url: null  # Optional: custom endpoint for S3-compatible services
+      # s3_path: vcons      # Optional: prefix for S3 keys
   milvus:
     module: storage.milvus
     options:
