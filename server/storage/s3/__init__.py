@@ -11,6 +11,31 @@ logger = init_logger(__name__)
 default_options = {}
 
 
+def _create_s3_client(opts: dict):
+    """Create an S3 client with the provided options.
+
+    Required options:
+        aws_access_key_id: AWS access key ID
+        aws_secret_access_key: AWS secret access key
+
+    Optional options:
+        aws_region: AWS region (e.g., 'us-east-1', 'us-west-2')
+        endpoint_url: Custom endpoint URL for S3-compatible services
+    """
+    client_kwargs = {
+        "aws_access_key_id": opts["aws_access_key_id"],
+        "aws_secret_access_key": opts["aws_secret_access_key"],
+    }
+
+    if opts.get("aws_region"):
+        client_kwargs["region_name"] = opts["aws_region"]
+
+    if opts.get("endpoint_url"):
+        client_kwargs["endpoint_url"] = opts["endpoint_url"]
+
+    return boto3.client("s3", **client_kwargs)
+
+
 def save(
     vcon_uuid,
     opts=default_options,
@@ -19,11 +44,7 @@ def save(
     try:
         vcon_redis = VconRedis()
         vcon = vcon_redis.get_vcon(vcon_uuid)
-        s3 = boto3.client(
-            "s3",
-            aws_access_key_id=opts["aws_access_key_id"],
-            aws_secret_access_key=opts["aws_secret_access_key"],
-        )
+        s3 = _create_s3_client(opts)
 
         s3_path = opts.get("s3_path")
         created_at = datetime.fromisoformat(vcon.created_at)
@@ -45,11 +66,7 @@ def save(
 def get(vcon_uuid: str, opts=default_options) -> Optional[dict]:
     """Get a vCon from S3 by UUID."""
     try:
-        s3 = boto3.client(
-            "s3",
-            aws_access_key_id=opts["aws_access_key_id"],
-            aws_secret_access_key=opts["aws_secret_access_key"],
-        )
+        s3 = _create_s3_client(opts)
         
         s3_path = opts.get("s3_path", "")
         key = f"{s3_path}/{vcon_uuid}.vcon" if s3_path else f"{vcon_uuid}.vcon"
