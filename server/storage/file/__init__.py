@@ -12,7 +12,6 @@ Provides local file system storage for vCon data with support for:
 import os
 import json
 import gzip
-import shutil
 from glob import glob
 from pathlib import Path
 from typing import Optional
