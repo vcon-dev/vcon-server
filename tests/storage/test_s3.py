@@ -20,7 +20,7 @@ mock_logger = MagicMock()
 sys.modules["lib.logging_utils"] = MagicMock(init_logger=MagicMock(return_value=mock_logger))
 sys.modules["server.lib.vcon_redis"] = MagicMock()
 
-from server.storage.s3 import _create_s3_client, save, get, default_options
+from server.storage.s3 import _create_s3_client, _build_s3_key, save, get, default_options
 
 
 class TestCreateS3Client:
@@ -183,6 +183,40 @@ class TestCreateS3Client:
                 )
 
 
+class TestBuildS3Key:
+    """Tests for the _build_s3_key helper function."""
+
+    def test_build_key_without_prefix(self):
+        """Test key building without s3_path prefix."""
+        key = _build_s3_key("test-uuid")
+        assert key == "test-uuid.vcon"
+
+    def test_build_key_with_prefix(self):
+        """Test key building with s3_path prefix."""
+        key = _build_s3_key("test-uuid", "vcons")
+        assert key == "vcons/test-uuid.vcon"
+
+    def test_build_key_with_trailing_slash_prefix(self):
+        """Test key building with trailing slash in prefix."""
+        key = _build_s3_key("test-uuid", "vcons/")
+        assert key == "vcons/test-uuid.vcon"
+
+    def test_build_key_with_none_prefix(self):
+        """Test key building with None prefix."""
+        key = _build_s3_key("test-uuid", None)
+        assert key == "test-uuid.vcon"
+
+    def test_build_key_with_empty_prefix(self):
+        """Test key building with empty string prefix."""
+        key = _build_s3_key("test-uuid", "")
+        assert key == "test-uuid.vcon"
+
+    def test_build_key_with_nested_prefix(self):
+        """Test key building with nested prefix."""
+        key = _build_s3_key("test-uuid", "data/vcons/archive")
+        assert key == "data/vcons/archive/test-uuid.vcon"
+
+
 class TestSave:
     """Tests for the save function."""
 
@@ -190,7 +224,6 @@ class TestSave:
     def mock_vcon(self):
         """Create a mock vCon object."""
         mock = MagicMock()
-        mock.created_at = "2024-01-15T10:30:00"
         mock.dumps.return_value = '{"uuid": "test-uuid", "vcon": "1.0.0"}'
         return mock
 
@@ -222,7 +255,7 @@ class TestSave:
 
             call_args = mock_s3.put_object.call_args
             assert call_args.kwargs["Bucket"] == "test-bucket"
-            assert call_args.kwargs["Key"] == "2024/01/15/test-uuid.vcon"
+            assert call_args.kwargs["Key"] == "test-uuid.vcon"
 
     def test_save_with_s3_path_prefix(self, mock_vcon, base_opts):
         """Test save operation with s3_path prefix."""
@@ -241,7 +274,7 @@ class TestSave:
             save("test-uuid", base_opts)
 
             call_args = mock_s3.put_object.call_args
-            assert call_args.kwargs["Key"] == "vcons/2024/01/15/test-uuid.vcon"
+            assert call_args.kwargs["Key"] == "vcons/test-uuid.vcon"
 
     def test_save_with_region(self, mock_vcon, base_opts):
         """Test save operation with region specified."""
@@ -281,34 +314,6 @@ class TestSave:
 
             with pytest.raises(Exception, match="S3 Error"):
                 save("test-uuid", base_opts)
-
-    def test_save_with_different_dates(self, base_opts):
-        """Test save with various created_at dates."""
-        test_cases = [
-            ("2024-01-01T00:00:00", "2024/01/01"),
-            ("2024-12-31T23:59:59", "2024/12/31"),
-            ("2023-06-15T12:00:00", "2023/06/15"),
-        ]
-
-        for created_at, expected_path in test_cases:
-            mock_vcon = MagicMock()
-            mock_vcon.created_at = created_at
-            mock_vcon.dumps.return_value = '{"uuid": "test-uuid"}'
-
-            with patch("server.storage.s3.VconRedis") as mock_redis_class, \
-                 patch("server.storage.s3.boto3.client") as mock_boto_client:
-
-                mock_redis = MagicMock()
-                mock_redis.get_vcon.return_value = mock_vcon
-                mock_redis_class.return_value = mock_redis
-
-                mock_s3 = MagicMock()
-                mock_boto_client.return_value = mock_s3
-
-                save("test-uuid", base_opts)
-
-                call_args = mock_s3.put_object.call_args
-                assert call_args.kwargs["Key"] == f"{expected_path}/test-uuid.vcon"
 
 
 class TestGet:
