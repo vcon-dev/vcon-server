@@ -114,9 +114,10 @@ def save(vcon_uuid: str, opts: dict = None) -> None:
 
         # Check file size limit
         max_size = opts.get("max_file_size", default_options["max_file_size"])
-        if len(vcon_data.encode("utf-8")) > max_size:
+        vcon_size_bytes = len(vcon_data.encode("utf-8"))
+        if vcon_size_bytes > max_size:
             raise ValueError(
-                f"vCon data exceeds max file size: {len(vcon_data)} > {max_size}"
+                f"vCon data exceeds max file size: {vcon_size_bytes} bytes > {max_size} bytes"
             )
 
         # Get the file path
