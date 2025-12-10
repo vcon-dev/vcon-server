@@ -271,8 +271,9 @@ def list_vcons(opts: dict = None, limit: int = 100, offset: int = 0) -> list[str
 
     try:
         # Find all vCon files
-        pattern = str(base_path / "**" / "*.json*")
-        all_files = glob(pattern, recursive=True)
+        pattern_json = str(base_path / "**" / "*.json")
+        pattern_json_gz = str(base_path / "**" / "*.json.gz")
+        all_files = glob(pattern_json, recursive=True) + glob(pattern_json_gz, recursive=True)
 
         # Extract UUIDs from filenames
         uuids = []
