@@ -11,6 +11,7 @@ services:
     command: "watchmedo auto-restart -p '*.py' -R python -- ./server/main.py"
     volumes:
       - .:/app
+      - vcon_files:/data/vcons
     depends_on:
       - redis
     env_file:
@@ -30,6 +31,7 @@ services:
     command: /bin/bash -c "poetry run uvicorn server.api:app --host 0.0.0.0 --port 8000"
     volumes:
       - .:/app
+      - vcon_files:/data/vcons
     ports:
       - "${CONSERVER_EXTERNAL_PORT:-8000}:8000"
     depends_on:
@@ -249,3 +251,4 @@ services:
 volumes:
   es_data: {}
   redis_data: {}
+  vcon_files: {}
