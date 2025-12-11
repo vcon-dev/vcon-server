@@ -1,8 +1,9 @@
 import json
 import pytest
 from unittest.mock import patch, MagicMock
+from botocore.exceptions import ClientError
 
-from server.links.diet import run, default_options, remove_system_prompts_recursive
+from server.links.diet import run, default_options, remove_system_prompts_recursive, _upload_to_s3_and_get_presigned_url
 
 @pytest.fixture
 def sample_vcon():
@@ -269,4 +270,213 @@ def test_combined_options(mock_redis, sample_vcon):
     assert "analysis" not in saved_vcon
     assert len(saved_vcon["attachments"]) == 2
     assert saved_vcon["attachments"][0]["id"] == "att2"
-    assert "system_prompt" not in saved_vcon["attachments"][1]["metadata"] 
+    assert "system_prompt" not in saved_vcon["attachments"][1]["metadata"]
+
+
+@pytest.fixture
+def s3_options():
+    return {
+        "remove_dialog_body": True,
+        "s3_bucket": "test-bucket",
+        "s3_path": "dialogs",
+        "aws_access_key_id": "test-key-id",
+        "aws_secret_access_key": "test-secret-key",
+        "aws_region": "us-west-2",
+        "presigned_url_expiration": 7200,
+    }
+
+
+@patch('server.links.diet.boto3')
+def test_upload_to_s3_and_get_presigned_url(mock_boto3):
+    # Test the S3 upload helper function
+    mock_s3 = MagicMock()
+    mock_boto3.client.return_value = mock_s3
+    mock_s3.generate_presigned_url.return_value = "https://test-bucket.s3.amazonaws.com/presigned-url"
+
+    options = {
+        "s3_bucket": "test-bucket",
+        "s3_path": "dialogs",
+        "aws_access_key_id": "test-key-id",
+        "aws_secret_access_key": "test-secret-key",
+        "aws_region": "us-west-2",
+        "presigned_url_expiration": 7200,
+    }
+
+    result = _upload_to_s3_and_get_presigned_url(
+        "test content",
+        "vcon-uuid-123",
+        "dialog1",
+        options
+    )
+
+    # Verify S3 client was created with correct credentials
+    mock_boto3.client.assert_called_once_with(
+        "s3",
+        aws_access_key_id="test-key-id",
+        aws_secret_access_key="test-secret-key",
+        region_name="us-west-2",
+    )
+
+    # Verify put_object was called
+    mock_s3.put_object.assert_called_once()
+    call_kwargs = mock_s3.put_object.call_args[1]
+    assert call_kwargs["Bucket"] == "test-bucket"
+    assert "dialogs/vcon-uuid-123/dialog1_" in call_kwargs["Key"]
+    assert call_kwargs["ContentType"] == "text/plain"
+
+    # Verify presigned URL was generated with correct expiration
+    mock_s3.generate_presigned_url.assert_called_once()
+    presign_call = mock_s3.generate_presigned_url.call_args
+    assert presign_call[0][0] == "get_object"
+    assert presign_call[1]["ExpiresIn"] == 7200
+
+    assert result == "https://test-bucket.s3.amazonaws.com/presigned-url"
+
+
+@patch('server.links.diet.boto3')
+def test_upload_to_s3_default_expiration(mock_boto3):
+    # Test that default expiration (3600) is used when not specified
+    mock_s3 = MagicMock()
+    mock_boto3.client.return_value = mock_s3
+    mock_s3.generate_presigned_url.return_value = "https://presigned-url"
+
+    options = {
+        "s3_bucket": "test-bucket",
+        "aws_access_key_id": "test-key-id",
+        "aws_secret_access_key": "test-secret-key",
+        "presigned_url_expiration": None,  # Not specified
+    }
+
+    _upload_to_s3_and_get_presigned_url("content", "vcon-123", "dialog1", options)
+
+    # Verify default expiration of 3600 seconds was used
+    presign_call = mock_s3.generate_presigned_url.call_args
+    assert presign_call[1]["ExpiresIn"] == 3600
+
+
+@patch('server.links.diet.boto3')
+def test_upload_to_s3_no_path_prefix(mock_boto3):
+    # Test S3 upload without path prefix
+    mock_s3 = MagicMock()
+    mock_boto3.client.return_value = mock_s3
+    mock_s3.generate_presigned_url.return_value = "https://presigned-url"
+
+    options = {
+        "s3_bucket": "test-bucket",
+        "s3_path": "",  # No path prefix
+        "aws_access_key_id": "test-key-id",
+        "aws_secret_access_key": "test-secret-key",
+    }
+
+    _upload_to_s3_and_get_presigned_url("content", "vcon-123", "dialog1", options)
+
+    # Verify key doesn't have prefix
+    call_kwargs = mock_s3.put_object.call_args[1]
+    assert call_kwargs["Key"].startswith("vcon-123/dialog1_")
+    assert not call_kwargs["Key"].startswith("/")
+
+
+@patch('server.links.diet.boto3')
+def test_upload_to_s3_failure(mock_boto3):
+    # Test handling of S3 upload failure
+    mock_s3 = MagicMock()
+    mock_boto3.client.return_value = mock_s3
+    mock_s3.put_object.side_effect = ClientError(
+        {"Error": {"Code": "AccessDenied", "Message": "Access Denied"}},
+        "PutObject"
+    )
+
+    options = {
+        "s3_bucket": "test-bucket",
+        "aws_access_key_id": "test-key-id",
+        "aws_secret_access_key": "test-secret-key",
+    }
+
+    result = _upload_to_s3_and_get_presigned_url("content", "vcon-123", "dialog1", options)
+
+    assert result is None
+
+
+@patch('server.links.diet.redis')
+@patch('server.links.diet.boto3')
+def test_run_with_s3_storage(mock_boto3, mock_redis, sample_vcon, s3_options):
+    # Test the full run function with S3 storage
+    mock_json = MagicMock()
+    mock_redis.json.return_value = mock_json
+    mock_json.get.return_value = sample_vcon
+
+    mock_s3 = MagicMock()
+    mock_boto3.client.return_value = mock_s3
+    mock_s3.generate_presigned_url.return_value = "https://test-bucket.s3.amazonaws.com/presigned-url"
+
+    run("test-vcon-123", "diet", s3_options)
+
+    # Verify JSON.SET was called
+    mock_json.set.assert_called_once()
+    args, kwargs = mock_json.set.call_args
+    saved_vcon = args[2]
+
+    # Check that dialog bodies were replaced with presigned URLs
+    assert saved_vcon["dialog"][0]["body"] == "https://test-bucket.s3.amazonaws.com/presigned-url"
+    assert saved_vcon["dialog"][0]["body_type"] == "url"
+    assert saved_vcon["dialog"][1]["body"] == "https://test-bucket.s3.amazonaws.com/presigned-url"
+    assert saved_vcon["dialog"][1]["body_type"] == "url"
+
+    # Verify S3 was called for each dialog
+    assert mock_s3.put_object.call_count == 2
+
+
+@patch('server.links.diet.redis')
+@patch('server.links.diet.boto3')
+def test_run_with_s3_storage_failure_removes_body(mock_boto3, mock_redis, sample_vcon, s3_options):
+    # Test that body is removed when S3 upload fails
+    mock_json = MagicMock()
+    mock_redis.json.return_value = mock_json
+    mock_json.get.return_value = sample_vcon
+
+    mock_s3 = MagicMock()
+    mock_boto3.client.return_value = mock_s3
+    mock_s3.put_object.side_effect = ClientError(
+        {"Error": {"Code": "AccessDenied", "Message": "Access Denied"}},
+        "PutObject"
+    )
+
+    run("test-vcon-123", "diet", s3_options)
+
+    # Verify JSON.SET was called
+    mock_json.set.assert_called_once()
+    args, kwargs = mock_json.set.call_args
+    saved_vcon = args[2]
+
+    # Check that dialog bodies were removed due to failure
+    assert saved_vcon["dialog"][0]["body"] == ""
+    assert saved_vcon["dialog"][1]["body"] == ""
+
+
+@patch('server.links.diet.redis')
+@patch('server.links.diet.boto3')
+def test_s3_takes_precedence_over_post_url(mock_boto3, mock_redis, sample_vcon):
+    # Test that S3 storage takes precedence over post_media_to_url
+    mock_json = MagicMock()
+    mock_redis.json.return_value = mock_json
+    mock_json.get.return_value = sample_vcon
+
+    mock_s3 = MagicMock()
+    mock_boto3.client.return_value = mock_s3
+    mock_s3.generate_presigned_url.return_value = "https://s3-presigned-url"
+
+    options = {
+        "remove_dialog_body": True,
+        "s3_bucket": "test-bucket",
+        "aws_access_key_id": "test-key-id",
+        "aws_secret_access_key": "test-secret-key",
+        "post_media_to_url": "https://should-not-be-called.com",  # This should be ignored
+    }
+
+    with patch('server.links.diet.requests.post') as mock_post:
+        run("test-vcon-123", "diet", options)
+        # post_media_to_url should not be called when S3 is configured
+        mock_post.assert_not_called()
+
+    # Verify S3 was used instead
+    assert mock_s3.put_object.call_count == 2
