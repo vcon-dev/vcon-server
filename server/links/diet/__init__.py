@@ -10,6 +10,26 @@ from typing import Dict, List, Any, Optional
 logger = init_logger(__name__)
 logger.info("MDO THIS SHOULD PRINT")
 
+_REDACTED = "[REDACTED]"
+
+
+def _redact_option_value(key: str, value: Any) -> Any:
+    """
+    Redact sensitive option values before logging.
+
+    This prevents leaking secrets (for example AWS credentials) into logs.
+    """
+    key_l = (key or "").lower()
+    if (
+        key_l == "aws_secret_access_key"
+        or "secret" in key_l
+        or "password" in key_l
+        or "token" in key_l
+        or key_l.endswith("_secret")
+    ):
+        return _REDACTED
+    return value
+
 
 # Default options that control which elements to remove
 default_options = {
@@ -112,7 +132,7 @@ def run(vcon_uuid, link_name, opts=default_options):
     options = {**default_options, **opts}
     
     for key, value in options.items():
-        logger.info(f"diet::{key}: {value}")
+        logger.info("diet::%s: %s", key, _redact_option_value(key, value))
 
     # Load vCon from Redis using JSON.GET
     vcon = redis.json().get(f"vcon:{vcon_uuid}")

@@ -1,5 +1,6 @@
 import json
 import pytest
+import logging
 from unittest.mock import patch, MagicMock
 from botocore.exceptions import ClientError
 
@@ -480,3 +481,22 @@ def test_s3_takes_precedence_over_post_url(mock_boto3, mock_redis, sample_vcon):
 
     # Verify S3 was used instead
     assert mock_s3.put_object.call_count == 2
+
+
+@patch('server.links.diet.redis')
+def test_options_logging_redacts_aws_secret_access_key(mock_redis, sample_vcon, caplog):
+    # Ensure secrets are not written to logs
+    mock_json = MagicMock()
+    mock_redis.json.return_value = mock_json
+    mock_json.get.return_value = sample_vcon
+
+    secret = "test-secret-key"
+    caplog.set_level(logging.INFO)
+
+    run("test-vcon-123", "diet", {
+        "remove_dialog_body": False,
+        "aws_secret_access_key": secret,
+    })
+
+    assert secret not in caplog.text
+    assert "diet::aws_secret_access_key: [REDACTED]" in caplog.text
