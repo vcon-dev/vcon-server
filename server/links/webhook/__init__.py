@@ -36,8 +36,16 @@ def run(
     # Build headers from configuration
     headers = opts.get("headers", {})
 
+    # Validate webhook URLs are configured
+    webhook_urls = opts.get("webhook-urls", [])
+    if not webhook_urls:
+        logger.warning(
+            f"webhook plugin: no webhook-urls configured for vcon {vcon_uuid}, skipping"
+        )
+        return vcon_uuid
+
     # Post this to each webhook url
-    for url in opts["webhook-urls"]:
+    for url in webhook_urls:
         logger.info(
             f"webhook plugin: posting vcon {vcon_uuid} to webhook url: {url}"
         )
