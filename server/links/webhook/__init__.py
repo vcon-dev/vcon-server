@@ -5,10 +5,18 @@ import requests
 
 logger = init_logger(__name__)
 
+# Example configuration:
+# default_options = {
+#     "webhook-urls": ["https://your-webhook-endpoint.com"],
+#     "headers": {
+#         "Authorization": "Bearer YourToken",
+#         "x-conserver-api-token": "your-api-token",
+#     },
+# }
+
 default_options = {
-    "webhook-urls": ["https://eo91qivu6evxsty.m.pipedream.net"],
-    "auth_header": "Bearer ThompsonsClamBar",
-    "api_token": "default-api-token",
+    "webhook-urls": [],
+    "headers": {},
 }
 
 
@@ -17,7 +25,7 @@ def run(
     link_name,
     opts=default_options,
 ):
-    logger.debug("Starting transcribe::run")
+    logger.debug("Starting webhook::run")
 
     vcon_redis = VconRedis()
     vCon = vcon_redis.get_vcon(vcon_uuid)
@@ -25,15 +33,22 @@ def run(
     # The webhook needs a stringified JSON version.
     json_dict = vCon.to_dict()
 
+    # Build headers from configuration
+    headers = opts.get("headers", {})
+
+    # Validate webhook URLs are configured
+    webhook_urls = opts.get("webhook-urls", [])
+    if not webhook_urls:
+        logger.warning(
+            f"webhook plugin: no webhook-urls configured for vcon {vcon_uuid}, skipping"
+        )
+        return vcon_uuid
+
     # Post this to each webhook url
-    for url in opts["webhook-urls"]:
+    for url in webhook_urls:
         logger.info(
             f"webhook plugin: posting vcon {vcon_uuid} to webhook url: {url}"
         )
-        headers = {
-            "Authorization": opts.get("auth_header"),
-            "x-conserver-api-token": opts.get("api_token"),
-        }
         resp = requests.post(url, json=json_dict, headers=headers)
         logger.info(
             f"webhook plugin response for {vcon_uuid}: {resp.status_code} {resp.text}"
