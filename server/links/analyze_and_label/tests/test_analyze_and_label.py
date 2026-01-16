@@ -1,11 +1,12 @@
 import os
 import json
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, Mock
 
 from server.links.analyze_and_label import run, generate_analysis_with_labels, get_analysis_for_type, navigate_dict
 from server.vcon import Vcon
 from lib.vcon_redis import VconRedis
+from lib.llm_client import LLMResponse
 
 # Use a specific environment variable to control whether to run the real API tests
 RUN_API_TESTS = os.environ.get("RUN_OPENAI_ANALYZE_LABEL_TESTS", "0").lower() in ("1", "true", "yes")
@@ -157,29 +158,23 @@ def mock_redis_with_vcon(mock_vcon_redis, sample_vcon):
 
 
 @pytest.fixture
-def mock_openai_client():
-    """Mock the OpenAI client"""
-    with patch('server.links.analyze_and_label.OpenAI') as mock_openai:
+def mock_llm_client():
+    """Mock the LLM client"""
+    with patch('server.links.analyze_and_label.create_llm_client') as mock_create_client:
         mock_client = MagicMock()
-        mock_openai.return_value = mock_client
-        
-        # Create mock chat completions
-        mock_chat = MagicMock()
-        mock_client.chat = mock_chat
-        
-        # Create mock completions service
-        mock_completions = MagicMock()
-        mock_chat.completions = mock_completions
-        
-        # Mock the create method to return a successful response
-        mock_response = MagicMock()
-        mock_choice = MagicMock()
-        mock_message = MagicMock()
-        mock_message.content = json.dumps({"labels": ["customer_service", "billing_issue", "refund"]})
-        mock_choice.message = mock_message
-        mock_response.choices = [mock_choice]
-        mock_completions.create.return_value = mock_response
-        
+        mock_response = LLMResponse(
+            content=json.dumps({"labels": ["customer_service", "billing_issue", "refund"]}),
+            model="gpt-3.5-turbo",
+            prompt_tokens=10,
+            completion_tokens=20,
+            total_tokens=30,
+            raw_response=None,
+            provider="openai"
+        )
+        mock_client.complete_with_tracking.return_value = mock_response
+        mock_client.provider_name = "openai"
+        mock_create_client.return_value = mock_client
+
         yield mock_client
 
 
@@ -222,40 +217,51 @@ def test_navigate_dict():
     assert navigate_dict(test_dict, "z") is None
 
 
-@patch('server.links.analyze_and_label.generate_analysis_with_labels')
+@patch('server.links.analyze_and_label.create_llm_client')
 @patch('server.links.analyze_and_label.is_included', return_value=True)
 @patch('server.links.analyze_and_label.randomly_execute_with_sampling', return_value=True)
-def test_run_basic(mock_sampling, mock_is_included, mock_generate_analysis, mock_redis_with_vcon, sample_vcon):
-    """Test the basic run functionality with mocked analysis generation"""
-    # Set up mock to return analysis JSON
-    mock_generate_analysis.return_value = json.dumps({
-        "labels": ["customer_service", "billing_issue", "refund"]
-    })
-    
+def test_run_basic(mock_sampling, mock_is_included, mock_create_client, mock_redis_with_vcon, sample_vcon):
+    """Test the basic run functionality with mocked LLM client"""
+    # Set up mock LLM client
+    mock_client = Mock()
+    mock_response = LLMResponse(
+        content=json.dumps({"labels": ["customer_service", "billing_issue", "refund"]}),
+        model="gpt-3.5-turbo",
+        prompt_tokens=10,
+        completion_tokens=20,
+        total_tokens=30,
+        raw_response=None,
+        provider="openai"
+    )
+    mock_client.complete_with_tracking.return_value = mock_response
+    mock_client.provider_name = "openai"
+    mock_create_client.return_value = mock_client
+
     # Set up the mock Redis instance to return our sample vCon
-    mock_instance = mock_redis_with_vcon.return_value
+    mock_instance = mock_redis_with_vcon
     mock_instance.get_vcon.return_value = sample_vcon
-    
+
     # Run with default options but add API key
     opts = {"OPENAI_API_KEY": API_KEY}
-    
+
     result = run("test-uuid", "analyze_and_label", opts)
-    
+
     # Check that vCon was processed and returned
     assert result == "test-uuid"
-    
-    # Verify analysis generation was called
-    mock_generate_analysis.assert_called_once()
-    
+
+    # Verify LLM client was created and used
+    mock_create_client.assert_called_once()
+    mock_client.complete_with_tracking.assert_called_once()
+
     # Verify vCon was updated and stored
     mock_redis_with_vcon.store_vcon.assert_called_once()
-    
+
     # Check the vCon has a labeled analysis
     assert any(
-        a["type"] == "labeled_analysis" and a["vendor"] == "openai" 
+        a["type"] == "labeled_analysis" and a["vendor"] == "openai"
         for a in sample_vcon.analysis
     )
-    
+
     # Check that tags were added
     tags_attachment = sample_vcon.tags
     assert tags_attachment is not None
@@ -265,16 +271,16 @@ def test_run_basic(mock_sampling, mock_is_included, mock_generate_analysis, mock
 
 
 @patch('server.links.analyze_and_label.get_analysis_for_type')
-@patch('server.links.analyze_and_label.generate_analysis_with_labels')
+@patch('server.links.analyze_and_label.create_llm_client')
 @patch('server.links.analyze_and_label.is_included', return_value=True)
 @patch('server.links.analyze_and_label.randomly_execute_with_sampling', return_value=True)
-def test_run_skip_existing_analysis(mock_sampling, mock_is_included, mock_generate_analysis, mock_get_analysis, mock_redis_with_vcon, sample_vcon_with_analysis):
+def test_run_skip_existing_analysis(mock_sampling, mock_is_included, mock_create_client, mock_get_analysis, mock_redis_with_vcon, sample_vcon_with_analysis):
     """Test that run skips dialogs with existing labeled analysis"""
-    # Set up mock for generate_analysis_with_labels
-    mock_generate_analysis.return_value = json.dumps({
-        "labels": ["new_label_that_should_not_be_added"]
-    })
-    
+    # Set up mock LLM client (should not be called)
+    mock_client = Mock()
+    mock_client.provider_name = "openai"
+    mock_create_client.return_value = mock_client
+
     # Mock get_analysis_for_type to return an existing labeled_analysis
     # This will cause the run function to skip processing this dialog
     mock_get_analysis.side_effect = lambda vcon, index, analysis_type: {
@@ -284,214 +290,228 @@ def test_run_skip_existing_analysis(mock_sampling, mock_is_included, mock_genera
         "body": json.dumps({"labels": ["customer_service", "billing_issue", "refund"]}),
         "encoding": "json"
     } if analysis_type == "labeled_analysis" else None
-    
+
     # Set up Redis mock to return vCon with existing analysis
-    mock_instance = mock_redis_with_vcon.return_value
+    mock_instance = mock_redis_with_vcon
     mock_instance.get_vcon.return_value = sample_vcon_with_analysis
-    
+
     # Count existing analyses before the run
     analysis_count_before = len(sample_vcon_with_analysis.analysis)
-    
+
     # Run with default options but add API key
     opts = {"OPENAI_API_KEY": API_KEY}
-    
+
     result = run("test-uuid", "analyze_and_label", opts)
-    
+
     # Check that the result is correct
     assert result == "test-uuid"
-    
+
     # Verify the analysis was skipped - analysis count should remain the same
     assert len(sample_vcon_with_analysis.analysis) == analysis_count_before
-    
-    # Verify generate_analysis_with_labels was not called
-    mock_generate_analysis.assert_not_called()
+
+    # Verify LLM client was not used to generate analysis
+    mock_client.complete_with_tracking.assert_not_called()
 
 
-@patch('server.links.analyze_and_label.generate_analysis_with_labels')
+@patch('server.links.analyze_and_label.create_llm_client')
 @patch('server.links.analyze_and_label.is_included', return_value=True)
 @patch('server.links.analyze_and_label.randomly_execute_with_sampling', return_value=True)
-def test_run_json_parse_error(mock_sampling, mock_is_included, mock_generate_analysis, mock_redis_with_vcon, sample_vcon):
+def test_run_json_parse_error(mock_sampling, mock_is_included, mock_create_client, mock_redis_with_vcon, sample_vcon):
     """Test handling of JSON parse errors"""
-    # Set up mock to return invalid JSON
-    mock_generate_analysis.return_value = "This is not valid JSON"
-    
+    # Set up mock LLM client to return invalid JSON
+    mock_client = Mock()
+    mock_response = LLMResponse(
+        content="This is not valid JSON",
+        model="gpt-3.5-turbo",
+        prompt_tokens=10,
+        completion_tokens=20,
+        total_tokens=30,
+        raw_response=None,
+        provider="openai"
+    )
+    mock_client.complete_with_tracking.return_value = mock_response
+    mock_client.provider_name = "openai"
+    mock_create_client.return_value = mock_client
+
     # Set up the mock Redis instance to return our sample vCon
-    mock_instance = mock_redis_with_vcon.return_value
+    mock_instance = mock_redis_with_vcon
     mock_instance.get_vcon.return_value = sample_vcon
-    
+
     # Run with default options but add API key
     opts = {"OPENAI_API_KEY": API_KEY}
-    
+
     result = run("test-uuid", "analyze_and_label", opts)
-    
+
     # Check that vCon was processed and returned despite the error
     assert result == "test-uuid"
-    
+
     # Verify analysis was still added but with encoding="none"
     assert any(
         a["type"] == "labeled_analysis" and a["vendor"] == "openai" and a["encoding"] == "none"
         for a in sample_vcon.analysis
     )
-    
+
     # Check that no tags were added since JSON parsing failed
     tags_attachment = sample_vcon.tags
     assert tags_attachment is None or len(tags_attachment["body"]) == 0
 
 
-@patch('server.links.analyze_and_label.generate_analysis_with_labels')
+@patch('server.links.analyze_and_label.create_llm_client')
 @patch('server.links.analyze_and_label.is_included', return_value=True)
 @patch('server.links.analyze_and_label.randomly_execute_with_sampling', return_value=True)
-def test_run_analysis_exception(mock_sampling, mock_is_included, mock_generate_analysis, mock_redis_with_vcon, sample_vcon):
+def test_run_analysis_exception(mock_sampling, mock_is_included, mock_create_client, mock_redis_with_vcon, sample_vcon):
     """Test handling of analysis generation exceptions"""
-    # Make analysis function raise an exception
-    mock_generate_analysis.side_effect = Exception("Analysis generation failed")
-    
+    # Set up mock LLM client to raise exception
+    mock_client = Mock()
+    mock_client.complete_with_tracking.side_effect = Exception("Analysis generation failed")
+    mock_client.provider_name = "openai"
+    mock_create_client.return_value = mock_client
+
     # Set up the mock Redis instance to return our sample vCon
-    mock_instance = mock_redis_with_vcon.return_value
+    mock_instance = mock_redis_with_vcon
     mock_instance.get_vcon.return_value = sample_vcon
-    
+
     # Run with default options but add API key
     opts = {"OPENAI_API_KEY": API_KEY}
-    
+
     # The exception should be propagated
     with pytest.raises(Exception, match="Analysis generation failed"):
         run("test-uuid", "analyze_and_label", opts)
 
 
-@patch('server.links.analyze_and_label.generate_analysis_with_labels')
+@patch('server.links.analyze_and_label.create_llm_client')
 @patch('server.links.analyze_and_label.is_included', return_value=True)
 @patch('server.links.analyze_and_label.randomly_execute_with_sampling', return_value=True)
-def test_run_message_format(mock_sampling, mock_is_included, mock_generate_analysis, mock_redis_with_vcon, sample_vcon_message_format):
+def test_run_message_format(mock_sampling, mock_is_included, mock_create_client, mock_redis_with_vcon, sample_vcon_message_format):
     """Test analyzing a dialog with message format"""
+    # Set up mock LLM client
+    mock_client = Mock()
+    mock_response = LLMResponse(
+        content=json.dumps({"labels": ["account_access", "password_reset", "login_issues"]}),
+        model="gpt-3.5-turbo",
+        prompt_tokens=10,
+        completion_tokens=20,
+        total_tokens=30,
+        raw_response=None,
+        provider="openai"
+    )
+    mock_client.complete_with_tracking.return_value = mock_response
+    mock_client.provider_name = "openai"
+    mock_create_client.return_value = mock_client
+
     # Set up the mock Redis instance to return our sample vCon with message format
-    mock_instance = mock_redis_with_vcon.return_value
+    mock_instance = mock_redis_with_vcon
     mock_instance.get_vcon.return_value = sample_vcon_message_format
-    
-    # Mock successful analysis generation with labels relevant to account access issues
-    mock_generate_analysis.return_value = json.dumps({"labels": ["account_access", "password_reset", "login_issues"]})
-    
+
     # Run with default options but add API key
     opts = {"OPENAI_API_KEY": API_KEY}
-    
+
     result = run("test-uuid", "analyze_and_label", opts)
-    
+
     # Check that vCon was processed and returned
     assert result == "test-uuid"
-    
-    # Verify OpenAI API was called
-    mock_generate_analysis.assert_called_once()
-    
-    # Don't check exact transcript content in the tests as the mock structure might vary
-    # Just verify the function was called and returns our mocked labels
-    
-    # The test focus is on verifying that the tags were correctly added
-    # Skip checking if analysis was added since mock objects might not properly simulate this behavior
-    retrieved_vcon = mock_instance.get_vcon.return_value
-    
+
+    # Verify LLM client was used
+    mock_client.complete_with_tracking.assert_called_once()
+
     # Verify tags were added
     expected_tags = ["account_access", "password_reset", "login_issues"]
-    tags_attachment = sample_vcon_message_format.tags
-    
-    # Mock how tags are added and verified since actual tag structure may vary
     mock_tags = []
     for label in expected_tags:
         sample_vcon_message_format.add_tag(tag_name=label, tag_value=label)
         mock_tags.append(label)
-        
-    # Just verify add_tag was called with the expected tags
+
     assert len(mock_tags) == len(expected_tags)
-    for tag in expected_tags:
-        assert tag in mock_tags
 
 
-@patch('server.links.analyze_and_label.generate_analysis_with_labels')
+@patch('server.links.analyze_and_label.create_llm_client')
 @patch('server.links.analyze_and_label.is_included', return_value=True)
 @patch('server.links.analyze_and_label.randomly_execute_with_sampling', return_value=True)
-def test_run_chat_format(mock_sampling, mock_is_included, mock_generate_analysis, mock_redis_with_vcon, sample_vcon_chat_format):
+def test_run_chat_format(mock_sampling, mock_is_included, mock_create_client, mock_redis_with_vcon, sample_vcon_chat_format):
     """Test analyzing a dialog with chat format"""
+    # Set up mock LLM client
+    mock_client = Mock()
+    mock_response = LLMResponse(
+        content=json.dumps({"labels": ["order_issue", "wrong_item", "return_request"]}),
+        model="gpt-3.5-turbo",
+        prompt_tokens=10,
+        completion_tokens=20,
+        total_tokens=30,
+        raw_response=None,
+        provider="openai"
+    )
+    mock_client.complete_with_tracking.return_value = mock_response
+    mock_client.provider_name = "openai"
+    mock_create_client.return_value = mock_client
+
     # Set up the mock Redis instance to return our sample vCon with chat format
-    mock_instance = mock_redis_with_vcon.return_value
+    mock_instance = mock_redis_with_vcon
     mock_instance.get_vcon.return_value = sample_vcon_chat_format
-    
-    # Mock successful analysis generation with labels relevant to order issues
-    mock_generate_analysis.return_value = json.dumps({"labels": ["order_issue", "wrong_item", "return_request"]})
-    
+
     # Run with default options but add API key
     opts = {"OPENAI_API_KEY": API_KEY}
-    
+
     result = run("test-uuid", "analyze_and_label", opts)
-    
+
     # Check that vCon was processed and returned
     assert result == "test-uuid"
-    
-    # Verify OpenAI API was called
-    mock_generate_analysis.assert_called_once()
-    
-    # Don't check exact transcript content in the tests as the mock structure might vary
-    # Just verify the function was called and returns our mocked labels
-    
-    # The test focus is on verifying that the tags were correctly added
-    # Skip checking if analysis was added since mock objects might not properly simulate this behavior
-    retrieved_vcon = mock_instance.get_vcon.return_value
-    
+
+    # Verify LLM client was used
+    mock_client.complete_with_tracking.assert_called_once()
+
     # Verify tags were added
     expected_tags = ["order_issue", "wrong_item", "return_request"]
-    
-    # Mock how tags are added and verified since actual tag structure may vary
     mock_tags = []
     for label in expected_tags:
         sample_vcon_chat_format.add_tag(tag_name=label, tag_value=label)
         mock_tags.append(label)
-        
-    # Just verify add_tag was called with the expected tags
+
     assert len(mock_tags) == len(expected_tags)
-    for tag in expected_tags:
-        assert tag in mock_tags
 
 
-@patch('server.links.analyze_and_label.generate_analysis_with_labels')
+@patch('server.links.analyze_and_label.create_llm_client')
 @patch('server.links.analyze_and_label.is_included', return_value=True)
 @patch('server.links.analyze_and_label.randomly_execute_with_sampling', return_value=True)
-def test_run_email_format(mock_sampling, mock_is_included, mock_generate_analysis, mock_redis_with_vcon, sample_vcon_email_format):
+def test_run_email_format(mock_sampling, mock_is_included, mock_create_client, mock_redis_with_vcon, sample_vcon_email_format):
     """Test analyzing a dialog with email format"""
+    # Set up mock LLM client
+    mock_client = Mock()
+    mock_response = LLMResponse(
+        content=json.dumps({"labels": ["product_quality", "shipping_damage", "delivery_delay", "refund_request"]}),
+        model="gpt-3.5-turbo",
+        prompt_tokens=10,
+        completion_tokens=20,
+        total_tokens=30,
+        raw_response=None,
+        provider="openai"
+    )
+    mock_client.complete_with_tracking.return_value = mock_response
+    mock_client.provider_name = "openai"
+    mock_create_client.return_value = mock_client
+
     # Set up the mock Redis instance to return our sample vCon with email format
-    mock_instance = mock_redis_with_vcon.return_value
+    mock_instance = mock_redis_with_vcon
     mock_instance.get_vcon.return_value = sample_vcon_email_format
-    
-    # Mock successful analysis generation with labels relevant to product complaints
-    mock_generate_analysis.return_value = json.dumps({"labels": ["product_quality", "shipping_damage", "delivery_delay", "refund_request"]})
-    
+
     # Run with default options but add API key
     opts = {"OPENAI_API_KEY": API_KEY}
-    
+
     result = run("test-uuid", "analyze_and_label", opts)
-    
+
     # Check that vCon was processed and returned
     assert result == "test-uuid"
-    
-    # Verify OpenAI API was called
-    mock_generate_analysis.assert_called_once()
-    
-    # Don't check exact transcript content in the tests as the mock structure might vary
-    # Just verify the function was called and returns our mocked labels
-    
-    # The test focus is on verifying that the tags were correctly added
-    # Skip checking if analysis was added since mock objects might not properly simulate this behavior
-    retrieved_vcon = mock_instance.get_vcon.return_value
-    
+
+    # Verify LLM client was used
+    mock_client.complete_with_tracking.assert_called_once()
+
     # Verify tags were added
     expected_tags = ["product_quality", "shipping_damage", "delivery_delay", "refund_request"]
-    
-    # Mock how tags are added and verified since actual tag structure may vary
     mock_tags = []
     for label in expected_tags:
         sample_vcon_email_format.add_tag(tag_name=label, tag_value=label)
         mock_tags.append(label)
-        
-    # Just verify add_tag was called with the expected tags
+
     assert len(mock_tags) == len(expected_tags)
-    for tag in expected_tags:
-        assert tag in mock_tags
 
 
 @pytest.mark.skipif(not RUN_API_TESTS, reason="Skipping API tests. Set RUN_OPENAI_ANALYZE_LABEL_TESTS=1 to run")
@@ -500,9 +520,9 @@ def test_generate_analysis_with_labels_real_api():
     # Skip if no API key is provided
     if not os.environ.get("OPENAI_API_KEY"):
         pytest.skip("No OpenAI API key provided via OPENAI_API_KEY environment variable")
-    
-    from openai import OpenAI
-    
+
+    from lib.llm_client import create_llm_client
+
     # Sample transcript
     transcript = (
         "Customer: Hi, I'm calling about my recent bill. I think there's an error. "
@@ -511,25 +531,31 @@ def test_generate_analysis_with_labels_real_api():
         "Agent: You're right, I see the duplicate charge. I'll process a refund right away. "
         "Customer: Thank you, I appreciate that."
     )
-    
-    # Create real client
-    client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
-    
-    # Call the function
-    result = generate_analysis_with_labels(
+
+    # Create LLM client using the factory
+    opts = {
+        "prompt": "Analyze this transcript and provide a list of relevant labels for categorization. Return your response as a JSON object with a single key 'labels' containing an array of strings.",
+        "model": "gpt-3.5-turbo",  # Use cheaper model for tests
+        "temperature": 0,
+        "OPENAI_API_KEY": os.environ["OPENAI_API_KEY"],
+        "response_format": {"type": "json_object"}
+    }
+    client = create_llm_client(opts)
+
+    # Call the function with new signature
+    result, response = generate_analysis_with_labels(
         transcript=transcript,
-        prompt="Analyze this transcript and provide a list of relevant labels for categorization. Return your response as a JSON object with a single key 'labels' containing an array of strings.",
-        model="gpt-3.5-turbo",  # Use cheaper model for tests
-        temperature=0,
         client=client,
-        response_format={"type": "json_object"}
+        vcon_uuid="test-uuid-real-api",
+        opts=opts,
     )
-    
+
     # Check that we get valid JSON with labels
     json_result = json.loads(result)
     assert "labels" in json_result
     assert isinstance(json_result["labels"], list)
     assert len(json_result["labels"]) > 0
+    assert response.provider == "openai"
 
 
 @pytest.mark.skipif(not RUN_API_TESTS, reason="Skipping API tests. Set RUN_OPENAI_ANALYZE_LABEL_TESTS=1 to run")
@@ -538,42 +564,52 @@ def test_generate_analysis_with_labels_real_api_with_dialog_formats():
     # Skip if no API key is provided
     if not os.environ.get("OPENAI_API_KEY"):
         pytest.skip("No OpenAI API key provided via OPENAI_API_KEY environment variable")
-    
-    from openai import OpenAI
-    
-    # Create real client
-    client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
-    
+
+    from lib.llm_client import create_llm_client
+
+    # Create LLM client using the factory
+    base_opts = {
+        "model": "gpt-3.5-turbo",  # Use cheaper model for tests
+        "temperature": 0,
+        "OPENAI_API_KEY": os.environ["OPENAI_API_KEY"],
+        "response_format": {"type": "json_object"}
+    }
+    client = create_llm_client(base_opts)
+
     # Test with message format
     message_text = "FROM: customer@example.com\nTO: support@company.com\nSUBJECT: Urgent: Account Access Issue\n\nHello Support Team,\n\nI've been trying to log into my account for the past 2 days but keep getting 'Invalid Password' errors. I'm certain I'm using the correct password as it's saved in my password manager. Could you please reset my account or help me troubleshoot this issue?\n\nThanks,\nJohn Smith"
-    
-    result = generate_analysis_with_labels(
+
+    opts = {
+        **base_opts,
+        "prompt": "Analyze this message and provide a list of relevant labels for categorization. Return your response as a JSON object with a single key 'labels' containing an array of strings.",
+    }
+    result, response = generate_analysis_with_labels(
         transcript=message_text,
-        prompt="Analyze this message and provide a list of relevant labels for categorization. Return your response as a JSON object with a single key 'labels' containing an array of strings.",
-        model="gpt-3.5-turbo",  # Use cheaper model for tests
-        temperature=0,
         client=client,
-        response_format={"type": "json_object"}
+        vcon_uuid="test-uuid-message-format",
+        opts=opts,
     )
-    
+
     # Check that we get valid JSON with labels
     json_result = json.loads(result)
     assert "labels" in json_result
     assert isinstance(json_result["labels"], list)
     assert len(json_result["labels"]) > 0
-    
+
     # Test with email format
     email_text = "From: sarah.johnson@example.com\nTo: feedback@retailstore.com\nSubject: Disappointed with Product Quality and Delivery\n\nDear Customer Service Team,\n\nI am writing to express my dissatisfaction with my recent purchase..."
-    
-    result = generate_analysis_with_labels(
+
+    opts = {
+        **base_opts,
+        "prompt": "Analyze this email and provide a list of relevant labels for categorization. Return your response as a JSON object with a single key 'labels' containing an array of strings.",
+    }
+    result, response = generate_analysis_with_labels(
         transcript=email_text,
-        prompt="Analyze this email and provide a list of relevant labels for categorization. Return your response as a JSON object with a single key 'labels' containing an array of strings.",
-        model="gpt-3.5-turbo",  # Use cheaper model for tests
-        temperature=0,
         client=client,
-        response_format={"type": "json_object"}
+        vcon_uuid="test-uuid-email-format",
+        opts=opts,
     )
-    
+
     # Check that we get valid JSON with labels
     json_result = json.loads(result)
     assert "labels" in json_result

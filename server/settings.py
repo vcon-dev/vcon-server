@@ -21,6 +21,18 @@ CONSERVER_HEADER_NAME = os.getenv("CONSERVER_HEADER_NAME", "x-conserver-api-toke
 DEEPGRAM_KEY = os.getenv("DEEPGRAM_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
+# LLM Configuration
+# Default model used when not specified in link options
+LLM_DEFAULT_MODEL = os.getenv("LLM_DEFAULT_MODEL", "gpt-3.5-turbo")
+LLM_DEFAULT_TEMPERATURE = float(os.getenv("LLM_DEFAULT_TEMPERATURE", "0"))
+LLM_DEFAULT_TIMEOUT = float(os.getenv("LLM_DEFAULT_TIMEOUT", "120"))
+
+# Additional LLM Provider API Keys
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
+AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
+AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15-preview")
+
 VCON_STORAGE = os.getenv("VCON_STORAGE", "")
 INDEX_NAME = "vcon"
 WEVIATE_HOST = os.getenv("WEVIATE_HOST", "localhost:8000")

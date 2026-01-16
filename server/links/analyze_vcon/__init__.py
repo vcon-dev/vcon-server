@@ -1,18 +1,11 @@
 from lib.vcon_redis import VconRedis
 from lib.logging_utils import init_logger
-import logging
-from openai import OpenAI
-from tenacity import (
-    retry,
-    stop_after_attempt,
-    wait_exponential,
-    before_sleep_log,
-)  # for exponential backoff
 from lib.metrics import record_histogram, increment_counter
+from lib.links.filters import is_included, randomly_execute_with_sampling
+from lib.llm_client import create_llm_client, get_vendor_from_response
 import time
 import json
 import copy
-from lib.links.filters import is_included, randomly_execute_with_sampling
 
 logger = init_logger(__name__)
 
@@ -24,6 +17,7 @@ default_options = {
     "temperature": 0,
     "system_prompt": "You are a helpful assistant that analyzes conversation data and returns structured JSON output.",
     "remove_body_properties": True,
+    "response_format": {"type": "json_object"},
 }
 
 
@@ -34,36 +28,35 @@ def get_analysis_for_type(vcon, analysis_type):
     return None
 
 
-@retry(
-    wait=wait_exponential(multiplier=2, min=1, max=65),
-    stop=stop_after_attempt(6),
-    before_sleep=before_sleep_log(logger, logging.INFO),
-)
-def generate_analysis(vcon_data, prompt, system_prompt, model, temperature, client) -> str:
+def generate_analysis(vcon_data, client, vcon_uuid, opts):
+    """Generate analysis using the LLM client.
+
+    Returns:
+        Tuple of (analysis_result, response) where response contains provider info
+    """
+    prompt = opts.get("prompt", "")
+    system_prompt = opts.get("system_prompt", "You are a helpful assistant.")
+
     # Convert vcon_data to a JSON string
     vcon_data_json = json.dumps(vcon_data)
 
-    # Check and replace the system_prompt in the JSON string
-    if system_prompt in vcon_data_json:
-        vcon_data_json = vcon_data_json.replace(system_prompt, "")
-        # Log that the system_prompt was found and replaced
-        logger.info(f"Replaced system_prompt in vcon_data for vcon_uuid: {vcon_uuid}")
-
+    # Do not modify vCon data. If the system prompt text appears in the vCon itself,
+    # it should be preserved for analysis.
 
     messages = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": prompt + "\n\n" + json.dumps(vcon_data)},
+        {"role": "user", "content": prompt + "\n\n" + vcon_data_json},
     ]
 
-    
-
-    response = client.chat.completions.create(
-        model=model, 
-        messages=messages, 
-        temperature=temperature,
-        response_format={"type": "json_object"}
+    response = client.complete_with_tracking(
+        messages=messages,
+        vcon_uuid=vcon_uuid,
+        tracking_opts=opts,
+        sub_type="ANALYZE_VCON",
+        response_format=opts.get("response_format", {"type": "json_object"}),
     )
-    return response.choices[0].message.content
+
+    return response.content, response
 
 
 def is_valid_json(json_string):
@@ -77,13 +70,13 @@ def is_valid_json(json_string):
 def prepare_vcon_for_analysis(vcon, remove_body_properties=True):
     """Create a copy of vCon with optional removal of body properties to save space"""
     vcon_copy = copy.deepcopy(vcon.to_dict())
-    
+
     if remove_body_properties:
         if 'dialog' in vcon_copy:
             for dialog in vcon_copy['dialog']:
                 if 'body' in dialog:
                     dialog.pop('body', None)
-    
+
     return vcon_copy
 
 
@@ -119,39 +112,48 @@ def run(
         )
         return vcon_uuid
 
-    client = OpenAI(api_key=opts["OPENAI_API_KEY"], timeout=120.0, max_retries=0)
-    
+    # Create LLM client (supports OpenAI, Anthropic, and LiteLLM providers)
+    client = create_llm_client(opts)
+    logger.info(f"Using {client.provider_name} provider for model {opts.get('model', 'default')}")
+
     # Prepare vCon data for analysis (removing body properties if specified)
     vcon_data = prepare_vcon_for_analysis(vCon, opts["remove_body_properties"])
-    
+
+    # Filter out sensitive keys from logging
+    filtered_opts = {
+        k: v for k, v in opts.items()
+        if k not in (
+            "OPENAI_API_KEY", "AZURE_OPENAI_API_KEY",
+            "AZURE_OPENAI_ENDPOINT", "ANTHROPIC_API_KEY",
+            "ai_usage_api_token"
+        )
+    }
     logger.info(
         "Analyzing entire vCon with options: %s",
-        {k: v for k, v in opts.items() if k != "OPENAI_API_KEY"},
+        filtered_opts,
     )
-    
+
     start = time.time()
     try:
-        analysis_result = generate_analysis(
+        analysis_result, response = generate_analysis(
             vcon_data=vcon_data,
-            prompt=opts["prompt"],
-            system_prompt=opts["system_prompt"],
-            model=opts["model"],
-            temperature=opts["temperature"],
             client=client,
+            vcon_uuid=vcon_uuid,
+            opts=opts,
         )
-        
+
         # Validate JSON response
         if not is_valid_json(analysis_result):
             logger.error(
-                "Invalid JSON response from OpenAI for vCon %s",
+                "Invalid JSON response from LLM for vCon %s",
                 vcon_uuid,
             )
             increment_counter(
-                "conserver.link.openai.invalid_json",
-                attributes={"analysis_type": opts['analysis_type']},
+                "conserver.link.llm.invalid_json",
+                attributes={"analysis_type": opts['analysis_type'], "provider": client.provider_name},
             )
-            raise ValueError("Invalid JSON response from OpenAI")
-            
+            raise ValueError("Invalid JSON response from LLM")
+
     except Exception as e:
         logger.error(
             "Failed to generate analysis for vCon %s after multiple retries: %s",
@@ -159,33 +161,34 @@ def run(
             e,
         )
         increment_counter(
-            "conserver.link.openai.analysis_failures",
-            attributes={"analysis_type": opts['analysis_type']},
+            "conserver.link.llm.analysis_failures",
+            attributes={"analysis_type": opts['analysis_type'], "provider": client.provider_name},
         )
         raise e
 
     record_histogram(
-        "conserver.link.openai.analysis_time",
+        "conserver.link.llm.analysis_time",
         time.time() - start,
-        attributes={"analysis_type": opts['analysis_type']},
+        attributes={"analysis_type": opts['analysis_type'], "provider": client.provider_name},
     )
 
     vendor_schema = {}
-    vendor_schema["model"] = opts["model"]
+    vendor_schema["model"] = response.model
     vendor_schema["prompt"] = opts["prompt"]
     vendor_schema["system_prompt"] = opts["system_prompt"]
-    
+    vendor_schema["provider"] = response.provider
+
     # Add analysis to vCon with no dialog index (applies to entire vCon)
     vCon.add_analysis(
         type=opts["analysis_type"],
-        vendor="openai",
-        body=json.loads(analysis_result),  # Pass the raw JSON string instead of parsing it
+        vendor=get_vendor_from_response(response),
+        body=json.loads(analysis_result),  # Pass the parsed JSON
         dialog=0,  # Use dialog=0 to indicate it applies to the first/main dialog
         extra={
             "vendor_schema": vendor_schema,
         },
     )
-    
+
     vcon_redis.store_vcon(vCon)
     logger.info(f"Finished analyze - {module_name}:{link_name} plugin for: {vcon_uuid}")
 

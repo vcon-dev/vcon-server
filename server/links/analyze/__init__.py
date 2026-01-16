@@ -1,17 +1,9 @@
 from lib.vcon_redis import VconRedis
 from lib.logging_utils import init_logger
-import logging
-from openai import OpenAI, AzureOpenAI
-from tenacity import (
-    retry,
-    stop_after_attempt,
-    wait_exponential,
-    before_sleep_log,
-)  # for exponential backoff
 from lib.metrics import record_histogram, increment_counter
-import time
 from lib.links.filters import is_included, randomly_execute_with_sampling
-from lib.ai_usage import send_ai_usage_data_for_tracking
+from lib.llm_client import create_llm_client, get_vendor_from_response
+import time
 
 logger = init_logger(__name__)
 
@@ -36,44 +28,29 @@ def get_analysis_for_type(vcon, index, analysis_type):
     return None
 
 
-@retry(
-    wait=wait_exponential(multiplier=2, min=1, max=65),
-    stop=stop_after_attempt(6),
-    before_sleep=before_sleep_log(logger, logging.INFO),
-)
 def generate_analysis(
     transcript, client, vcon_uuid, opts
-) -> str:
-    # Extract parameters from opts
+):
+    """Generate analysis using the LLM client.
+
+    Returns:
+        Tuple of (analysis_text, response) where response contains provider info
+    """
     prompt = opts.get("prompt", "")
-    model = opts["model"]
-    temperature = opts["temperature"]
     system_prompt = opts.get("system_prompt", "You are a helpful assistant.")
-    send_ai_usage_data_to_url = opts.get("send_ai_usage_data_to_url", "")
-    ai_usage_api_token = opts.get("ai_usage_api_token", "")
-    
-    # logger.info(f"TRANSCRIPT: {transcript}")
-    # logger.info(f"PROMPT: {prompt}")
+
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": prompt + "\n\n" + transcript},
     ]
-    # logger.info(f"messages: {messages}")
-    # logger.info(f"MODEL: {model}")
 
-    sentiment_result = client.chat.completions.create(model=model, messages=messages, temperature=temperature)
-    send_ai_usage_data_for_tracking(
+    response = client.complete_with_tracking(
+        messages=messages,
         vcon_uuid=vcon_uuid,
-        input_units=sentiment_result.usage.prompt_tokens,
-        output_units=sentiment_result.usage.completion_tokens,
-        unit_type="tokens",
-        type="VCON_PROCESSING",
-        send_ai_usage_data_to_url=send_ai_usage_data_to_url,
-        ai_usage_api_token=ai_usage_api_token,
-        model=model,
+        tracking_opts=opts,
         sub_type="ANALYZE",
     )
-    return sentiment_result.choices[0].message.content
+    return response.content, response
 
 
 def run(
@@ -98,24 +75,9 @@ def run(
         logger.info(f"Skipping {link_name} vCon {vcon_uuid} due to sampling")
         return vcon_uuid
 
-    # Extract credentials from options
-    openai_api_key = opts.get("OPENAI_API_KEY")
-    azure_openai_api_key = opts.get("AZURE_OPENAI_API_KEY")
-    azure_openai_endpoint = opts.get("AZURE_OPENAI_ENDPOINT")
-    api_version = opts.get("AZURE_OPENAI_API_VERSION")
-
-    client = None
-    if openai_api_key:
-        client = OpenAI(api_key=openai_api_key, timeout=120.0, max_retries=0)
-        logger.info("Using public OpenAI client")
-    elif azure_openai_api_key and azure_openai_endpoint:
-        client = AzureOpenAI(api_key=azure_openai_api_key, azure_endpoint=azure_openai_endpoint, api_version=api_version)
-        logger.info(f"Using Azure OpenAI client at endpoint:{azure_openai_endpoint}")
-    else:
-        raise ValueError(
-            "OpenAI or Azure OpenAI credentials not provided. "
-            "Need OPENAI_API_KEY or AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT"
-        )
+    # Create LLM client (supports OpenAI, Anthropic, and LiteLLM providers)
+    client = create_llm_client(opts)
+    logger.info(f"Using {client.provider_name} provider for model {opts.get('model', 'default')}")
 
     source_type = navigate_dict(opts, "source.analysis_type")
     text_location = navigate_dict(opts, "source.text_location")
@@ -146,7 +108,8 @@ def run(
             k: v for k, v in opts.items()
             if k not in (
                 "OPENAI_API_KEY", "AZURE_OPENAI_API_KEY",
-                "AZURE_OPENAI_ENDPOINT", "ai_usage_api_token"
+                "AZURE_OPENAI_ENDPOINT", "ANTHROPIC_API_KEY",
+                "ai_usage_api_token"
             )
         }
         logger.info(
@@ -156,7 +119,7 @@ def run(
         )
         start = time.time()
         try:
-            analysis = generate_analysis(
+            analysis_text, response = generate_analysis(
                 transcript=source_text,
                 client=client,
                 vcon_uuid=vcon_uuid,
@@ -169,25 +132,26 @@ def run(
                 e,
             )
             increment_counter(
-                "conserver.link.openai.analysis_failures",
-                attributes={"analysis_type": opts['analysis_type']},
+                "conserver.link.llm.analysis_failures",
+                attributes={"analysis_type": opts['analysis_type'], "provider": client.provider_name},
             )
             raise e
 
         record_histogram(
-            "conserver.link.openai.analysis_time",
+            "conserver.link.llm.analysis_time",
             time.time() - start,
-            attributes={"analysis_type": opts['analysis_type']},
+            attributes={"analysis_type": opts['analysis_type'], "provider": client.provider_name},
         )
 
         vendor_schema = {}
-        vendor_schema["model"] = opts["model"]
+        vendor_schema["model"] = response.model
         vendor_schema["prompt"] = opts["prompt"]
+        vendor_schema["provider"] = response.provider
         vCon.add_analysis(
             type=opts["analysis_type"],
             dialog=index,
-            vendor="openai",
-            body=analysis,
+            vendor=get_vendor_from_response(response),
+            body=analysis_text,
             encoding="none",
             extra={
                 "vendor_schema": vendor_schema,

@@ -10,7 +10,7 @@ logger = init_logger(__name__)
 default_options = {
     "organization_key": "org-xxxxx",
     "project_key": "proj_xxxxxxx",
-    "api_key": "sk-proj-xxxxxx",
+    "api_key": "",
     "vector_store_id": "xxxxxx",
     "purpose": "assistants",
 }

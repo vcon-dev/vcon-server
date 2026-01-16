@@ -1,17 +1,11 @@
 from lib.vcon_redis import VconRedis
 from lib.logging_utils import init_logger
-import logging
-from openai import OpenAI
-from tenacity import (
-    retry,
-    stop_after_attempt,
-    wait_exponential,
-    before_sleep_log,
-)
 from lib.metrics import record_histogram, increment_counter
-import time
 from lib.links.filters import is_included, randomly_execute_with_sampling
+from lib.llm_client import create_llm_client, get_vendor_from_response
+import time
 import os
+
 logger = init_logger(__name__)
 
 default_options = {
@@ -27,30 +21,38 @@ default_options = {
     "OPENAI_API_KEY": os.getenv("OPENAI_API_KEY", "")  # Make it optional with empty default
 }
 
+
 def get_analysis_for_type(vcon, index, analysis_type):
     for a in vcon.analysis:
         if a["dialog"] == index and a["type"] == analysis_type:
             return a
     return None
 
-@retry(
-    wait=wait_exponential(multiplier=2, min=1, max=65),
-    stop=stop_after_attempt(6),
-    before_sleep=before_sleep_log(logger, logging.INFO),
-)
-def check_engagement(transcript, prompt, model, temperature, client) -> bool:
-    # The new responses API expects a single string or a list of message dicts as 'input'
-    input_text = f"{prompt}\n\nTranscript: {transcript}"
 
-    response = client.responses.create(
-        model=model,
-        input=input_text,
-        temperature=temperature
+def check_engagement(transcript, prompt, client, vcon_uuid, opts) -> tuple:
+    """Check engagement using the LLM client.
+
+    Returns:
+        Tuple of (is_engaged: bool, response) where response contains provider info
+    """
+    # Convert from Responses API format to Chat Completions format
+    messages = [
+        {"role": "user", "content": f"{prompt}\n\nTranscript: {transcript}"}
+    ]
+
+    response = client.complete_with_tracking(
+        messages=messages,
+        vcon_uuid=vcon_uuid,
+        tracking_opts=opts,
+        sub_type="DETECT_ENGAGEMENT",
     )
-    
-    # The new API returns the result in response.output_text
-    answer = response.output_text.strip().lower()
-    return answer == "true"
+
+    # The response content should be "true" or "false"
+    answer = response.content.strip().lower()
+    is_engaged = answer == "true"
+
+    return is_engaged, response
+
 
 def run(
     vcon_uuid,
@@ -63,12 +65,15 @@ def run(
     merged_opts.update(opts)
     opts = merged_opts
 
-    # Check for OPENAI_API_KEY in opts or environment
-    openai_key = opts.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
-    if not openai_key:
-        logger.warning("OPENAI_API_KEY not defined, skipping analysis for vCon: %s", vcon_uuid)
+    # Check for API key in opts or environment (for backward compatibility)
+    api_key = opts.get("OPENAI_API_KEY") or opts.get("ANTHROPIC_API_KEY") or os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        logger.warning("No LLM API key defined, skipping analysis for vCon: %s", vcon_uuid)
         return vcon_uuid
-    opts["OPENAI_API_KEY"] = openai_key
+
+    # Ensure at least one API key is set in opts for the llm_client
+    if not opts.get("OPENAI_API_KEY") and not opts.get("ANTHROPIC_API_KEY"):
+        opts["OPENAI_API_KEY"] = api_key
 
     vcon_redis = VconRedis()
     vCon = vcon_redis.get_vcon(vcon_uuid)
@@ -81,7 +86,10 @@ def run(
         logger.info(f"Skipping {link_name} vCon {vcon_uuid} due to sampling")
         return vcon_uuid
 
-    client = OpenAI(api_key=opts["OPENAI_API_KEY"], timeout=120.0, max_retries=0)
+    # Create LLM client (supports OpenAI, Anthropic, and LiteLLM providers)
+    client = create_llm_client(opts)
+    logger.info(f"Using {client.provider_name} provider for model {opts.get('model', 'default')}")
+
     source_type = opts["source"]["analysis_type"]
     text_location = opts["source"]["text_location"]
 
@@ -106,34 +114,44 @@ def run(
             )
             continue
 
+        # Filter out sensitive keys from logging
+        filtered_opts = {
+            k: v for k, v in opts.items()
+            if k not in (
+                "OPENAI_API_KEY", "AZURE_OPENAI_API_KEY",
+                "AZURE_OPENAI_ENDPOINT", "ANTHROPIC_API_KEY",
+                "ai_usage_api_token"
+            )
+        }
         logger.info(
             "Analyzing engagement for dialog %s with options: %s",
             index,
-            {k: v for k, v in opts.items() if k != "OPENAI_API_KEY"},
+            filtered_opts,
         )
         start = time.time()
         try:
-            is_engaged = check_engagement(
+            is_engaged, response = check_engagement(
                 transcript=source_text,
                 prompt=opts["prompt"],
-                model=opts["model"],
-                temperature=opts["temperature"],
-                client=client
+                client=client,
+                vcon_uuid=vcon_uuid,
+                opts=opts,
             )
 
             # Always use string 'true'/'false' for tag and body
             is_engaged_str = "true" if is_engaged else "false"
 
             vendor_schema = {
-                "model": opts["model"],
+                "model": response.model,
                 "prompt": opts["prompt"],
-                "is_engaged": is_engaged_str
+                "is_engaged": is_engaged_str,
+                "provider": response.provider,
             }
 
             vCon.add_analysis(
                 type=opts["analysis_type"],
                 dialog=index,
-                vendor="openai",
+                vendor=get_vendor_from_response(response),
                 body=is_engaged_str,
                 encoding="none",
                 extra={
@@ -145,9 +163,9 @@ def run(
             logger.info(f"Applied engagement tag: {is_engaged_str}")
 
             increment_counter(
-                "conserver.link.openai.engagement_detected",
+                "conserver.link.llm.engagement_detected",
                 value=1 if is_engaged else 0,
-                attributes={"analysis_type": opts['analysis_type']},
+                attributes={"analysis_type": opts['analysis_type'], "provider": client.provider_name},
             )
 
         except Exception as e:
@@ -160,15 +178,15 @@ def run(
                 traceback.format_exc()
             )
             increment_counter(
-                "conserver.link.openai.engagement_analysis_failures",
-                attributes={"analysis_type": opts['analysis_type']},
+                "conserver.link.llm.engagement_analysis_failures",
+                attributes={"analysis_type": opts['analysis_type'], "provider": client.provider_name},
             )
             raise e
 
         record_histogram(
-            "conserver.link.openai.engagement_analysis_time",
+            "conserver.link.llm.engagement_analysis_time",
             time.time() - start,
-            attributes={"analysis_type": opts['analysis_type']},
+            attributes={"analysis_type": opts['analysis_type'], "provider": client.provider_name},
         )
 
     vcon_redis.store_vcon(vCon)
@@ -185,4 +203,4 @@ def navigate_dict(dictionary, path):
             current = current[key]
         else:
             return None
-    return current 
+    return current
