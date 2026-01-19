@@ -46,7 +46,11 @@ from dlq_utils import get_ingress_list_dlq_name
 from lib.context_utils import store_context_async, extract_otel_trace_context
 from lib.logging_utils import init_logger
 import redis_mgr
-from version import get_version_info, get_version_string
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request as StarletteRequest
+from starlette.responses import Response
+
+from version import get_version_info, get_version_string, get_version, get_git_commit
 
 # OpenTelemetry trace context extraction is now in lib.context_utils
 from settings import (
@@ -189,6 +193,28 @@ app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"]
 )
 
+
+# Version header middleware - adds version info to every response
+class VersionHeaderMiddleware(BaseHTTPMiddleware):
+    """Middleware that adds version information to all API responses.
+    
+    Adds the following headers to every response:
+    - X-Vcon-Server-Version: CalVer version (e.g., "2026.01.18")
+    - X-Vcon-Server-Commit: Git short hash (e.g., "a1b2c3d")
+    
+    This makes it easy to identify which version of the server handled
+    a request, useful for debugging, monitoring, and APM tools.
+    """
+    
+    async def dispatch(self, request: StarletteRequest, call_next) -> Response:
+        response = await call_next(request)
+        response.headers["X-Vcon-Server-Version"] = get_version()
+        response.headers["X-Vcon-Server-Commit"] = get_git_commit()
+        return response
+
+
+app.add_middleware(VersionHeaderMiddleware)
+
 api_router = APIRouter()
 external_router = APIRouter()
 
@@ -200,7 +226,7 @@ external_router = APIRouter()
     description="Returns the server version information including CalVer version, git commit, and build time",
     tags=["system"],
 )
-async def get_version() -> JSONResponse:
+async def version_endpoint() -> JSONResponse:
     """Get the server version information.
     
     Returns version details including:
