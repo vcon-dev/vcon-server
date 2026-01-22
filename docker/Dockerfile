@@ -1,5 +1,15 @@
 FROM python:3.12.2
 
+# Build arguments for version information (injected by CI/CD)
+ARG VCON_SERVER_VERSION=dev
+ARG VCON_SERVER_GIT_COMMIT=unknown
+ARG VCON_SERVER_BUILD_TIME=unknown
+
+# Set version info as environment variables (available at runtime)
+ENV VCON_SERVER_VERSION=${VCON_SERVER_VERSION}
+ENV VCON_SERVER_GIT_COMMIT=${VCON_SERVER_GIT_COMMIT}
+ENV VCON_SERVER_BUILD_TIME=${VCON_SERVER_BUILD_TIME}
+
 RUN apt-get update && \
     apt-get install -y libavdevice-dev ffmpeg
 

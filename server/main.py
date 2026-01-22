@@ -17,6 +17,7 @@ import follower
 import redis_mgr
 
 from config import get_config
+from version import get_version_string, get_version_info
 from dlq_utils import get_ingress_list_dlq_name
 from lib.context_utils import retrieve_context, store_context_sync, extract_otel_trace_context
 from lib.error_tracking import init_error_tracker
@@ -500,6 +501,20 @@ def main() -> None:
     processing loop that pulls vCons from ingress queues and processes
     them through their configured chains.
     """
+    # Print version information on startup
+    version_info = get_version_info()
+    logger.info(
+        "Starting %s",
+        get_version_string(),
+        extra={"version_info": version_info}
+    )
+    logger.info(
+        "Version: %s | Commit: %s | Built: %s",
+        version_info["version"],
+        version_info["git_commit"],
+        version_info["build_time"]
+    )
+    
     logger.info("Initializing vCon server")
     global config
     config = get_config()
