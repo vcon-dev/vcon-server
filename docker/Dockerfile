@@ -33,7 +33,7 @@ RUN opentelemetry-bootstrap -a install
 # Copy the rest of the application
 COPY . /app
 
-ENV PYTHONPATH "${PYTHONPATH}:/app/:/app/server/"
+ENV PYTHONPATH="/app:/app/server"
 
 ENTRYPOINT ["/app/docker/wait_for_redis.sh"]
 
