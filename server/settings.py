@@ -44,3 +44,18 @@ VCON_CONTEXT_EXPIRY = int(os.getenv("VCON_CONTEXT_EXPIRY", 86400))
 
 CONSERVER_CONFIG_FILE = os.getenv("CONSERVER_CONFIG_FILE", "./example_config.yml")
 API_ROOT_PATH = os.getenv("API_ROOT_PATH", "/api")
+
+# Worker configuration for parallel processing
+# Number of worker processes to spawn (default 1 = single-threaded mode)
+CONSERVER_WORKERS = int(os.getenv("CONSERVER_WORKERS", 1))
+
+# Enable parallel storage writes using ThreadPoolExecutor (default True)
+CONSERVER_PARALLEL_STORAGE = os.getenv("CONSERVER_PARALLEL_STORAGE", "true").lower() in ("true", "1", "yes")
+
+# Multiprocessing start method: "fork", "spawn", or "forkserver"
+# - "fork" (default on Unix): Copy-on-write memory, fastest startup, but can cause
+#   issues with threads and some libraries (OpenSSL, CUDA, etc.)
+# - "spawn": Fresh Python interpreter per worker, higher memory but safer
+# - "forkserver": Hybrid approach, spawns from a clean forked server process
+# - "" or unset: Use Python's platform default (fork on Unix, spawn on Windows/macOS)
+CONSERVER_START_METHOD = os.getenv("CONSERVER_START_METHOD", "").lower() or None

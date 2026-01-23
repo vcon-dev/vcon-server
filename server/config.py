@@ -12,6 +12,39 @@ def get_config() -> dict:
     return _config
 
 
+def get_worker_count() -> int:
+    """Get the number of worker processes to spawn.
+    
+    Returns:
+        int: Number of workers (minimum 1)
+    """
+    return max(1, settings.CONSERVER_WORKERS)
+
+
+def is_parallel_storage_enabled() -> bool:
+    """Check if parallel storage writes are enabled.
+    
+    Returns:
+        bool: True if parallel storage is enabled
+    """
+    return settings.CONSERVER_PARALLEL_STORAGE
+
+
+def get_start_method() -> str | None:
+    """Get the multiprocessing start method.
+    
+    Returns:
+        str | None: "fork", "spawn", "forkserver", or None for platform default
+    """
+    method = settings.CONSERVER_START_METHOD
+    if method and method not in ("fork", "spawn", "forkserver"):
+        raise ValueError(
+            f"Invalid CONSERVER_START_METHOD: {method}. "
+            "Must be 'fork', 'spawn', 'forkserver', or empty for default."
+        )
+    return method
+
+
 class Configuration:
     @classmethod
     def get_config(cls) -> dict:
