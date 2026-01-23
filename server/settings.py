@@ -44,3 +44,10 @@ VCON_CONTEXT_EXPIRY = int(os.getenv("VCON_CONTEXT_EXPIRY", 86400))
 
 CONSERVER_CONFIG_FILE = os.getenv("CONSERVER_CONFIG_FILE", "./example_config.yml")
 API_ROOT_PATH = os.getenv("API_ROOT_PATH", "/api")
+
+# Worker configuration for parallel processing
+# Number of worker processes to spawn (default 1 = single-threaded mode)
+CONSERVER_WORKERS = int(os.getenv("CONSERVER_WORKERS", 1))
+
+# Enable parallel storage writes using ThreadPoolExecutor (default True)
+CONSERVER_PARALLEL_STORAGE = os.getenv("CONSERVER_PARALLEL_STORAGE", "true").lower() in ("true", "1", "yes")

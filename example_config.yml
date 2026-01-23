@@ -1,4 +1,25 @@
 ---
+# =============================================================================
+# vCon Server Configuration
+# =============================================================================
+#
+# WORKER CONFIGURATION (via environment variables):
+#
+# CONSERVER_WORKERS: Number of worker processes (default: 1)
+#   - Set to 1 for single-threaded mode (original behavior)
+#   - Set to 2+ for multi-worker mode (parallel vCon processing)
+#   - Each worker independently consumes from Redis queues
+#   - Redis BLPOP provides atomic work distribution
+#   Example: CONSERVER_WORKERS=4
+#
+# CONSERVER_PARALLEL_STORAGE: Enable parallel storage writes (default: true)
+#   - When true, writes to multiple storage backends happen concurrently
+#   - Improves throughput when using multiple storage backends (e.g., S3 + MongoDB)
+#   - Set to "false" to use sequential storage writes
+#   Example: CONSERVER_PARALLEL_STORAGE=true
+#
+# =============================================================================
+
 # Ingress-specific API key authentication
 # This section defines API keys that are authorized to push vCons to specific ingress lists
 # Each key grants access only to the specified ingress list, providing secure isolation

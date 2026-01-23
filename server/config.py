@@ -12,6 +12,24 @@ def get_config() -> dict:
     return _config
 
 
+def get_worker_count() -> int:
+    """Get the number of worker processes to spawn.
+    
+    Returns:
+        int: Number of workers (minimum 1)
+    """
+    return max(1, settings.CONSERVER_WORKERS)
+
+
+def is_parallel_storage_enabled() -> bool:
+    """Check if parallel storage writes are enabled.
+    
+    Returns:
+        bool: True if parallel storage is enabled
+    """
+    return settings.CONSERVER_PARALLEL_STORAGE
+
+
 class Configuration:
     @classmethod
     def get_config(cls) -> dict:

@@ -3,20 +3,26 @@
 This module handles the core vCon processing pipeline, including chain management,
 link processing, and storage operations. It implements a Redis-based queue system
 for processing vCons through configured processing chains.
+
+Supports multi-worker mode for parallel vCon processing and concurrent storage
+operations for improved throughput with I/O-bound workloads.
 """
 
 import importlib
 import logging
+import multiprocessing
+import os
 import signal
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Optional, TypedDict
 
 import follower
 import redis_mgr
 
-from config import get_config
+from config import get_config, get_worker_count, is_parallel_storage_enabled
 from version import get_version_string, get_version_info
 from dlq_utils import get_ingress_list_dlq_name
 from lib.context_utils import retrieve_context, store_context_sync, extract_otel_trace_context
@@ -30,6 +36,9 @@ from opentelemetry.trace import Status, StatusCode, SpanContext, TraceFlags, Lin
 
 logger = logging.getLogger("main")
 shutdown_requested = False
+
+# Track worker processes for graceful shutdown
+worker_processes: List[multiprocessing.Process] = []
 
 
 class ChainConfig(TypedDict):
@@ -60,15 +69,29 @@ config: Optional[Dict] = None
 
 
 def signal_handler(signum: int, frame: Optional[object]) -> None:
-    """Handle SIGTERM signal for graceful shutdown.
+    """Handle SIGTERM/SIGINT signal for graceful shutdown.
+    
+    In multi-worker mode, this signals all worker processes to shut down.
+    Each worker will complete its current vCon processing before exiting.
     
     Args:
         signum: Signal number
         frame: Current stack frame (unused)
     """
-    logger.info("SIGTERM received, initiating graceful shutdown...")
+    signal_name = "SIGTERM" if signum == signal.SIGTERM else "SIGINT"
+    logger.info("%s received, initiating graceful shutdown...", signal_name)
     global shutdown_requested
     shutdown_requested = True
+    
+    # In main process, signal all workers to shut down
+    for worker in worker_processes:
+        if worker.is_alive():
+            logger.info("Signaling worker %s (PID %s) to shut down", worker.name, worker.pid)
+            try:
+                os.kill(worker.pid, signal.SIGTERM)
+            except (ProcessLookupError, OSError):
+                # Worker already terminated
+                pass
 
 
 def import_or_install(module_name: str, pip_name: Optional[str] = None) -> object:
@@ -107,8 +130,9 @@ def import_or_install(module_name: str, pip_name: Optional[str] = None) -> objec
             raise
 
 
-# Register the signal handler for SIGTERM
+# Register signal handlers for graceful shutdown
 signal.signal(signal.SIGTERM, signal_handler)
+signal.signal(signal.SIGINT, signal_handler)
 
 init_error_tracker()
 imported_modules: Dict[str, object] = {}
@@ -286,7 +310,8 @@ class VconChainRequest:
         """Handle post-processing operations for the vCon.
 
         Manages egress queue placement and storage operations after
-        chain processing is complete.
+        chain processing is complete. Storage operations can run in parallel
+        when CONSERVER_PARALLEL_STORAGE is enabled.
         """
         egress_lists = self.chain_details.get("egress_lists", [])
         if egress_lists:
@@ -311,8 +336,14 @@ class VconChainRequest:
                 self.vcon_id,
                 ", ".join(storage_backends)
             )
-            for storage_name in storage_backends:
-                self._process_storage(storage_name)
+            
+            if is_parallel_storage_enabled() and len(storage_backends) > 1:
+                # Parallel storage writes using ThreadPoolExecutor
+                self._process_storage_parallel(storage_backends)
+            else:
+                # Sequential storage writes (original behavior)
+                for storage_name in storage_backends:
+                    self._process_storage(storage_name)
 
         logger.info(
             "Completed chain %s processing for vCon: %s",
@@ -352,6 +383,56 @@ class VconChainRequest:
                     str(e),
                     exc_info=True
                 )
+
+    def _process_storage_parallel(self, storage_backends: List[str]) -> None:
+        """Save vCon to multiple storage backends concurrently.
+        
+        Uses ThreadPoolExecutor to write to all storage backends in parallel,
+        which significantly improves throughput when multiple I/O-bound storage
+        operations are configured (e.g., S3 + MongoDB + PostgreSQL).
+
+        Args:
+            storage_backends: List of storage backend names to write to
+        """
+        storage_started = time.time()
+        logger.debug(
+            "Starting parallel storage writes for vCon %s to %d backends",
+            self.vcon_id,
+            len(storage_backends)
+        )
+        
+        with ThreadPoolExecutor(max_workers=len(storage_backends)) as executor:
+            # Submit all storage operations concurrently
+            future_to_storage = {
+                executor.submit(self._process_storage, storage_name): storage_name
+                for storage_name in storage_backends
+            }
+            
+            # Wait for all operations to complete and handle results
+            for future in as_completed(future_to_storage):
+                storage_name = future_to_storage[future]
+                try:
+                    future.result()
+                except Exception as e:
+                    # Error already logged in _process_storage, but log again for parallel context
+                    logger.error(
+                        "Parallel storage operation failed for %s on vCon %s: %s",
+                        storage_name,
+                        self.vcon_id,
+                        str(e)
+                    )
+        
+        storage_time = round(time.time() - storage_started, 3)
+        logger.info(
+            "Completed parallel storage writes for vCon %s in %s seconds (%d backends)",
+            self.vcon_id,
+            storage_time,
+            len(storage_backends),
+            extra={
+                "parallel_storage_time": storage_time,
+                "storage_backend_count": len(storage_backends)
+            }
+        )
 
     def _process_tracers(self, in_vcon_uuid, out_vcon_uuid, links: list[str], link_index: int) -> bool:
         if "tracers" in config:
@@ -494,13 +575,128 @@ def log_llen(list_name: str) -> None:
     )
 
 
-def main() -> None:
-    """Main server loop for vCon processing.
+def worker_loop(worker_id: int) -> None:
+    """Worker process main loop for vCon processing.
+    
+    Each worker independently polls Redis queues and processes vCons.
+    Multiple workers can run concurrently, with Redis BLPOP providing
+    atomic distribution of work items.
 
-    Initializes the server, imports required modules, and runs the main
-    processing loop that pulls vCons from ingress queues and processes
-    them through their configured chains.
+    Args:
+        worker_id: Unique identifier for this worker (1-based)
     """
+    global config, shutdown_requested, r
+    
+    # Initialize error tracking in this worker process
+    init_error_tracker()
+    
+    # Re-initialize Redis client in worker process
+    r = redis_mgr.get_client()
+    
+    # Re-register signal handler in worker process
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
+    
+    worker_name = f"Worker-{worker_id}"
+    logger.info("%s started (PID %s)", worker_name, os.getpid())
+    
+    while not shutdown_requested:
+        # Refresh configuration on each iteration
+        config = get_config()
+        logger.debug("[%s] Refreshed configuration", worker_name)
+        
+        ingress_chain_map = get_ingress_chain_map()
+        all_ingress_lists = list(ingress_chain_map.keys())
+        logger.debug("[%s] Monitoring ingress lists: %s", worker_name, all_ingress_lists)
+        
+        logger.debug("[%s] Waiting for vCon on ingress lists (timeout: 15s)", worker_name)
+        popped_item = r.blpop(all_ingress_lists, timeout=15)
+        if not popped_item:
+            if shutdown_requested:
+                logger.info("[%s] Shutdown requested, exiting", worker_name)
+                break
+            logger.debug("[%s] No items received within timeout period", worker_name)
+            continue
+
+        ingress_list, vcon_id = popped_item
+        logger.debug("[%s] Received vCon %s from ingress list %s", worker_name, vcon_id, ingress_list)
+        
+        if shutdown_requested:
+            logger.info(
+                "[%s] Shutdown requested, returning vCon %s to queue %s",
+                worker_name,
+                vcon_id,
+                ingress_list
+            )
+            r.lpush(ingress_list, vcon_id)
+            break
+
+        # Retrieve context data if available
+        context = retrieve_context(r, ingress_list, vcon_id)
+        if context:
+            logger.debug(
+                "[%s] Retrieved context for vCon %s from ingress list %s: %s",
+                worker_name,
+                vcon_id,
+                ingress_list,
+                context
+            )
+        else:
+            logger.debug("[%s] No context found for vCon %s from ingress list %s", worker_name, vcon_id, ingress_list)
+
+        log_llen(ingress_list)
+        chain_details = ingress_chain_map[ingress_list]
+        logger.debug(
+            "[%s] Processing vCon %s with chain configuration: %s",
+            worker_name,
+            vcon_id,
+            {
+                "chain_name": chain_details["name"],
+                "links": chain_details.get("links", []),
+                "storages": chain_details.get("storages", []),
+                "egress_lists": chain_details.get("egress_lists", []),
+                "timeout": chain_details.get("timeout")
+            }
+        )
+        
+        vcon_chain_request = VconChainRequest(chain_details, vcon_id, context)
+        try:
+            vcon_chain_request.process()
+        except Exception as e:
+            logger.error(
+                "[%s] Critical error processing vCon %s: %s - Moving to DLQ",
+                worker_name,
+                vcon_id,
+                str(e),
+                exc_info=True
+            )
+            dlq_name = get_ingress_list_dlq_name(ingress_list)
+            logger.info("[%s] Moving vCon %s to DLQ: %s", worker_name, vcon_id, dlq_name)
+            logger.debug(
+                "[%s] DLQ details for vCon %s: original_queue=%s, dlq=%s, error=%s",
+                worker_name,
+                vcon_id,
+                ingress_list,
+                dlq_name,
+                str(e)
+            )
+            r.lpush(dlq_name, vcon_id)
+    
+    logger.info("%s exiting", worker_name)
+
+
+def main() -> None:
+    """Main server entry point for vCon processing.
+
+    Initializes the server, imports required modules, and either runs
+    the processing loop directly (single worker) or spawns multiple
+    worker processes (multi-worker mode) based on CONSERVER_WORKERS setting.
+    
+    Multi-worker mode enables parallel processing of vCons across multiple
+    processes, improving throughput for I/O-bound workloads.
+    """
+    global worker_processes
+    
     # Print version information on startup
     version_info = get_version_info()
     logger.info(
@@ -513,6 +709,14 @@ def main() -> None:
         version_info["version"],
         version_info["git_commit"],
         version_info["build_time"]
+    )
+    
+    worker_count = get_worker_count()
+    parallel_storage = is_parallel_storage_enabled()
+    logger.info(
+        "Worker configuration: workers=%d, parallel_storage=%s",
+        worker_count,
+        parallel_storage
     )
     
     logger.info("Initializing vCon server")
@@ -553,84 +757,65 @@ def main() -> None:
             raise
 
     follower.start_followers()
-    logger.info("Server initialization complete, starting main processing loop")
-   
-    while not shutdown_requested:
-        # Refresh configuration on each iteration
-        config = get_config()
-        logger.debug("Refreshed configuration, checking for changes")
+    
+    if worker_count > 1:
+        # Multi-worker mode: spawn worker processes
+        logger.info("Starting %d worker processes", worker_count)
         
-        ingress_chain_map = get_ingress_chain_map()
-        all_ingress_lists = list(ingress_chain_map.keys())
-        logger.debug("Monitoring ingress lists: %s", all_ingress_lists)
-        
-        logger.debug("Waiting for vCon on ingress lists (timeout: 15s)")
-        popped_item = r.blpop(all_ingress_lists, timeout=15)
-        if not popped_item:
-            if shutdown_requested:
-                logger.info("Shutdown requested, exiting main loop")
-                break
-            logger.debug("No items received within timeout period")
-            continue
-
-        ingress_list, vcon_id = popped_item
-        logger.debug("Received vCon %s from ingress list %s", vcon_id, ingress_list)
-        
-        if shutdown_requested:
-            logger.info(
-                "Shutdown requested, returning vCon %s to queue %s",
-                vcon_id,
-                ingress_list
+        for i in range(worker_count):
+            worker_id = i + 1
+            process = multiprocessing.Process(
+                target=worker_loop,
+                args=(worker_id,),
+                name=f"vcon-worker-{worker_id}"
             )
-            r.lpush(ingress_list, vcon_id)
-            break
-
-        # Retrieve context data if available
-        context = retrieve_context(r, ingress_list, vcon_id)
-        if context:
-            logger.debug(
-                "Retrieved context for vCon %s from ingress list %s: %s",
-                vcon_id,
-                ingress_list,
-                context
-            )
-        else:
-            logger.debug("No context found for vCon %s from ingress list %s", vcon_id, ingress_list)
-
-        log_llen(ingress_list)
-        chain_details = ingress_chain_map[ingress_list]
-        logger.debug(
-            "Processing vCon %s with chain configuration: %s",
-            vcon_id,
-            {
-                "chain_name": chain_details["name"],
-                "links": chain_details.get("links", []),
-                "storages": chain_details.get("storages", []),
-                "egress_lists": chain_details.get("egress_lists", []),
-                "timeout": chain_details.get("timeout")
-            }
-        )
+            process.start()
+            worker_processes.append(process)
+            logger.info("Started Worker-%d (PID %s)", worker_id, process.pid)
         
-        vcon_chain_request = VconChainRequest(chain_details, vcon_id, context)
+        logger.info("All %d workers started, main process monitoring", worker_count)
+        
+        # Main process waits for all workers to complete
         try:
-            vcon_chain_request.process()
-        except Exception as e:
-            logger.error(
-                "Critical error processing vCon %s: %s - Moving to DLQ",
-                vcon_id,
-                str(e),
-                exc_info=True
-            )
-            dlq_name = get_ingress_list_dlq_name(ingress_list)
-            logger.info("Moving vCon %s to DLQ: %s", vcon_id, dlq_name)
-            logger.debug(
-                "DLQ details for vCon %s: original_queue=%s, dlq=%s, error=%s",
-                vcon_id,
-                ingress_list,
-                dlq_name,
-                str(e)
-            )
-            r.lpush(dlq_name, vcon_id)
+            while not shutdown_requested:
+                # Check worker health periodically
+                time.sleep(5)
+                
+                for i, process in enumerate(worker_processes):
+                    if not process.is_alive() and not shutdown_requested:
+                        worker_id = i + 1
+                        logger.warning(
+                            "Worker-%d (PID %s) died unexpectedly, restarting",
+                            worker_id,
+                            process.pid
+                        )
+                        # Restart the worker
+                        new_process = multiprocessing.Process(
+                            target=worker_loop,
+                            args=(worker_id,),
+                            name=f"vcon-worker-{worker_id}"
+                        )
+                        new_process.start()
+                        worker_processes[i] = new_process
+                        logger.info("Restarted Worker-%d (new PID %s)", worker_id, new_process.pid)
+        except KeyboardInterrupt:
+            logger.info("Keyboard interrupt received, shutting down workers")
+            signal_handler(signal.SIGINT, None)
+        
+        # Wait for all workers to finish
+        logger.info("Waiting for workers to finish...")
+        for process in worker_processes:
+            process.join(timeout=30)
+            if process.is_alive():
+                logger.warning("Worker %s did not exit gracefully, terminating", process.name)
+                process.terminate()
+                process.join(timeout=5)
+        
+        logger.info("All workers stopped")
+    else:
+        # Single-worker mode: run directly in main process
+        logger.info("Server initialization complete, starting main processing loop (single worker)")
+        worker_loop(1)
 
 
 if __name__ == "__main__":
