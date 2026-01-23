@@ -1,0 +1,109 @@
+site_name: vCon Server Documentation
+site_description: Operational Manual for vCon Server (Conserver)
+site_url: https://vcon-dev.github.io/vcon-server/
+repo_url: https://github.com/vcon-dev/vcon-server
+repo_name: vcon-dev/vcon-server
+
+theme:
+  name: material
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.tabs.link
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  icon:
+    repo: fontawesome/brands/github
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - getting-started/index.md
+    - System Requirements: getting-started/requirements.md
+    - Quick Start: getting-started/quick-start.md
+  - Installation:
+    - installation/index.md
+    - Docker: installation/docker.md
+    - Automated Script: installation/automated-script.md
+    - Manual Installation: installation/manual-installation.md
+    - Kubernetes: installation/kubernetes.md
+    - Upgrading: installation/upgrading.md
+  - Configuration:
+    - configuration/index.md
+    - Environment Variables: configuration/environment-variables.md
+    - YAML Configuration: configuration/yaml-configuration.md
+    - Chains and Pipelines: configuration/chains-and-pipelines.md
+    - Authentication: configuration/authentication.md
+    - Workers: configuration/workers.md
+  - Operations:
+    - operations/index.md
+    - API Reference: operations/api-reference.md
+    - Monitoring: operations/monitoring.md
+    - Logging: operations/logging.md
+    - Troubleshooting: operations/troubleshooting.md
+    - Dead Letter Queue: operations/dead-letter-queue.md
+    - Backup and Restore: operations/backup-restore.md
+  - Extending:
+    - extending/index.md
+    - Creating Links: extending/creating-links.md
+    - Creating Storage Adapters: extending/creating-storage-adapters.md
+    - Creating Tracers: extending/creating-tracers.md
+    - Dynamic Modules: extending/dynamic-modules.md
+  - Reference:
+    - reference/index.md
+    - Links:
+      - Deepgram: reference/links/deepgram.md
+      - Analyze: reference/links/analyze.md
+      - Tag: reference/links/tag.md
+      - Webhook: reference/links/webhook.md
+    - Storage Adapters:
+      - PostgreSQL: reference/storage-adapters/postgres.md
+      - S3: reference/storage-adapters/s3.md
+      - MongoDB: reference/storage-adapters/mongo.md
+    - CLI Reference: reference/cli-reference.md
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - tables
+  - toc:
+      permalink: true
+  - attr_list
+  - md_in_html
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/vcon-dev/vcon-server
