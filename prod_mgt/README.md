@@ -45,10 +45,11 @@ Product roadmap, planned features, community requests, and long-term vision for 
 
 ### Core Capabilities
 - 🎯 **Flexible Processing Pipeline**: Chain-based architecture with modular components
-- 🗄️ **Multi-Storage Support**: 10+ backend storage options
+- 🗄️ **Multi-Storage Support**: 10+ backend storage options with parallel write support
 - 🤖 **AI Integration**: Built-in support for transcription and analysis
 - 🔍 **Advanced Search**: Query by phone, email, name, and metadata
-- 📊 **Scalable Architecture**: Horizontal and vertical scaling options
+- 📊 **Scalable Architecture**: Multi-worker processing with configurable parallelism
+- ⚡ **High Performance**: Parallel storage writes and multi-process vCon processing
 
 ### Processing Links
 - **Transcription**: Deepgram, Whisper (Groq/Hugging Face)
@@ -65,6 +66,14 @@ Product roadmap, planned features, community requests, and long-term vision for 
 
 ## Configuration Examples
 
+### Worker Configuration (Environment Variables)
+```bash
+# Enable parallel processing
+CONSERVER_WORKERS=4              # Run 4 worker processes
+CONSERVER_PARALLEL_STORAGE=true  # Parallel writes to storage backends
+CONSERVER_START_METHOD=fork      # Memory-efficient forking (Unix)
+```
+
 ### Basic Pipeline
 ```yaml
 chains:
@@ -77,7 +86,7 @@ chains:
       - postgres         # Store
 ```
 
-### Advanced Pipeline
+### Advanced Pipeline with Parallel Storage
 ```yaml
 chains:
   advanced_chain:
@@ -93,10 +102,11 @@ chains:
           rules:
             - sentiment: positive
               queue: satisfied_customers
-    storages:
+    storages:            # All written in parallel
       - postgres         # Primary
       - s3              # Archive
       - elasticsearch   # Search
+      - milvus          # Vector search
 ```
 
 ## Support & Resources

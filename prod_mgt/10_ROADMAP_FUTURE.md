@@ -1,6 +1,6 @@
 # Roadmap & Future Development
 
-## Current State (v1.0)
+## Current State (v1.1)
 
 ### Established Features
 - ✅ Core vCon data model implementation
@@ -12,6 +12,14 @@
 - ✅ Basic monitoring and metrics
 - ✅ Dead letter queue handling
 - ✅ Search functionality
+
+### New in v1.1: Parallel Processing
+- ✅ **Multi-Worker Support**: Configurable worker processes (CONSERVER_WORKERS)
+- ✅ **Parallel Storage Writes**: Concurrent storage operations (CONSERVER_PARALLEL_STORAGE)
+- ✅ **Configurable Start Method**: fork/spawn/forkserver selection (CONSERVER_START_METHOD)
+- ✅ **Graceful Shutdown**: Workers complete current vCon on SIGTERM/SIGINT
+- ✅ **Worker Auto-Restart**: Main process monitors and restarts failed workers
+- ✅ **Memory Optimization**: Deferred module imports for spawn start method
 
 ## Short-Term Roadmap (Q1-Q2 2024)
 
