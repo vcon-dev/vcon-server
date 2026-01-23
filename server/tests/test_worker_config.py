@@ -9,6 +9,59 @@ import multiprocessing
 class TestWorkerConfiguration:
     """Test worker count and parallel storage configuration."""
 
+    def test_start_method_default_is_none(self):
+        """Test default start method is None (platform default)."""
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("CONSERVER_START_METHOD", None)
+            
+            import importlib
+            import settings
+            importlib.reload(settings)
+            
+            assert settings.CONSERVER_START_METHOD is None
+
+    def test_start_method_fork(self):
+        """Test start method can be set to fork."""
+        with patch.dict(os.environ, {"CONSERVER_START_METHOD": "fork"}):
+            import importlib
+            import settings
+            importlib.reload(settings)
+            
+            assert settings.CONSERVER_START_METHOD == "fork"
+
+    def test_start_method_spawn(self):
+        """Test start method can be set to spawn."""
+        with patch.dict(os.environ, {"CONSERVER_START_METHOD": "spawn"}):
+            import importlib
+            import settings
+            importlib.reload(settings)
+            
+            assert settings.CONSERVER_START_METHOD == "spawn"
+
+    def test_start_method_forkserver(self):
+        """Test start method can be set to forkserver."""
+        with patch.dict(os.environ, {"CONSERVER_START_METHOD": "forkserver"}):
+            import importlib
+            import settings
+            importlib.reload(settings)
+            
+            assert settings.CONSERVER_START_METHOD == "forkserver"
+
+    def test_get_start_method_validates_value(self):
+        """Test that get_start_method validates the value."""
+        from config import get_start_method
+        
+        # Valid values should work
+        with patch.dict(os.environ, {"CONSERVER_START_METHOD": "fork"}):
+            import importlib
+            import settings
+            importlib.reload(settings)
+            import config
+            importlib.reload(config)
+            from config import get_start_method
+            
+            assert get_start_method() == "fork"
+
     def test_get_worker_count_default(self):
         """Test default worker count is 1."""
         with patch.dict(os.environ, {}, clear=False):
