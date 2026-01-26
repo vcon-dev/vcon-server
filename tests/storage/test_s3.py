@@ -186,35 +186,50 @@ class TestCreateS3Client:
 class TestBuildS3Key:
     """Tests for the _build_s3_key helper function."""
 
-    def test_build_key_without_prefix(self):
-        """Test key building without s3_path prefix."""
+    def test_build_key_without_prefix_or_date(self):
+        """Test key building without s3_path prefix or created_at."""
         key = _build_s3_key("test-uuid")
         assert key == "test-uuid.vcon"
 
-    def test_build_key_with_prefix(self):
-        """Test key building with s3_path prefix."""
-        key = _build_s3_key("test-uuid", "vcons")
+    def test_build_key_with_prefix_only(self):
+        """Test key building with s3_path prefix but no created_at."""
+        key = _build_s3_key("test-uuid", s3_path="vcons")
         assert key == "vcons/test-uuid.vcon"
 
     def test_build_key_with_trailing_slash_prefix(self):
         """Test key building with trailing slash in prefix."""
-        key = _build_s3_key("test-uuid", "vcons/")
+        key = _build_s3_key("test-uuid", s3_path="vcons/")
         assert key == "vcons/test-uuid.vcon"
 
     def test_build_key_with_none_prefix(self):
         """Test key building with None prefix."""
-        key = _build_s3_key("test-uuid", None)
+        key = _build_s3_key("test-uuid", s3_path=None)
         assert key == "test-uuid.vcon"
 
     def test_build_key_with_empty_prefix(self):
         """Test key building with empty string prefix."""
-        key = _build_s3_key("test-uuid", "")
+        key = _build_s3_key("test-uuid", s3_path="")
         assert key == "test-uuid.vcon"
 
     def test_build_key_with_nested_prefix(self):
         """Test key building with nested prefix."""
-        key = _build_s3_key("test-uuid", "data/vcons/archive")
+        key = _build_s3_key("test-uuid", s3_path="data/vcons/archive")
         assert key == "data/vcons/archive/test-uuid.vcon"
+
+    def test_build_key_with_created_at(self):
+        """Test key building with created_at generates date folder."""
+        key = _build_s3_key("test-uuid", created_at="2025-12-10T15:30:00Z")
+        assert key == "2025/12/10/test-uuid.vcon"
+
+    def test_build_key_with_created_at_and_prefix(self):
+        """Test key building with both created_at and s3_path."""
+        key = _build_s3_key("test-uuid", created_at="2025-12-10T15:30:00Z", s3_path="vcons")
+        assert key == "vcons/2025/12/10/test-uuid.vcon"
+
+    def test_build_key_with_created_at_and_nested_prefix(self):
+        """Test key building with created_at and nested prefix."""
+        key = _build_s3_key("test-uuid", created_at="2024-01-15T08:00:00Z", s3_path="data/archive")
+        assert key == "data/archive/2024/01/15/test-uuid.vcon"
 
 
 class TestSave:
@@ -225,6 +240,7 @@ class TestSave:
         """Create a mock vCon object."""
         mock = MagicMock()
         mock.dumps.return_value = '{"uuid": "test-uuid", "vcon": "1.0.0"}'
+        mock.created_at = "2025-12-10T15:30:00Z"
         return mock
 
     @pytest.fixture
@@ -237,7 +253,7 @@ class TestSave:
         }
 
     def test_save_basic(self, mock_vcon, base_opts):
-        """Test basic save operation."""
+        """Test basic save operation with date folder."""
         with patch("server.storage.s3.VconRedis") as mock_redis_class, \
              patch("server.storage.s3.boto3.client") as mock_boto_client:
 
@@ -255,10 +271,10 @@ class TestSave:
 
             call_args = mock_s3.put_object.call_args
             assert call_args.kwargs["Bucket"] == "test-bucket"
-            assert call_args.kwargs["Key"] == "test-uuid.vcon"
+            assert call_args.kwargs["Key"] == "2025/12/10/test-uuid.vcon"
 
     def test_save_with_s3_path_prefix(self, mock_vcon, base_opts):
-        """Test save operation with s3_path prefix."""
+        """Test save operation with s3_path prefix and date folder."""
         base_opts["s3_path"] = "vcons"
 
         with patch("server.storage.s3.VconRedis") as mock_redis_class, \
@@ -274,7 +290,7 @@ class TestSave:
             save("test-uuid", base_opts)
 
             call_args = mock_s3.put_object.call_args
-            assert call_args.kwargs["Key"] == "vcons/test-uuid.vcon"
+            assert call_args.kwargs["Key"] == "vcons/2025/12/10/test-uuid.vcon"
 
     def test_save_with_region(self, mock_vcon, base_opts):
         """Test save operation with region specified."""
