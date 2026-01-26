@@ -291,7 +291,13 @@ GROQ_API_KEY=gsk-your-groq-api-key
 
 ### VCON_REDIS_EXPIRY
 
-Redis cache expiry for vCons fetched from storage (seconds).
+Default TTL (Time-To-Live) for vCons stored in Redis (seconds).
+
+This expiry applies to:
+
+- **vCons created via POST `/vcon`**: New vCons are stored with this TTL
+- **vCons created via POST `/vcon/external-ingress`**: External submissions use this TTL
+- **vCons synced from storage backends**: When a vCon is fetched from storage and cached in Redis
 
 | Property | Value |
 |----------|-------|
@@ -301,6 +307,11 @@ Redis cache expiry for vCons fetched from storage (seconds).
 ```bash
 VCON_REDIS_EXPIRY=7200  # 2 hours
 ```
+
+!!! warning "Cache Expiry Behavior"
+    vCons will be automatically removed from Redis after this TTL expires.
+    To ensure long-term retention, configure storage backends (S3, PostgreSQL, etc.)
+    in your processing chains to persist vCons before they expire from Redis.
 
 ### VCON_INDEX_EXPIRY
 
