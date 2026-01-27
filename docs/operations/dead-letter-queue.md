@@ -21,8 +21,28 @@ When processing fails:
 
 1. Error is logged with full traceback
 2. vCon UUID is moved to DLQ
-3. Original ingress list is recorded
-4. Processing continues with next vCon
+3. vCon TTL is extended to `VCON_DLQ_EXPIRY` (default 7 days) to ensure retention
+4. Original ingress list is recorded
+5. Processing continues with next vCon
+
+## DLQ Retention
+
+When a vCon is moved to the DLQ, its TTL is automatically extended to ensure it persists long enough for investigation and reprocessing.
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `VCON_DLQ_EXPIRY` | `604800` (7 days) | TTL for vCons in the DLQ |
+
+```bash
+# Extend DLQ retention to 14 days
+VCON_DLQ_EXPIRY=1209600
+
+# Disable DLQ expiry (vCons persist indefinitely)
+VCON_DLQ_EXPIRY=0
+```
+
+!!! note "Why DLQ Expiry Matters"
+    vCons created via the API have a default TTL of 1 hour (`VCON_REDIS_EXPIRY`). Without DLQ expiry extension, a failed vCon could expire from Redis before operators can investigate, leaving only the UUID in the DLQ with no data to review.
 
 ## DLQ Naming
 

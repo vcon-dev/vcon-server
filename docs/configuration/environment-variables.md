@@ -339,6 +339,28 @@ Context data expiration for ingress operations (seconds).
 VCON_CONTEXT_EXPIRY=43200  # 12 hours
 ```
 
+### VCON_DLQ_EXPIRY
+
+TTL for vCons moved to the Dead Letter Queue (seconds).
+
+When a vCon fails processing and is moved to the DLQ, its TTL is extended to this value to ensure operators have sufficient time to investigate failures. This prevents vCons from expiring before they can be reviewed and reprocessed.
+
+| Property | Value |
+|----------|-------|
+| **Required** | No |
+| **Default** | `604800` (7 days) |
+
+```bash
+# Extend DLQ retention to 14 days
+VCON_DLQ_EXPIRY=1209600
+
+# Disable DLQ expiry (vCons persist indefinitely)
+VCON_DLQ_EXPIRY=0
+```
+
+!!! tip "DLQ Retention Strategy"
+    The default 7-day retention gives operators time to investigate and reprocess failed vCons. Set to `0` if you want DLQ vCons to persist indefinitely (useful when using persistent storage backends).
+
 ### VCON_SORTED_SET_NAME
 
 Redis sorted set name for vCon indexing.
