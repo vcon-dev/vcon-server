@@ -140,7 +140,31 @@ GROQ_API_KEY=gsk-key
 VCON_REDIS_EXPIRY=3600
 VCON_INDEX_EXPIRY=86400
 TICK_INTERVAL=5000
+
+# Worker configuration (parallel processing)
+CONSERVER_WORKERS=4              # Number of worker processes (default: 1)
+CONSERVER_PARALLEL_STORAGE=true  # Enable parallel storage writes (default: true)
+CONSERVER_START_METHOD=fork      # Multiprocessing method: fork, spawn, forkserver (default: platform)
 ```
+
+### Worker Configuration Details
+
+#### CONSERVER_WORKERS
+- **Default**: 1 (single-threaded mode)
+- **Recommended**: Number of CPU cores for I/O-bound workloads
+- Workers atomically consume from Redis queues via BLPOP
+- Each worker processes vCons independently
+
+#### CONSERVER_PARALLEL_STORAGE
+- **Default**: true (enabled)
+- When multiple storage backends configured, writes execute concurrently
+- Set to "false" for sequential storage writes
+
+#### CONSERVER_START_METHOD
+- **"fork"**: Copy-on-write memory sharing (Unix only, fastest startup)
+- **"spawn"**: Fresh Python interpreter per worker (safer, higher memory)
+- **"forkserver"**: Hybrid approach using a clean forked server
+- **Empty/unset**: Use platform default (fork on Unix, spawn on Windows/macOS)
 
 ### Configuration File Structure
 ```yaml
@@ -167,20 +191,29 @@ chains:
 ## Scaling Strategies
 
 ### Horizontal Scaling
-1. **Stateless Workers**: Scale conserver instances
-2. **Queue Distribution**: Redis-based load balancing
-3. **Storage Scaling**: Distributed storage backends
-4. **Cache Scaling**: Redis cluster mode
+1. **Multi-Worker Mode**: Scale workers within a single instance via CONSERVER_WORKERS
+2. **Multi-Instance**: Scale conserver instances across hosts
+3. **Queue Distribution**: Redis BLPOP provides atomic load balancing
+4. **Storage Scaling**: Distributed storage backends
+5. **Cache Scaling**: Redis cluster mode
 
 ### Vertical Scaling
 1. **Resource Allocation**: CPU and memory limits
-2. **Connection Pooling**: Database connections
-3. **Batch Processing**: Larger batch sizes
-4. **Caching**: Increase cache sizes
+2. **Worker Count**: Increase CONSERVER_WORKERS for more parallelism
+3. **Connection Pooling**: Database connections
+4. **Parallel Storage**: Enable concurrent storage writes
+5. **Caching**: Increase cache sizes
 
 ### Performance Optimization
+```bash
+# High-throughput configuration
+CONSERVER_WORKERS=8              # 8 parallel workers
+CONSERVER_PARALLEL_STORAGE=true  # Concurrent storage writes
+CONSERVER_START_METHOD=fork      # Memory-efficient on Unix
+```
+
 ```yaml
-# Optimized configuration
+# Optimized chain configuration
 chains:
   high_performance:
     links:
@@ -188,8 +221,31 @@ chains:
           rate: 0.1
       - deepgram_link:
           batch_size: 50
-    workers: 8
+    storages:
+      - postgres         # All written in parallel
+      - s3
+      - milvus
     timeout: 300
+```
+
+### Memory Optimization for Multi-Worker
+
+When running multiple workers, memory management is important:
+
+| Start Method | Memory Usage | Best For |
+|-------------|--------------|----------|
+| fork | Lower (copy-on-write) | Unix servers with stable libraries |
+| spawn | Higher (fresh interpreter) | macOS, Windows, or when using CUDA/OpenSSL |
+| forkserver | Medium (clean fork) | Balance of memory and safety |
+
+```bash
+# Memory-efficient configuration (Unix)
+CONSERVER_WORKERS=4
+CONSERVER_START_METHOD=fork
+
+# Safe configuration (any platform)
+CONSERVER_WORKERS=4
+CONSERVER_START_METHOD=spawn
 ```
 
 ## Monitoring & Observability

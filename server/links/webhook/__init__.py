@@ -33,6 +33,10 @@ def run(
     # The webhook needs a stringified JSON version.
     json_dict = vCon.to_dict()
 
+    # Ensure vcon version is 0.3.0 for compatibility with vcon-mcp REST API
+    if json_dict.get("vcon") == "0.0.1" or "vcon" not in json_dict:
+        json_dict["vcon"] = "0.3.0"
+
     # Build headers from configuration
     headers = opts.get("headers", {})
 

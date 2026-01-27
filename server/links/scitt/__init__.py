@@ -125,5 +125,4 @@ def run(
     )
     logger.info(f"operation_id: {operation_id}")
 
-    os.sys.exit(1)
     return vcon_uuid
