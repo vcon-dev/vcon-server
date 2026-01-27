@@ -1,0 +1,53 @@
+<clickhouse>
+    <logger>
+        <level>warning</level>
+        <console>true</console>
+    </logger>
+
+    <listen_host>0.0.0.0</listen_host>
+
+    <max_connections>4096</max_connections>
+    <keep_alive_timeout>3</keep_alive_timeout>
+    <max_concurrent_queries>100</max_concurrent_queries>
+
+    <path>/var/lib/clickhouse/</path>
+    <tmp_path>/var/lib/clickhouse/tmp/</tmp_path>
+    <user_files_path>/var/lib/clickhouse/user_files/</user_files_path>
+
+    <users_config>users.xml</users_config>
+    <default_profile>default</default_profile>
+    <default_database>default</default_database>
+
+    <timezone>UTC</timezone>
+
+    <mlock_executable>true</mlock_executable>
+
+    <builtin_dictionaries_reload_interval>3600</builtin_dictionaries_reload_interval>
+
+    <max_session_timeout>3600</max_session_timeout>
+    <default_session_timeout>60</default_session_timeout>
+
+    <remote_servers>
+        <cluster>
+            <shard>
+                <replica>
+                    <host>signoz-clickhouse</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </cluster>
+    </remote_servers>
+
+    <macros>
+        <cluster>cluster</cluster>
+        <shard>01</shard>
+        <replica>signoz-clickhouse</replica>
+    </macros>
+
+    <zookeeper>
+        <node>
+            <host>signoz-zookeeper</host>
+            <port>2181</port>
+        </node>
+    </zookeeper>
+</clickhouse>
