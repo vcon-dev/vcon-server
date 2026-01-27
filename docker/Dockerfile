@@ -10,6 +10,9 @@ ENV VCON_SERVER_VERSION=${VCON_SERVER_VERSION}
 ENV VCON_SERVER_GIT_COMMIT=${VCON_SERVER_GIT_COMMIT}
 ENV VCON_SERVER_BUILD_TIME=${VCON_SERVER_BUILD_TIME}
 
+# Configure apt to use HTTPS sources (required when HTTP port 80 is blocked)
+RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources
+
 RUN apt-get update && \
     apt-get install -y libavdevice-dev ffmpeg
 
