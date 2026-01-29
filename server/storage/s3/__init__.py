@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 from typing import Optional
 from lib.logging_utils import init_logger
 from server.lib.vcon_redis import VconRedis
@@ -35,9 +36,23 @@ def _create_s3_client(opts: dict):
     return boto3.client("s3", **client_kwargs)
 
 
-def _build_s3_key(vcon_uuid: str, s3_path: Optional[str] = None) -> str:
-    """Build the S3 object key for a vCon."""
-    key = f"{vcon_uuid}.vcon"
+def _build_s3_key(vcon_uuid: str, created_at: Optional[str] = None, s3_path: Optional[str] = None) -> str:
+    """Build the S3 object key for a vCon with date-based folder structure.
+    
+    Args:
+        vcon_uuid: The vCon UUID
+        created_at: ISO format timestamp from the vCon's created_at field.
+                    If provided, creates date-based folder structure (YYYY/MM/DD).
+        s3_path: Optional prefix path in the S3 bucket
+    
+    Returns:
+        S3 key in format: [s3_path/][YYYY/MM/DD/]uuid.vcon
+    """
+    if created_at:
+        timestamp = datetime.fromisoformat(created_at).strftime("%Y/%m/%d")
+        key = f"{timestamp}/{vcon_uuid}.vcon"
+    else:
+        key = f"{vcon_uuid}.vcon"
     if not s3_path:
         return key
     return f"{s3_path.rstrip('/')}/{key}"
@@ -53,7 +68,7 @@ def save(
         vcon = vcon_redis.get_vcon(vcon_uuid)
         s3 = _create_s3_client(opts)
 
-        destination_directory = _build_s3_key(vcon_uuid, opts.get("s3_path"))
+        destination_directory = _build_s3_key(vcon_uuid, vcon.created_at, opts.get("s3_path"))
         s3.put_object(
             Bucket=opts["aws_bucket"], Key=destination_directory, Body=vcon.dumps()
         )
@@ -69,7 +84,7 @@ def get(vcon_uuid: str, opts=default_options) -> Optional[dict]:
     try:
         s3 = _create_s3_client(opts)
 
-        key = _build_s3_key(vcon_uuid, opts.get("s3_path"))
+        key = _build_s3_key(vcon_uuid, s3_path=opts.get("s3_path"))
 
         response = s3.get_object(Bucket=opts["aws_bucket"], Key=key)
         return json.loads(response['Body'].read().decode('utf-8'))
