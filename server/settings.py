@@ -42,6 +42,12 @@ VCON_REDIS_EXPIRY = int(os.getenv("VCON_REDIS_EXPIRY", 3600))
 # to prevent memory leaks when the same vCon UUID is added multiple times.
 VCON_CONTEXT_EXPIRY = int(os.getenv("VCON_CONTEXT_EXPIRY", 86400))
 
+# Dead Letter Queue (DLQ) expiration time in seconds (default 7 days)
+# When a vCon is moved to the DLQ due to processing failure, its TTL is
+# extended to this value to ensure operators have time to investigate.
+# Set to 0 to disable DLQ expiry (vCons will persist indefinitely).
+VCON_DLQ_EXPIRY = int(os.getenv("VCON_DLQ_EXPIRY", 604800))
+
 CONSERVER_CONFIG_FILE = os.getenv("CONSERVER_CONFIG_FILE", "./example_config.yml")
 API_ROOT_PATH = os.getenv("API_ROOT_PATH", "/api")
 

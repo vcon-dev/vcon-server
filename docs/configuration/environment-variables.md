@@ -291,7 +291,13 @@ GROQ_API_KEY=gsk-your-groq-api-key
 
 ### VCON_REDIS_EXPIRY
 
-Redis cache expiry for vCons fetched from storage (seconds).
+Default TTL (Time-To-Live) for vCons stored in Redis (seconds).
+
+This expiry applies to:
+
+- **vCons created via POST `/vcon`**: New vCons are stored with this TTL
+- **vCons created via POST `/vcon/external-ingress`**: External submissions use this TTL
+- **vCons synced from storage backends**: When a vCon is fetched from storage and cached in Redis
 
 | Property | Value |
 |----------|-------|
@@ -301,6 +307,11 @@ Redis cache expiry for vCons fetched from storage (seconds).
 ```bash
 VCON_REDIS_EXPIRY=7200  # 2 hours
 ```
+
+!!! warning "Cache Expiry Behavior"
+    vCons will be automatically removed from Redis after this TTL expires.
+    To ensure long-term retention, configure storage backends (S3, PostgreSQL, etc.)
+    in your processing chains to persist vCons before they expire from Redis.
 
 ### VCON_INDEX_EXPIRY
 
@@ -327,6 +338,28 @@ Context data expiration for ingress operations (seconds).
 ```bash
 VCON_CONTEXT_EXPIRY=43200  # 12 hours
 ```
+
+### VCON_DLQ_EXPIRY
+
+TTL for vCons moved to the Dead Letter Queue (seconds).
+
+When a vCon fails processing and is moved to the DLQ, its TTL is extended to this value to ensure operators have sufficient time to investigate failures. This prevents vCons from expiring before they can be reviewed and reprocessed.
+
+| Property | Value |
+|----------|-------|
+| **Required** | No |
+| **Default** | `604800` (7 days) |
+
+```bash
+# Extend DLQ retention to 14 days
+VCON_DLQ_EXPIRY=1209600
+
+# Disable DLQ expiry (vCons persist indefinitely)
+VCON_DLQ_EXPIRY=0
+```
+
+!!! tip "DLQ Retention Strategy"
+    The default 7-day retention gives operators time to investigate and reprocess failed vCons. Set to `0` if you want DLQ vCons to persist indefinitely (useful when using persistent storage backends).
 
 ### VCON_SORTED_SET_NAME
 

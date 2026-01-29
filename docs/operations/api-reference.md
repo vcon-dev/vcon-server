@@ -162,6 +162,13 @@ POST /vcon
 }
 ```
 
+**Cache Expiry:**
+
+Created vCons are stored in Redis with a default TTL of `VCON_REDIS_EXPIRY` seconds (default: 3600 seconds / 1 hour). After this time, the vCon will be automatically removed from Redis cache.
+
+!!! tip "Persisting vCons"
+    To retain vCons beyond the cache expiry, configure a storage backend (S3, PostgreSQL, etc.) in your processing chain. Use the `ingress_lists` parameter to add vCons to a chain that includes storage.
+
 **Example:**
 
 ```bash
@@ -408,6 +415,10 @@ POST /vcon/external-ingress
   "ingress_list": "partner_input"
 }
 ```
+
+**Cache Expiry:**
+
+Submitted vCons are stored in Redis with a default TTL of `VCON_REDIS_EXPIRY` seconds (default: 3600 seconds / 1 hour). The vCon is automatically queued in the specified ingress list for processing, which should include a storage step if long-term retention is required.
 
 **Example:**
 
