@@ -1,17 +1,10 @@
 from lib.vcon_redis import VconRedis
 from lib.logging_utils import init_logger
-import logging
-import json
-from openai import OpenAI
-from tenacity import (
-    retry,
-    stop_after_attempt,
-    wait_exponential,
-    before_sleep_log,
-)  # for exponential backoff
 from lib.metrics import record_histogram, increment_counter
-import time
 from lib.links.filters import is_included, randomly_execute_with_sampling
+from lib.llm_client import create_llm_client, get_vendor_from_response
+import json
+import time
 
 logger = init_logger(__name__)
 
@@ -36,25 +29,28 @@ def get_analysis_for_type(vcon, index, analysis_type):
     return None
 
 
-@retry(
-    wait=wait_exponential(multiplier=2, min=1, max=65),
-    stop=stop_after_attempt(6),
-    before_sleep=before_sleep_log(logger, logging.INFO),
-)
-def generate_analysis_with_labels(transcript, prompt, model, temperature, client, response_format) -> dict:
+def generate_analysis_with_labels(transcript, client, vcon_uuid, opts):
+    """Generate analysis with labels using the LLM client.
+
+    Returns:
+        Tuple of (analysis_json_str, response) where response contains provider info
+    """
+    prompt = opts.get("prompt", "")
+
     messages = [
         {"role": "system", "content": "You are a helpful assistant that analyzes text and provides relevant labels."},
         {"role": "user", "content": prompt + "\n\n" + transcript},
     ]
 
-    response = client.chat.completions.create(
-        model=model, 
-        messages=messages, 
-        temperature=temperature,
-        response_format=response_format
+    response = client.complete_with_tracking(
+        messages=messages,
+        vcon_uuid=vcon_uuid,
+        tracking_opts=opts,
+        sub_type="ANALYZE_AND_LABEL",
+        response_format=opts.get("response_format", {"type": "json_object"}),
     )
-    
-    return response.choices[0].message.content
+
+    return response.content, response
 
 
 def run(
@@ -79,7 +75,10 @@ def run(
         logger.info(f"Skipping {link_name} vCon {vcon_uuid} due to sampling")
         return vcon_uuid
 
-    client = OpenAI(api_key=opts["OPENAI_API_KEY"], timeout=120.0, max_retries=0)
+    # Create LLM client (supports OpenAI, Anthropic, and LiteLLM providers)
+    client = create_llm_client(opts)
+    logger.info(f"Using {client.provider_name} provider for model {opts.get('model', 'default')}")
+
     source_type = navigate_dict(opts, "source.analysis_type")
     text_location = navigate_dict(opts, "source.text_location")
 
@@ -104,76 +103,85 @@ def run(
             )
             continue
 
+        # Filter out sensitive keys from logging
+        filtered_opts = {
+            k: v for k, v in opts.items()
+            if k not in (
+                "OPENAI_API_KEY", "AZURE_OPENAI_API_KEY",
+                "AZURE_OPENAI_ENDPOINT", "ANTHROPIC_API_KEY",
+                "ai_usage_api_token"
+            )
+        }
         logger.info(
             "Analysing dialog %s with options: %s",
             index,
-            {k: v for k, v in opts.items() if k != "OPENAI_API_KEY"},
+            filtered_opts,
         )
         start = time.time()
         try:
             # Get the structured analysis with labels
-            analysis_json_str = generate_analysis_with_labels(
+            analysis_json_str, response = generate_analysis_with_labels(
                 transcript=source_text,
-                prompt=opts["prompt"],
-                model=opts["model"],
-                temperature=opts["temperature"],
                 client=client,
-                response_format=opts.get("response_format", {"type": "json_object"})
+                vcon_uuid=vcon_uuid,
+                opts=opts,
             )
-            
+
             # Parse the response to get labels
             try:
                 analysis_data = json.loads(analysis_json_str)
                 labels = analysis_data.get("labels", [])
-                
+
                 # Add the structured analysis to the vCon
                 vendor_schema = {}
-                vendor_schema["model"] = opts["model"]
+                vendor_schema["model"] = response.model
                 vendor_schema["prompt"] = opts["prompt"]
+                vendor_schema["provider"] = response.provider
                 vCon.add_analysis(
                     type=opts["analysis_type"],
                     dialog=index,
-                    vendor="openai",
+                    vendor=get_vendor_from_response(response),
                     body=analysis_json_str,
                     encoding="json",
                     extra={
                         "vendor_schema": vendor_schema,
                     },
                 )
-                
+
                 # Apply each label as a tag
                 for label in labels:
                     vCon.add_tag(tag_name=label, tag_value=label)
                     logger.info(f"Applied label as tag: {label}")
-                
+
                 increment_counter(
-                    "conserver.link.openai.labels_added",
+                    "conserver.link.llm.labels_added",
                     value=len(labels),
-                    attributes={"analysis_type": opts['analysis_type']},
+                    attributes={"analysis_type": opts['analysis_type'], "provider": client.provider_name},
                 )
-                
+
             except json.JSONDecodeError as e:
                 logger.error(f"Failed to parse JSON response for vCon {vcon_uuid}: {e}")
                 increment_counter(
-                    "conserver.link.openai.json_parse_failures",
-                    attributes={"analysis_type": opts['analysis_type']},
+                    "conserver.link.llm.json_parse_failures",
+                    attributes={"analysis_type": opts['analysis_type'], "provider": client.provider_name},
                 )
                 # Add the raw text anyway as the analysis
                 vCon.add_analysis(
                     type=opts["analysis_type"],
                     dialog=index,
-                    vendor="openai",
+                    vendor=get_vendor_from_response(response),
                     body=analysis_json_str,
                     encoding="none",
                     extra={
                         "vendor_schema": {
-                            "model": opts["model"],
+                            "model": response.model,
                             "prompt": opts["prompt"],
+                            "provider": response.provider,
                             "parse_error": str(e)
                         },
                     },
                 )
-                
+
         except Exception as e:
             logger.error(
                 "Failed to generate analysis for vCon %s after multiple retries: %s",
@@ -181,15 +189,15 @@ def run(
                 e,
             )
             increment_counter(
-                "conserver.link.openai.analysis_failures",
-                attributes={"analysis_type": opts['analysis_type']},
+                "conserver.link.llm.analysis_failures",
+                attributes={"analysis_type": opts['analysis_type'], "provider": client.provider_name},
             )
             raise e
 
         record_histogram(
-            "conserver.link.openai.analysis_time",
+            "conserver.link.llm.analysis_time",
             time.time() - start,
-            attributes={"analysis_type": opts['analysis_type']},
+            attributes={"analysis_type": opts['analysis_type'], "provider": client.provider_name},
         )
 
     vcon_redis.store_vcon(vCon)

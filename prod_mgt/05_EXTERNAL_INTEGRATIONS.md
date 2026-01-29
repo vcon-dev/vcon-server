@@ -18,7 +18,7 @@ vCon Server integrates with numerous external services for transcription, analys
 
 **Configuration**:
 ```yaml
-OPENAI_API_KEY: sk-your-api-key
+OPENAI_API_KEY: YOUR_OPENAI_API_KEY
 model: gpt-4
 temperature: 0
 ```

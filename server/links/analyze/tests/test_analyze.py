@@ -3,7 +3,7 @@ Unit tests for the analyze link in the Vcon server.
 
 These tests cover the analysis functionality, including:
 - Analysis generation with customizable system prompts
-- OpenAI API integration for text analysis
+- LLM client integration for text analysis (supports OpenAI, Anthropic, LiteLLM)
 - Handling of missing transcripts, API errors, and sampling logic
 - Ensuring correct analysis addition to vCon objects
 
@@ -11,7 +11,7 @@ Environment variables are loaded from .env using python-dotenv.
 """
 import os
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, MagicMock
 from server.links.analyze import (
     generate_analysis,
     run,
@@ -20,6 +20,7 @@ from server.links.analyze import (
     get_analysis_for_type,
 )
 from server.vcon import Vcon
+from lib.llm_client import LLMResponse
 from dotenv import load_dotenv
 
 # Load environment variables from .env file for API keys, etc.
@@ -139,146 +140,146 @@ class TestGetAnalysisForType:
 
 class TestGenerateAnalysis:
     """Test the generate_analysis function"""
-    
-    @patch('server.links.analyze.send_ai_usage_data_for_tracking')
-    @patch('server.links.analyze.OpenAI')
-    def test_generate_analysis_basic(self, mock_openai, mock_send_usage):
-        """Test basic analysis generation with mocked client"""
-        # Setup mock client
+
+    def test_generate_analysis_basic(self):
+        """Test basic analysis generation with mocked LLM client"""
+        # Setup mock LLM client
         mock_client = Mock()
-        mock_response = Mock()
-        mock_response.choices = [Mock()]
-        mock_response.choices[0].message.content = "This is a test analysis."
-        mock_response.usage = Mock()
-        mock_response.usage.prompt_tokens = 10
-        mock_response.usage.completion_tokens = 20
-        mock_client.chat.completions.create.return_value = mock_response
-        mock_openai.return_value = mock_client
-        
+        mock_response = LLMResponse(
+            content="This is a test analysis.",
+            model="gpt-3.5-turbo",
+            prompt_tokens=10,
+            completion_tokens=20,
+            total_tokens=30,
+            raw_response=None,
+            provider="openai"
+        )
+        mock_client.complete_with_tracking.return_value = mock_response
+
         opts = {
             "prompt": "Summarize this",
             "model": "gpt-3.5-turbo",
             "temperature": 0,
             "system_prompt": "You are a helpful assistant.",
         }
-        
-        result = generate_analysis(
+
+        result, response = generate_analysis(
             transcript="Test transcript",
             client=mock_client,
             vcon_uuid="test-uuid",
             opts=opts
         )
-        
+
         assert result == "This is a test analysis."
-        mock_client.chat.completions.create.assert_called_once()
-    
-    @patch('server.links.analyze.send_ai_usage_data_for_tracking')
-    @patch('server.links.analyze.OpenAI')
-    def test_generate_analysis_with_custom_system_prompt(self, mock_openai, mock_send_usage):
+        mock_client.complete_with_tracking.assert_called_once()
+
+    def test_generate_analysis_with_custom_system_prompt(self):
         """Test analysis generation with custom system prompt"""
-        # Setup mock client
+        # Setup mock LLM client
         mock_client = Mock()
-        mock_response = Mock()
-        mock_response.choices = [Mock()]
-        mock_response.choices[0].message.content = "Custom analysis."
-        mock_response.usage = Mock()
-        mock_response.usage.prompt_tokens = 10
-        mock_response.usage.completion_tokens = 20
-        mock_client.chat.completions.create.return_value = mock_response
-        mock_openai.return_value = mock_client
-        
+        mock_response = LLMResponse(
+            content="Custom analysis.",
+            model="gpt-3.5-turbo",
+            prompt_tokens=10,
+            completion_tokens=20,
+            total_tokens=30,
+            raw_response=None,
+            provider="openai"
+        )
+        mock_client.complete_with_tracking.return_value = mock_response
+
         custom_system_prompt = "You are a specialized financial analyst."
-        
+
         opts = {
             "prompt": "Analyze this financial data",
             "model": "gpt-3.5-turbo",
             "temperature": 0,
             "system_prompt": custom_system_prompt,
         }
-        
-        result = generate_analysis(
+
+        result, response = generate_analysis(
             transcript="Test transcript",
             client=mock_client,
             vcon_uuid="test-uuid",
             opts=opts
         )
-        
+
         assert result == "Custom analysis."
-        
+
         # Verify the system prompt was used correctly
-        call_args = mock_client.chat.completions.create.call_args
+        call_args = mock_client.complete_with_tracking.call_args
         messages = call_args[1]['messages']
         assert messages[0]['role'] == 'system'
         assert messages[0]['content'] == custom_system_prompt
         assert messages[1]['role'] == 'user'
         assert 'Analyze this financial data' in messages[1]['content']
-    
-    @patch('server.links.analyze.send_ai_usage_data_for_tracking')
-    @patch('server.links.analyze.OpenAI')
-    def test_generate_analysis_with_empty_prompt(self, mock_openai, mock_send_usage):
+
+    def test_generate_analysis_with_empty_prompt(self):
         """Test analysis generation with empty prompt"""
-        # Setup mock client
+        # Setup mock LLM client
         mock_client = Mock()
-        mock_response = Mock()
-        mock_response.choices = [Mock()]
-        mock_response.choices[0].message.content = "Analysis with empty prompt."
-        mock_response.usage = Mock()
-        mock_response.usage.prompt_tokens = 10
-        mock_response.usage.completion_tokens = 20
-        mock_client.chat.completions.create.return_value = mock_response
-        mock_openai.return_value = mock_client
-        
+        mock_response = LLMResponse(
+            content="Analysis with empty prompt.",
+            model="gpt-3.5-turbo",
+            prompt_tokens=10,
+            completion_tokens=20,
+            total_tokens=30,
+            raw_response=None,
+            provider="openai"
+        )
+        mock_client.complete_with_tracking.return_value = mock_response
+
         opts = {
             "prompt": "",
             "model": "gpt-3.5-turbo",
             "temperature": 0,
             "system_prompt": "You are a helpful assistant.",
         }
-        
-        result = generate_analysis(
+
+        result, response = generate_analysis(
             transcript="Test transcript",
             client=mock_client,
             vcon_uuid="test-uuid",
             opts=opts
         )
-        
+
         assert result == "Analysis with empty prompt."
-        
+
         # Verify the user message contains only the transcript
-        call_args = mock_client.chat.completions.create.call_args
+        call_args = mock_client.complete_with_tracking.call_args
         messages = call_args[1]['messages']
         assert messages[1]['content'] == "\n\nTest transcript"
-    
-    @patch('server.links.analyze.send_ai_usage_data_for_tracking')
-    @patch('server.links.analyze.OpenAI')
-    def test_generate_analysis_with_default_system_prompt(self, mock_openai, mock_send_usage):
+
+    def test_generate_analysis_with_default_system_prompt(self):
         """Test analysis generation uses default system prompt when not provided"""
-        # Setup mock client
+        # Setup mock LLM client
         mock_client = Mock()
-        mock_response = Mock()
-        mock_response.choices = [Mock()]
-        mock_response.choices[0].message.content = "Default analysis."
-        mock_response.usage = Mock()
-        mock_response.usage.prompt_tokens = 10
-        mock_response.usage.completion_tokens = 20
-        mock_client.chat.completions.create.return_value = mock_response
-        mock_openai.return_value = mock_client
-        
+        mock_response = LLMResponse(
+            content="Default analysis.",
+            model="gpt-3.5-turbo",
+            prompt_tokens=10,
+            completion_tokens=20,
+            total_tokens=30,
+            raw_response=None,
+            provider="openai"
+        )
+        mock_client.complete_with_tracking.return_value = mock_response
+
         opts = {
             "prompt": "Test prompt",
             "model": "gpt-3.5-turbo",
             "temperature": 0,
         }
-        
+
         generate_analysis(
             transcript="Test transcript",
             client=mock_client,
             vcon_uuid="test-uuid",
             opts=opts
         )
-        
+
         # Verify the default system prompt was used
-        call_args = mock_client.chat.completions.create.call_args
+        call_args = mock_client.complete_with_tracking.call_args
         messages = call_args[1]['messages']
         assert messages[0]['content'] == "You are a helpful assistant."
 
@@ -310,84 +311,112 @@ class TestDefaultOptions:
 
 class TestRunFunction:
     """Test the main run function"""
-    
-    @patch('server.links.analyze.generate_analysis')
+
+    @pytest.fixture
+    def mock_llm_response(self):
+        """Create a standard mock LLM response"""
+        return LLMResponse(
+            content="This is a test analysis.",
+            model="gpt-3.5-turbo",
+            prompt_tokens=10,
+            completion_tokens=20,
+            total_tokens=30,
+            raw_response=None,
+            provider="openai"
+        )
+
+    @patch('server.links.analyze.create_llm_client')
     @patch('server.links.analyze.is_included', return_value=True)
     @patch('server.links.analyze.randomly_execute_with_sampling', return_value=True)
-    def test_run_basic(self, mock_sampling, mock_is_included, mock_generate_analysis, mock_redis_with_vcon, sample_vcon):
-        """Test the basic run functionality with mocked analysis generation"""
-        # Set up mock to return analysis
-        mock_generate_analysis.return_value = "This is a test analysis."
-        
+    def test_run_basic(self, mock_sampling, mock_is_included, mock_create_client, mock_redis_with_vcon, sample_vcon, mock_llm_response):
+        """Test the basic run functionality with mocked LLM client"""
+        # Set up mock LLM client
+        mock_client = Mock()
+        mock_client.complete_with_tracking.return_value = mock_llm_response
+        mock_client.provider_name = "openai"
+        mock_create_client.return_value = mock_client
+
         # Set up the mock Redis instance to return our sample vCon
         mock_instance = mock_redis_with_vcon
         mock_instance.get_vcon.return_value = sample_vcon
-        
+
         # Run with default options but add API key
         opts = {"OPENAI_API_KEY": API_KEY}
-        
+
         result = run("test-uuid", "analyze", opts)
-        
+
         # Check that vCon was processed and returned
         assert result == "test-uuid"
-        
-        # Verify analysis generation was called
-        mock_generate_analysis.assert_called_once()
-        
+
+        # Verify LLM client was created
+        mock_create_client.assert_called_once()
+
         # Verify vCon was updated and stored
         mock_redis_with_vcon.store_vcon.assert_called_once()
-        
+
         # Check the vCon has an analysis
         sample_vcon.add_analysis.assert_called_once()
-    
-    @patch('server.links.analyze.generate_analysis')
+
+    @patch('server.links.analyze.create_llm_client')
     @patch('server.links.analyze.is_included', return_value=True)
     @patch('server.links.analyze.randomly_execute_with_sampling', return_value=True)
     def test_run_with_custom_system_prompt(
-        self, mock_sampling, mock_is_included, mock_generate_analysis, 
+        self, mock_sampling, mock_is_included, mock_create_client,
         mock_redis_with_vcon, sample_vcon
     ):
         """Test run function with custom system prompt"""
-        # Set up mock to return analysis
-        mock_generate_analysis.return_value = "Custom analysis with custom system prompt."
-        
+        # Set up mock LLM client
+        mock_client = Mock()
+        mock_response = LLMResponse(
+            content="Custom analysis with custom system prompt.",
+            model="gpt-3.5-turbo",
+            prompt_tokens=10,
+            completion_tokens=20,
+            total_tokens=30,
+            raw_response=None,
+            provider="openai"
+        )
+        mock_client.complete_with_tracking.return_value = mock_response
+        mock_client.provider_name = "openai"
+        mock_create_client.return_value = mock_client
+
         # Set up the mock Redis instance to return our sample vCon
         mock_instance = mock_redis_with_vcon
         mock_instance.get_vcon.return_value = sample_vcon
-        
+
         # Run with custom system prompt
         opts = {
             "OPENAI_API_KEY": API_KEY,
             "system_prompt": "You are a specialized customer service analyst.",
             "prompt": "Analyze this customer interaction."
         }
-        
+
         result = run("test-uuid", "analyze", opts)
-        
+
         # Check that vCon was processed and returned
         assert result == "test-uuid"
-        
-        # Verify analysis generation was called with opts containing custom system prompt
-        mock_generate_analysis.assert_called_once()
-        call_args = mock_generate_analysis.call_args
-        assert call_args[1]['opts']['system_prompt'] == "You are a specialized customer service analyst."
-        assert call_args[1]['opts']['prompt'] == "Analyze this customer interaction."
-    
+
+        # Verify LLM client complete_with_tracking was called with correct messages
+        mock_client.complete_with_tracking.assert_called_once()
+        call_args = mock_client.complete_with_tracking.call_args
+        messages = call_args[1]['messages']
+        assert messages[0]['content'] == "You are a specialized customer service analyst."
+
     @patch('server.links.analyze.is_included', return_value=False)
     def test_run_skipped_due_to_filters(self, mock_is_included, mock_redis_with_vcon):
         """Test that run is skipped when filters exclude the vCon"""
         # Set up the mock Redis instance to return a sample vCon
         sample_vcon = Mock()
         mock_redis_with_vcon.get_vcon.return_value = sample_vcon
-        
+
         result = run("test-uuid", "analyze", {"OPENAI_API_KEY": API_KEY})
-        
+
         # Should return the vcon_uuid without processing
         assert result == "test-uuid"
-        
+
         # Should have called get_vcon but then skipped due to filters
         mock_redis_with_vcon.get_vcon.assert_called_once_with("test-uuid")
-    
+
     @patch('server.links.analyze.is_included', return_value=True)
     @patch('server.links.analyze.randomly_execute_with_sampling', return_value=False)
     def test_run_skipped_due_to_sampling(self, mock_sampling, mock_is_included, mock_redis_with_vcon):
@@ -395,60 +424,62 @@ class TestRunFunction:
         # Set up the mock Redis instance to return a sample vCon
         sample_vcon = Mock()
         mock_redis_with_vcon.get_vcon.return_value = sample_vcon
-        
+
         result = run("test-uuid", "analyze", {"OPENAI_API_KEY": API_KEY})
-        
+
         # Should return the vcon_uuid without processing
         assert result == "test-uuid"
-        
+
         # Should have called get_vcon but then skipped due to sampling
         mock_redis_with_vcon.get_vcon.assert_called_once_with("test-uuid")
-    
-    @patch('server.links.analyze.generate_analysis')
+
+    @patch('server.links.analyze.create_llm_client')
     @patch('server.links.analyze.is_included', return_value=True)
     @patch('server.links.analyze.randomly_execute_with_sampling', return_value=True)
     def test_run_with_azure_openai(
-        self, mock_sampling, mock_is_included, mock_generate_analysis,
+        self, mock_sampling, mock_is_included, mock_create_client,
         mock_redis_with_vcon, sample_vcon
     ):
         """Test run function with Azure OpenAI credentials"""
-        # Set up mock to return analysis
-        mock_generate_analysis.return_value = "Azure OpenAI analysis."
-        
+        # Set up mock LLM client
+        mock_client = Mock()
+        mock_response = LLMResponse(
+            content="Azure OpenAI analysis.",
+            model="gpt-4",
+            prompt_tokens=10,
+            completion_tokens=20,
+            total_tokens=30,
+            raw_response=None,
+            provider="openai"
+        )
+        mock_client.complete_with_tracking.return_value = mock_response
+        mock_client.provider_name = "openai"
+        mock_create_client.return_value = mock_client
+
         # Set up the mock Redis instance to return our sample vCon
         mock_instance = mock_redis_with_vcon
         mock_instance.get_vcon.return_value = sample_vcon
-        
+
         # Run with Azure OpenAI credentials
         opts = {
             "AZURE_OPENAI_API_KEY": "azure-key",
             "AZURE_OPENAI_ENDPOINT": "https://azure-endpoint.com",
             "AZURE_OPENAI_API_VERSION": "2023-12-01-preview"
         }
-        
-        with patch('server.links.analyze.AzureOpenAI') as mock_azure:
-            mock_azure_instance = Mock()
-            mock_azure.return_value = mock_azure_instance
-            
-            result = run("test-uuid", "analyze", opts)
-            
-            # Check that vCon was processed and returned
-            assert result == "test-uuid"
-            
-            # Verify Azure OpenAI was used
-            mock_azure.assert_called_once()
-    
-    def test_run_missing_credentials(self, mock_redis_with_vcon):
-        """Test that run raises error when no credentials are provided"""
-        error_msg = "OpenAI or Azure OpenAI credentials not provided"
-        with pytest.raises(ValueError, match=error_msg):
-            run("test-uuid", "analyze", {})
-    
-    @patch('server.links.analyze.generate_analysis')
+
+        result = run("test-uuid", "analyze", opts)
+
+        # Check that vCon was processed and returned
+        assert result == "test-uuid"
+
+        # Verify LLM client was created with Azure credentials
+        mock_create_client.assert_called_once()
+
+    @patch('server.links.analyze.create_llm_client')
     @patch('server.links.analyze.is_included', return_value=True)
     @patch('server.links.analyze.randomly_execute_with_sampling', return_value=True)
     def test_run_already_has_analysis(
-        self, mock_sampling, mock_is_included, mock_generate_analysis,
+        self, mock_sampling, mock_is_included, mock_create_client,
         mock_redis_with_vcon, sample_vcon
     ):
         """Test that run skips when analysis already exists"""
@@ -459,48 +490,55 @@ class TestRunFunction:
             "body": "Existing analysis"
         }
         sample_vcon.analysis.append(existing_analysis)
-        
+
         # Set up the mock Redis instance to return our sample vCon
         mock_instance = mock_redis_with_vcon
         mock_instance.get_vcon.return_value = sample_vcon
-        
+
+        # Set up mock LLM client (should not be called)
+        mock_client = Mock()
+        mock_create_client.return_value = mock_client
+
         result = run("test-uuid", "analyze", {"OPENAI_API_KEY": API_KEY})
-        
+
         # Should return without generating new analysis
         assert result == "test-uuid"
-        mock_generate_analysis.assert_not_called()
-    
-    @patch('server.links.analyze.generate_analysis')
+        mock_client.complete_with_tracking.assert_not_called()
+
+    @patch('server.links.analyze.create_llm_client')
     @patch('server.links.analyze.is_included', return_value=True)
     @patch('server.links.analyze.randomly_execute_with_sampling', return_value=True)
     def test_run_analysis_failure(
-        self, mock_sampling, mock_is_included, mock_generate_analysis,
+        self, mock_sampling, mock_is_included, mock_create_client,
         mock_redis_with_vcon, sample_vcon
     ):
         """Test that run handles analysis generation failures"""
-        # Set up mock to raise exception
-        mock_generate_analysis.side_effect = Exception("API Error")
-        
+        # Set up mock LLM client to raise exception
+        mock_client = Mock()
+        mock_client.complete_with_tracking.side_effect = Exception("API Error")
+        mock_client.provider_name = "openai"
+        mock_create_client.return_value = mock_client
+
         # Set up the mock Redis instance to return our sample vCon
         mock_instance = mock_redis_with_vcon
         mock_instance.get_vcon.return_value = sample_vcon
-        
+
         with pytest.raises(Exception, match="API Error"):
             run("test-uuid", "analyze", {"OPENAI_API_KEY": API_KEY})
 
 
 @pytest.mark.skipif(not RUN_API_TESTS, reason="Skipping API tests. Set RUN_OPENAI_ANALYZE_TESTS=1 to run")
 class TestRealAPIIntegration:
-    """Test with real OpenAI API (optional)"""
-    
+    """Test with real LLM API (optional)"""
+
     def test_generate_analysis_real_api(self):
-        """Test the generate_analysis function with the real OpenAI API"""
+        """Test the generate_analysis function with the real LLM API"""
         # Skip if no API key is provided
         if not os.environ.get("OPENAI_API_KEY"):
             pytest.skip("No OpenAI API key provided via OPENAI_API_KEY environment variable")
-        
-        from openai import OpenAI
-        
+
+        from lib.llm_client import create_llm_client
+
         # Sample transcript
         transcript = (
             "Customer: Hi, I'm calling about my recent bill. I think there's an error. "
@@ -509,60 +547,63 @@ class TestRealAPIIntegration:
             "Agent: You're right, I see the duplicate charge. I'll process a refund right away. "
             "Customer: Thank you, I appreciate that."
         )
-        
-        # Create real client
-        client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
-        
+
         # Prepare opts
         opts = {
             "prompt": "Summarize this customer service interaction in one sentence.",
             "model": "gpt-3.5-turbo",  # Use cheaper model for tests
             "temperature": 0,
             "system_prompt": "You are a helpful assistant.",
+            "OPENAI_API_KEY": os.environ["OPENAI_API_KEY"],
         }
-        
+
+        # Create LLM client
+        client = create_llm_client(opts)
+
         # Call the function
-        result = generate_analysis(
+        result, response = generate_analysis(
             transcript=transcript,
             client=client,
             vcon_uuid="test-uuid",
             opts=opts
         )
-        
+
         # Check that we get a valid response
         assert isinstance(result, str)
         assert len(result) > 0
-    
+        assert response.provider == "openai"
+
     def test_generate_analysis_real_api_custom_system_prompt(self):
         """Test the generate_analysis function with custom system prompt using real API"""
         # Skip if no API key is provided
         if not os.environ.get("OPENAI_API_KEY"):
             pytest.skip("No OpenAI API key provided via OPENAI_API_KEY environment variable")
-        
-        from openai import OpenAI
-        
+
+        from lib.llm_client import create_llm_client
+
         # Sample transcript
         transcript = "The customer called about a billing issue and was very upset."
-        
-        # Create real client
-        client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
-        
+
         # Prepare opts with custom system prompt
         opts = {
             "prompt": "Analyze the customer's emotional state.",
             "model": "gpt-3.5-turbo",
             "temperature": 0,
             "system_prompt": "You are a customer service expert specializing in emotional analysis.",
+            "OPENAI_API_KEY": os.environ["OPENAI_API_KEY"],
         }
-        
+
+        # Create LLM client
+        client = create_llm_client(opts)
+
         # Call the function with custom system prompt
-        result = generate_analysis(
+        result, response = generate_analysis(
             transcript=transcript,
             client=client,
             vcon_uuid="test-uuid",
             opts=opts
         )
-        
+
         # Check that we get a valid response
         assert isinstance(result, str)
         assert len(result) > 0

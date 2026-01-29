@@ -19,7 +19,7 @@ The module accepts the following configuration options:
 default_options = {
     "organization_key": "org-xxxxx",      # OpenAI organization ID
     "project_key": "proj_xxxxxxx",        # OpenAI project ID
-    "api_key": "sk-proj-xxxxxx",          # OpenAI API key
+    "api_key": "YOUR_OPENAI_API_KEY",     # OpenAI API key
     "vector_store_id": "xxxxxx",          # Vector store ID for embeddings
     "purpose": "assistants",              # Purpose for file upload
     "cleanup_local_files": True,          # Auto-cleanup of temp files
@@ -32,7 +32,7 @@ default_options = {
 Recommended environment variable configuration:
 
 ```bash
-OPENAI_API_KEY=sk-...
+OPENAI_API_KEY=YOUR_OPENAI_API_KEY
 OPENAI_ORG_ID=org-...
 OPENAI_PROJECT_ID=proj_...
 OPENAI_VECTOR_STORE_ID=vs-...
@@ -58,7 +58,7 @@ vcon_data = get(vcon_uuid, options)
 options = {
     "organization_key": "org-xxx",
     "project_key": "proj_xxx",
-    "api_key": "sk-xxx",
+    "api_key": "YOUR_OPENAI_API_KEY",
     "vector_store_id": "vs-xxx",
     "purpose": "assistants"
 }
