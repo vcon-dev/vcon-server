@@ -25,6 +25,7 @@ import redis_mgr
 from config import get_config, get_worker_count, is_parallel_storage_enabled, get_start_method
 from version import get_version_string, get_version_info
 from dlq_utils import get_ingress_list_dlq_name
+import hook
 from settings import VCON_DLQ_EXPIRY
 from lib.context_utils import retrieve_context, store_context_sync, extract_otel_trace_context
 from lib.error_tracking import init_error_tracker
@@ -693,9 +694,12 @@ def worker_loop(worker_id: int) -> None:
         )
         
         vcon_chain_request = VconChainRequest(chain_details, vcon_id, context)
+        processing_error = None
         try:
+            hook.before_processing(vcon_id, chain_details, context)
             vcon_chain_request.process()
         except Exception as e:
+            processing_error = e
             logger.error(
                 "[%s] Critical error processing vCon %s: %s - Moving to DLQ",
                 worker_name,
@@ -726,6 +730,13 @@ def worker_loop(worker_id: int) -> None:
                     vcon_id,
                     VCON_DLQ_EXPIRY
                 )
+        finally:
+            hook.after_processing(
+                vcon_chain_request.vcon_id,
+                chain_details,
+                context,
+                error=processing_error,
+            )
     
     logger.info("%s exiting", worker_name)
 
