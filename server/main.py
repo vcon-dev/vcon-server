@@ -696,6 +696,8 @@ def worker_loop(worker_id: int) -> None:
         vcon_chain_request = VconChainRequest(chain_details, vcon_id, context)
         processing_error = None
         try:
+            context = context or {}
+            context["ingress_list"] = ingress_list
             hook.before_processing(vcon_id, chain_details, context)
             vcon_chain_request.process()
         except Exception as e:
