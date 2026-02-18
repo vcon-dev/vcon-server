@@ -6,10 +6,14 @@ logger = init_logger(__name__)
 
 default_options = {
     "token": None,
-    "channel_name": None,
+    "default_channel_name": None,
     "url": "Url to hex sheet",
     "analysis_to_post": "summary",
     "only_if": {"analysis_type": "customer_frustration", "includes": "NEEDS REVIEW"},
+    # Optional simple notification: when set, post one message to default_channel_name with this URL
+    # (use {vcon_uuid} in the template) and message_text. Skips analysis-based posting.
+    "url_template": None,
+    "message_text": "Callback request",
 }
 
 
@@ -20,8 +24,9 @@ def get_team(vcon):
             t_obj = a["body"]
             team = t_obj.get("team", None)
             if team:
-                team_name = team["name"]
-                team_name = team_name.split()[0].lower()
+                raw = team["name"]
+                if raw:
+                    team_name = raw.split()[0].lower()
     return team_name
 
 
@@ -41,12 +46,16 @@ def get_summary(vcon, index):
     return None
 
 
-def post_blocks_to_channel(token, channel_name, abstract, url, opts):
-    blocks = [
-        {
-            "type": "section",
-            "text": {"type": "mrkdwn", "text": "Check this out :neutral_face:"},
-        },
+def post_blocks_to_channel(token, channel_name, abstract, url, opts, include_header=True):
+    blocks = []
+    if include_header:
+        blocks.append(
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": "Check this out :neutral_face:"},
+            }
+        )
+    blocks += [
         {"type": "section", "text": {"type": "mrkdwn", "text": abstract}},
         {
             "type": "section",
@@ -83,6 +92,20 @@ def run(vcon_id, link_name, opts=default_options):
 
     vcon_redis = VconRedis()
     vcon = vcon_redis.get_vcon(vcon_id)
+
+    # Simple notification mode: post one message with url_template and message_text (no analysis).
+    if opts.get("url_template"):
+        url = opts["url_template"].format(vcon_uuid=vcon_id)
+        message_text = opts.get("message_text") or default_options["message_text"]
+        post_blocks_to_channel(
+            opts["token"],
+            opts["default_channel_name"],
+            message_text,
+            url,
+            opts,
+            include_header=False,
+        )
+        return vcon_id
 
     for a in vcon.analysis:
         # we still need to run this check give the following scenario:
