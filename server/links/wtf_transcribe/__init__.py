@@ -27,10 +27,14 @@ Example configuration in config.yml:
 """
 
 import base64
+import hashlib
 import json
 import logging
 import os
+import random
 import tempfile
+import time
+import threading
 import requests
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
@@ -38,17 +42,181 @@ from typing import Optional, Dict, Any, List
 from server.lib.vcon_redis import VconRedis
 from lib.logging_utils import init_logger
 from lib.error_tracking import init_error_tracker
+from redis_mgr import redis
 
 init_error_tracker()
 logger = init_logger(__name__)
 
+
+# ---------------------------------------------------------------------------
+# Health-aware vfun URL selector with self-healing
+# ---------------------------------------------------------------------------
+class _VfunHealthTracker:
+    """Track vfun instance health across all workers in this process.
+
+    Instances are marked DOWN on connection/timeout/HTTP errors and
+    automatically re-checked after `recovery_seconds`.  Selection prefers
+    healthy instances with random load balancing; when all are down the
+    least-recently-failed instance is tried first.
+    """
+
+    def __init__(self, recovery_seconds: float = 30.0):
+        self._lock = threading.Lock()
+        # url -> timestamp when it was marked down (0 = healthy)
+        self._down_since: Dict[str, float] = {}
+        self._recovery_seconds = recovery_seconds
+
+    def _is_healthy(self, url: str, now: float) -> bool:
+        ts = self._down_since.get(url, 0)
+        if ts == 0:
+            return True
+        # Self-heal: allow retry after recovery window
+        return (now - ts) >= self._recovery_seconds
+
+    def mark_down(self, url: str) -> None:
+        with self._lock:
+            if self._down_since.get(url, 0) == 0:
+                logger.warning("vfun instance marked DOWN: %s", url)
+            self._down_since[url] = time.monotonic()
+
+    def mark_healthy(self, url: str) -> None:
+        with self._lock:
+            was_down = self._down_since.get(url, 0) != 0
+            self._down_since[url] = 0
+            if was_down:
+                logger.info("vfun instance recovered: %s", url)
+
+    def get_ordered_urls(self, urls: List[str]) -> List[str]:
+        """Return URLs ordered: healthy (shuffled) first, then recovering
+        (oldest-failure first), then remaining down instances."""
+        now = time.monotonic()
+        healthy = []
+        recovering = []
+        down = []
+        with self._lock:
+            for url in urls:
+                ts = self._down_since.get(url, 0)
+                if ts == 0:
+                    healthy.append(url)
+                elif (now - ts) >= self._recovery_seconds:
+                    recovering.append((ts, url))
+                else:
+                    down.append((ts, url))
+        random.shuffle(healthy)
+        recovering.sort()  # oldest failure first (most likely recovered)
+        down.sort()
+        return healthy + [u for _, u in recovering] + [u for _, u in down]
+
+
+# Module-level singleton shared across all workers in this process
+_health_tracker = _VfunHealthTracker(recovery_seconds=30.0)
+
 default_options = {
     "vfun-server-url": None,
+    "vfun-server-urls": None,  # List of URLs for load balancing
     "diarize": True,
     "timeout": 300,
     "min-duration": 5,
     "api-key": None,
+    "cache-ttl": 604800,  # 7 days in seconds
 }
+
+# Redis cache key prefixes for transcription results
+WTF_CACHE_PREFIX = "wtf_cache:"
+TRANSCRIPTION_PREFIX = "transcription:"
+
+
+def _get_filename_from_dialog(dialog: Dict[str, Any]) -> Optional[str]:
+    """Extract the audio filename from a dialog's URL."""
+    url = dialog.get("url", "")
+    if url:
+        if url.startswith("file://"):
+            return os.path.basename(url[7:])
+        else:
+            return os.path.basename(url.split("?")[0])
+    return None
+
+
+def get_cache_key(dialog: Dict[str, Any]) -> Optional[str]:
+    """Derive a cache key from the dialog's audio file URL or body hash."""
+    filename = _get_filename_from_dialog(dialog)
+    if filename:
+        return f"{WTF_CACHE_PREFIX}{filename}"
+    # Fall back to hashing the body content
+    body = dialog.get("body")
+    if body:
+        body_hash = hashlib.sha256(body.encode() if isinstance(body, str) else body).hexdigest()[:32]
+        return f"{WTF_CACHE_PREFIX}hash:{body_hash}"
+    return None
+
+
+def get_cached_transcription(cache_key: str, dialog: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Check Redis for a cached WTF transcription result.
+
+    Checks two key patterns:
+      1. wtf_cache:{filename}  — full WTF body (stored by this link)
+      2. transcription:{filename} — simple {text, language, duration} (pre-populated)
+    """
+    # Check wtf_cache: first (full body, ready to use)
+    try:
+        cached = redis.get(cache_key)
+        if cached:
+            return json.loads(cached)
+    except Exception as e:
+        logger.debug(f"Cache lookup failed for {cache_key}: {e}")
+
+    # Check transcription: prefix (simpler format, needs conversion)
+    filename = _get_filename_from_dialog(dialog)
+    if filename:
+        try:
+            cached = redis.get(f"{TRANSCRIPTION_PREFIX}{filename}")
+            if cached:
+                data = json.loads(cached)
+                # Convert simple format to WTF body
+                now = datetime.now(timezone.utc).isoformat()
+                duration = float(data.get("duration", dialog.get("duration", 30.0)))
+                return {
+                    "transcript": {
+                        "text": data.get("text", ""),
+                        "language": data.get("language", "en-US"),
+                        "duration": duration,
+                        "confidence": 0.9,
+                    },
+                    "segments": [],
+                    "metadata": {
+                        "created_at": now,
+                        "processed_at": now,
+                        "provider": "vfun",
+                        "model": "parakeet-tdt-110m",
+                        "source": "redis_cache",
+                    },
+                    "quality": {
+                        "average_confidence": 0.9,
+                        "multiple_speakers": False,
+                        "low_confidence_words": 0,
+                    },
+                }
+        except Exception as e:
+            logger.debug(f"Transcription cache lookup failed for {filename}: {e}")
+
+    return None
+
+
+def store_cached_transcription(cache_key: str, wtf_body: Dict[str, Any], ttl: int = 604800):
+    """Store a WTF transcription result in Redis cache."""
+    try:
+        redis.setex(cache_key, ttl, json.dumps(wtf_body))
+    except Exception as e:
+        logger.debug(f"Cache store failed for {cache_key}: {e}")
+
+
+def get_vfun_urls(opts: Dict[str, Any]) -> List[str]:
+    """Get vfun server URLs ordered by health (healthy first, shuffled)."""
+    urls = opts.get("vfun-server-urls")
+    if urls and isinstance(urls, list) and len(urls) > 0:
+        return _health_tracker.get_ordered_urls(urls)
+    single = opts.get("vfun-server-url")
+    return [single] if single else []
 
 
 def has_wtf_transcription(vcon: Any, dialog_index: int) -> bool:
@@ -113,29 +281,40 @@ def create_wtf_analysis(
     now = datetime.now(timezone.utc).isoformat()
 
     # Extract text and segments from vfun response
-    # vfun returns: analysis[].body with transcription data
-    analysis_entries = vfun_response.get("analysis", [])
+    # vfun can return either:
+    # 1. Direct response: {"type": "wtf_transcription", "body": {...}}
+    # 2. Wrapped in analysis: {"analysis": [{"type": "wtf_transcription", "body": {...}}]}
 
     full_text = ""
     segments = []
     language = "en-US"
 
-    for entry in analysis_entries:
-        if entry.get("type") in ("transcription", "wtf_transcription"):
-            body = entry.get("body", {})
+    # Check for direct response format first (vfun native format)
+    if vfun_response.get("type") in ("transcription", "wtf_transcription"):
+        body = vfun_response.get("body", {})
+        if isinstance(body, dict):
+            transcript = body.get("transcript", {})
+            full_text = transcript.get("text", body.get("text", ""))
+            language = transcript.get("language", body.get("language", "en-US"))
+            segments = body.get("segments", [])
+        elif isinstance(body, str):
+            full_text = body
+    else:
+        # Try wrapped analysis format
+        analysis_entries = vfun_response.get("analysis", [])
+        for entry in analysis_entries:
+            if entry.get("type") in ("transcription", "wtf_transcription"):
+                body = entry.get("body", {})
+                if isinstance(body, dict):
+                    transcript = body.get("transcript", {})
+                    full_text = transcript.get("text", body.get("text", ""))
+                    language = transcript.get("language", body.get("language", "en-US"))
+                    segments = body.get("segments", [])
+                elif isinstance(body, str):
+                    full_text = body
+                break
 
-            # Handle different response formats
-            if isinstance(body, dict):
-                # WTF format from vfun
-                transcript = body.get("transcript", {})
-                full_text = transcript.get("text", body.get("text", ""))
-                language = transcript.get("language", body.get("language", "en-US"))
-                segments = body.get("segments", [])
-            elif isinstance(body, str):
-                full_text = body
-            break
-
-    # If no analysis found, check for direct text field
+    # If no text found, check for direct text field
     if not full_text:
         full_text = vfun_response.get("text", "")
         segments = vfun_response.get("segments", [])
@@ -230,9 +409,9 @@ def run(
 
     logger.info(f"Starting wtf_transcribe link for vCon: {vcon_uuid}")
 
-    vfun_server_url = opts.get("vfun-server-url")
-    if not vfun_server_url:
-        logger.error("wtf_transcribe: vfun-server-url is required")
+    # Check if any vfun URL is configured
+    if not opts.get("vfun-server-url") and not opts.get("vfun-server-urls"):
+        logger.error("wtf_transcribe: vfun-server-url or vfun-server-urls is required")
         return vcon_uuid
 
     vcon_redis = VconRedis()
@@ -245,6 +424,9 @@ def run(
     # Find dialogs to transcribe
     dialogs_processed = 0
     dialogs_skipped = 0
+    cache_hits = 0
+    cache_misses = 0
+    cache_ttl = opts.get("cache-ttl", 604800)
 
     for i, dialog in enumerate(vcon.dialog):
         if not should_transcribe_dialog(dialog, opts.get("min-duration", 5)):
@@ -257,6 +439,44 @@ def run(
             dialogs_skipped += 1
             continue
 
+        # Check Redis cache before calling vfun
+        cache_key = get_cache_key(dialog)
+        cached_body = get_cached_transcription(cache_key, dialog) if cache_key else None
+
+        if cached_body:
+            # Cache hit - use cached transcription
+            cache_hits += 1
+            logger.info(f"Cache HIT for dialog {i} (key={cache_key})")
+
+            wtf_analysis = {
+                "type": "wtf_transcription",
+                "dialog": i,
+                "mediatype": "application/json",
+                "vendor": "vfun",
+                "product": "parakeet-tdt-110m",
+                "schema": "wtf-1.0",
+                "body": cached_body,
+            }
+
+            vcon.add_analysis(
+                type=wtf_analysis["type"],
+                dialog=wtf_analysis["dialog"],
+                vendor=wtf_analysis.get("vendor"),
+                body=wtf_analysis["body"],
+                extra={
+                    "mediatype": wtf_analysis.get("mediatype"),
+                    "product": wtf_analysis.get("product"),
+                    "schema": wtf_analysis.get("schema"),
+                },
+            )
+
+            dialogs_processed += 1
+            logger.info(f"Added cached WTF transcription for dialog {i}")
+            continue
+
+        # Cache miss - need to call vfun
+        cache_misses += 1
+
         # Get audio content
         audio_content = get_audio_content(dialog)
         if not audio_content:
@@ -264,77 +484,103 @@ def run(
             dialogs_skipped += 1
             continue
 
-        logger.info(f"Transcribing dialog {i} for vCon {vcon_uuid}")
+        logger.info(f"Cache MISS for dialog {i} - calling vfun (key={cache_key})")
 
-        try:
-            # Build request to vfun server
-            headers = {}
-            api_key = opts.get("api-key")
-            if api_key:
-                headers["Authorization"] = f"Bearer {api_key}"
+        # Try each vfun instance in health-priority order until one succeeds
+        vfun_urls = get_vfun_urls(opts)
+        if not vfun_urls:
+            logger.error("wtf_transcribe: no vfun URLs available")
+            dialogs_skipped += 1
+            continue
 
-            # Get filename from dialog or generate one
-            filename = dialog.get("filename", f"audio_{i}.wav")
-            mimetype = dialog.get("mimetype", "audio/wav")
+        mimetype = dialog.get("mimetype", "audio/wav")
+        headers = {}
+        api_key = opts.get("api-key")
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        timeout = opts.get("timeout", 300)
 
-            # Send audio to vfun server
-            files = {"file": (filename, audio_content, mimetype)}
-            data = {
-                "diarize": str(opts.get("diarize", True)),
-                "block": "true",
-            }
-
-            response = requests.post(
-                vfun_server_url,
-                files=files,
-                data=data,
-                headers=headers,
-                timeout=opts.get("timeout", 300),
-            )
-
-            if response.status_code in (200, 302):
-                vfun_response = response.json()
-                # Handle double-encoded JSON (vfun sometimes returns JSON string)
-                if isinstance(vfun_response, str):
-                    vfun_response = json.loads(vfun_response)
-
-                duration = dialog.get("duration", 30.0)
-                wtf_analysis = create_wtf_analysis(i, vfun_response, float(duration))
-
-                # Add analysis to vCon
-                vcon.add_analysis(
-                    type=wtf_analysis["type"],
-                    dialog=wtf_analysis["dialog"],
-                    vendor=wtf_analysis.get("vendor"),
-                    body=wtf_analysis["body"],
-                    extra={
-                        "mediatype": wtf_analysis.get("mediatype"),
-                        "product": wtf_analysis.get("product"),
-                        "schema": wtf_analysis.get("schema"),
-                    },
+        transcribed = False
+        for attempt, vfun_server_url in enumerate(vfun_urls):
+            try:
+                files = {
+                    "file-binary": ("audio", audio_content, mimetype)
+                }
+                response = requests.post(
+                    vfun_server_url,
+                    files=files,
+                    headers=headers,
+                    timeout=timeout,
                 )
 
-                dialogs_processed += 1
-                logger.info(f"Added WTF transcription for dialog {i}")
+                if response.status_code in (200, 302):
+                    _health_tracker.mark_healthy(vfun_server_url)
+                    vfun_response = response.json()
+                    if isinstance(vfun_response, str):
+                        vfun_response = json.loads(vfun_response)
 
-            else:
+                    duration = dialog.get("duration", 30.0)
+                    wtf_analysis = create_wtf_analysis(i, vfun_response, float(duration))
+
+                    if cache_key:
+                        store_cached_transcription(cache_key, wtf_analysis["body"], cache_ttl)
+                        logger.info(f"Cached transcription for dialog {i} (key={cache_key})")
+
+                    vcon.add_analysis(
+                        type=wtf_analysis["type"],
+                        dialog=wtf_analysis["dialog"],
+                        vendor=wtf_analysis.get("vendor"),
+                        body=wtf_analysis["body"],
+                        extra={
+                            "mediatype": wtf_analysis.get("mediatype"),
+                            "product": wtf_analysis.get("product"),
+                            "schema": wtf_analysis.get("schema"),
+                        },
+                    )
+
+                    dialogs_processed += 1
+                    if attempt > 0:
+                        logger.info(f"Added WTF transcription for dialog {i} (succeeded on attempt {attempt + 1})")
+                    else:
+                        logger.info(f"Added WTF transcription for dialog {i}")
+                    transcribed = True
+                    break  # success — stop trying other URLs
+
+                else:
+                    _health_tracker.mark_down(vfun_server_url)
+                    logger.warning(
+                        f"vfun {vfun_server_url} returned {response.status_code} for dialog {i}, "
+                        f"trying next instance ({attempt + 1}/{len(vfun_urls)})"
+                    )
+
+            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+                _health_tracker.mark_down(vfun_server_url)
+                logger.warning(
+                    f"vfun {vfun_server_url} unreachable for dialog {i}: {type(e).__name__}, "
+                    f"trying next instance ({attempt + 1}/{len(vfun_urls)})"
+                )
+            except Exception as e:
+                _health_tracker.mark_down(vfun_server_url)
                 logger.error(
-                    f"vfun transcription failed for dialog {i}: "
-                    f"status={response.status_code}, response={response.text[:200]}"
+                    f"Unexpected error from vfun {vfun_server_url} for dialog {i}: {e}",
+                    exc_info=True,
                 )
 
-        except requests.exceptions.Timeout:
-            logger.error(f"vfun transcription timed out for dialog {i}")
-        except Exception as e:
-            logger.error(f"Error transcribing dialog {i}: {e}", exc_info=True)
+        if not transcribed:
+            logger.error(
+                f"All {len(vfun_urls)} vfun instances failed for dialog {i} of vCon {vcon_uuid}"
+            )
 
     if dialogs_processed > 0:
         vcon_redis.store_vcon(vcon)
         logger.info(
             f"Updated vCon {vcon_uuid}: processed={dialogs_processed}, "
-            f"skipped={dialogs_skipped}"
+            f"skipped={dialogs_skipped}, cache_hits={cache_hits}, cache_misses={cache_misses}"
         )
     else:
-        logger.info(f"No dialogs transcribed for vCon {vcon_uuid}")
+        logger.info(
+            f"No dialogs transcribed for vCon {vcon_uuid} "
+            f"(cache_hits={cache_hits}, cache_misses={cache_misses})"
+        )
 
     return vcon_uuid
