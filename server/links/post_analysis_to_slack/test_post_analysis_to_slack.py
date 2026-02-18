@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import patch, MagicMock, call
+from unittest.mock import patch, MagicMock
 from vcon import Vcon
 
 from links.post_analysis_to_slack import run, get_team, get_dealer, get_summary, post_blocks_to_channel

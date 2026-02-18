@@ -24,9 +24,10 @@ def get_team(vcon):
             t_obj = a["body"]
             team = t_obj.get("team", None)
             if team:
-                raw = team["name"]
-                if raw:
-                    team_name = raw.split()[0].lower()
+                raw = team.get("name") or ""
+                parts = raw.split()
+                if parts:
+                    team_name = parts[0].lower()
     return team_name
 
 
@@ -95,7 +96,14 @@ def run(vcon_id, link_name, opts=default_options):
 
     # Simple notification mode: post one message with url_template and message_text (no analysis).
     if opts.get("url_template"):
-        url = opts["url_template"].format(vcon_uuid=vcon_id)
+        try:
+            url = opts["url_template"].format(vcon_uuid=vcon_id)
+        except (KeyError, ValueError) as e:
+            logger.error(
+                f"Invalid url_template in {module_name} config: {e}. "
+                "Only {{vcon_uuid}} is a supported placeholder."
+            )
+            return vcon_id
         message_text = opts.get("message_text") or default_options["message_text"]
         post_blocks_to_channel(
             opts["token"],
