@@ -677,7 +677,7 @@ async def post_vcon(
         await add_vcon_to_set(key, timestamp)
 
         logger.debug(f"Indexing vCon {inbound_vcon.uuid}")
-        await index_vcon(inbound_vcon.uuid)
+        await index_vcon_parties(str(inbound_vcon.uuid), dict_vcon["parties"])
 
         # Add to ingress lists if specified
         if ingress_lists:
@@ -772,7 +772,7 @@ async def external_ingress_vcon(
         await add_vcon_to_set(key, timestamp)
 
         logger.debug(f"Indexing vCon {inbound_vcon.uuid}")
-        await index_vcon(inbound_vcon.uuid)
+        await index_vcon_parties(str(inbound_vcon.uuid), dict_vcon["parties"])
 
         # Always add to the specified ingress list (required for this endpoint)
         vcon_uuid_str = str(inbound_vcon.uuid)
@@ -1060,25 +1060,17 @@ async def get_dlq_vcons(
         raise HTTPException(status_code=500, detail="Failed to read DLQ")
 
 
-async def index_vcon(uuid: UUID) -> None:
-    """Index a vCon for searching.
+async def index_vcon_parties(vcon_uuid: str, parties: list) -> None:
+    """Index a vCon's parties for searching.
 
-    Adds the vCon to the sorted set and indexes it by party information
-    (tel, mailto, name) for searching. All indexed keys will expire after
-    VCON_INDEX_EXPIRY seconds.
+    Indexes by party information (tel, mailto, name). All indexed keys
+    will expire after VCON_INDEX_EXPIRY seconds.
 
     Args:
-        uuid: UUID of the vCon to index
+        vcon_uuid: UUID string of the vCon
+        parties: List of party dicts from the vCon
     """
-    key = f"vcon:{uuid}"
-    vcon = await redis_async.json().get(key)
-    created_at = datetime.fromisoformat(vcon["created_at"])
-    timestamp = int(created_at.timestamp())
-    vcon_uuid = vcon["uuid"]
-    await add_vcon_to_set(key, timestamp)
-
-    # Index by party information with expiration
-    for party in vcon["parties"]:
+    for party in parties:
         if party.get("tel"):
             tel_key = f"tel:{party['tel']}"
             await redis_async.sadd(tel_key, vcon_uuid)
@@ -1091,6 +1083,25 @@ async def index_vcon(uuid: UUID) -> None:
             name_key = f"name:{party['name']}"
             await redis_async.sadd(name_key, vcon_uuid)
             await redis_async.expire(name_key, VCON_INDEX_EXPIRY)
+
+
+async def index_vcon(uuid: UUID) -> None:
+    """Index a vCon for searching (reads from Redis).
+
+    Reads the vCon from Redis, adds it to the sorted set, and indexes
+    by party information. Used for bulk re-indexing. For the ingest path,
+    use index_vcon_parties() directly to avoid redundant Redis reads.
+
+    Args:
+        uuid: UUID of the vCon to index
+    """
+    key = f"vcon:{uuid}"
+    vcon = await redis_async.json().get(key)
+    created_at = datetime.fromisoformat(vcon["created_at"])
+    timestamp = int(created_at.timestamp())
+    vcon_uuid = vcon["uuid"]
+    await add_vcon_to_set(key, timestamp)
+    await index_vcon_parties(vcon_uuid, vcon["parties"])
 
 
 @api_router.get(
