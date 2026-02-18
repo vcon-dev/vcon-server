@@ -140,9 +140,10 @@ python3 scripts/nas_transcription_pipeline.py --date 2026-01-19 --dry-run
 
 ### Pipeline Chain Configuration
 ```
-main_chain:     ingress:default → tag → supabase_webhook → egress:processed
-transcription:  ingress:transcribe → tag → wtf_transcribe → keyword_tagger → supabase_webhook → egress:transcribed
+main_chain:     ingress:default → tag → expire_vcon → egress:processed → storage: supabase_webhook
+transcription:  ingress:transcribe → tag → wtf_transcribe → keyword_tagger → expire_vcon → egress:transcribed → storage: supabase_webhook
 ```
+Note: `supabase_webhook` runs as a post-chain storage (parallel, non-blocking) via `storage.webhook` module.
 
 ---
 
