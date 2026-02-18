@@ -118,3 +118,41 @@ services:
       timeout: 10s
       retries: 3
     restart: unless-stopped
+
+  # Override conserver and api to send traces/metrics to SignOz (OTLP HTTP)
+  conserver:
+    command: "opentelemetry-instrument python ./server/main.py"
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://signoz-otel-collector:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_TRACES_EXPORTER: otlp
+      OTEL_METRICS_EXPORTER: otlp
+      OTEL_LOGS_EXPORTER: otlp
+      OTEL_SERVICE_NAME: conserver
+    depends_on:
+      signoz-otel-collector:
+        condition: service_healthy
+
+  api:
+    command: /bin/bash -c "opentelemetry-instrument uvicorn server.api:app --host 0.0.0.0 --port 8000"
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://signoz-otel-collector:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_TRACES_EXPORTER: otlp
+      OTEL_METRICS_EXPORTER: otlp
+      OTEL_LOGS_EXPORTER: otlp
+      OTEL_SERVICE_NAME: conserver.api
+    depends_on:
+      signoz-otel-collector:
+        condition: service_healthy
+
+  logspout-signoz:
+      image: pavanputhra/logspout-signoz
+      container_name: logspout-signoz
+      restart: unless-stopped
+      volumes:
+        - /var/run/docker.sock:/var/run/docker.sock
+      environment:
+        SIGNOZ_LOG_ENDPOINT: http://172.17.0.1:8082
+        ENV: prod
+      command: signoz://172.17.0.1:8082

@@ -1,12 +1,12 @@
 # SigNoz Observability Stack for vcon-server
 
-This directory contains the configuration for SigNoz, a self-hosted observability platform that collects traces, metrics, and logs from the vcon-mcp server via OpenTelemetry.
+This directory contains the configuration for SigNoz, a self-hosted observability platform that collects traces, metrics, and logs from vcon-server (conserver and api) via OpenTelemetry.
 
 ## Architecture
 
 ```
 ┌─────────────────┐     OTLP/HTTP      ┌──────────────────────┐
-│    vcon-mcp     │ ─────────────────► │  signoz-otel-collector│
+│ conserver / api │ ─────────────────► │  signoz-otel-collector│
 │  (instrumented) │     :4318          │     (OTLP receiver)   │
 └─────────────────┘                    └──────────┬───────────┘
                                                   │
@@ -56,6 +56,8 @@ Basic alertmanager configuration (not currently active).
 
 ### Start with SigNoz
 
+When you use `docker-compose.signoz.yml`, the **conserver** and **api** services are overridden to run with `opentelemetry-instrument` and OTEL environment variables so traces and metrics are sent to the SignOz collector (HTTP OTLP on port 4318). Service names appear in SignOz as `conserver` and `conserver.api`.
+
 ```bash
 cd /home/thomas/bds/vcon-dev/vcon-server
 docker compose -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.signoz.yml up -d
@@ -80,7 +82,7 @@ Open http://localhost:3301 in your browser.
 
 ## First-Time Setup
 
-After starting SigNoz for the first time, run the schema migrations:
+After starting SigNoz for the first time, run the schema migrations (required for Traces, Metrics, and **Logs**):
 
 ```bash
 docker run --rm --network conserver \
@@ -89,6 +91,14 @@ docker run --rm --network conserver \
 ```
 
 Note: Some migrations may fail due to JSON type syntax incompatibility with ClickHouse 24.1. Core functionality still works.
+
+Verify that logs schema exists (needed for the Logs tab):
+
+```bash
+docker exec signoz-clickhouse clickhouse-client --query "SHOW TABLES FROM signoz_logs"
+```
+
+You should see tables such as `logs_v2`, `distributed_logs_v2`, etc. If the database or tables are missing, the Logs tab will show "Aw snap" when you open it.
 
 ## vcon-mcp Integration
 
@@ -136,6 +146,16 @@ environment:
 - Verify vcon-mcp is sending data (check its logs for OTEL export messages)
 - Ensure collector is receiving data: check collector metrics at port 8888
 - Verify ClickHouse tables exist: `docker exec signoz-clickhouse clickhouse-client --query "SHOW TABLES FROM signoz_traces"`
+
+### Logs tab shows "Aw snap" or "Something went wrong"
+Two possible causes:
+
+1. **Logs schema missing**  
+   Run the schema migrator (see **First-Time Setup** above), verify `signoz_logs` tables exist, then restart `signoz` and refresh the Logs tab.
+
+2. **Query service panic (telemetry TTL check)**  
+   The query service runs a telemetry cron that checks TTL for `signoz_logs.logs`. The schema migrator only creates `logs_v2`, so that table doesn't exist and the cron can panic (nil pointer), crashing the service. **Fix:** set `TELEMETRY_ENABLED=false` for the `signoz` service in `docker-compose.signoz.yml` (already set in this repo), then recreate the container:  
+   `docker compose -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.signoz.yml up -d signoz --force-recreate`
 
 ### Port conflicts
 - Default ports: 3301 (UI), 4317 (gRPC), 4318 (HTTP)
