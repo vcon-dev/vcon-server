@@ -116,7 +116,7 @@ def run(vcon_id, link_name, opts=default_options):
         return vcon_id
 
     for a in vcon.analysis:
-        # we still need to run this check give the following scenario:
+        # we still need to run this check given the following scenario:
         # 0 customers_frustration None
         # 1 customer_frustration Needs Review
         # we need to skip first one an only post the second one to slack
