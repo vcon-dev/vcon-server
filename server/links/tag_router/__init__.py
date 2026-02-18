@@ -93,6 +93,9 @@ def run(vcon_uuid, link_name, opts=default_options):
 
     routed = False
 
+    # Normalize tag_routes to a dict (callers may explicitly pass None)
+    tag_routes = opts.get("tag_routes") or {}
+
     # AND logic: route when vcon has ALL tags in a rule (each tag can be name or "name:value")
     for rule in opts.get("tag_route_rules") or []:
         raw_tags = rule.get("tags") or []
@@ -101,27 +104,30 @@ def run(vcon_uuid, link_name, opts=default_options):
         if not required or not target_list:
             continue
         if required.issubset(match_set):
+            required_names = sorted(t.split(":", 1)[0] for t in required)
             logger.info(
-                f"Routing vCon {vcon_uuid} to list '{target_list}' (has all required tags: {sorted(required)})"
+                f"Routing vCon {vcon_uuid} to list '{target_list}' "
+                f"(matched {len(required)} required tag(s): {required_names})"
             )
+            logger.debug(f"AND-rule matched for vCon {vcon_uuid}: required={sorted(required)}")
             redis.rpush(target_list, str(vcon_uuid))
             routed = True
 
-    # OR logic: route when vcon's match_set contains a key from tag_routes (key can be name or "name:value")
-    for route_key, target_list in opts["tag_routes"].items():
-        if route_key in match_set:
-            logger.info(f"Routing vCon {vcon_uuid} to list '{target_list}' based on tag '{route_key}'")
-            redis.rpush(target_list, str(vcon_uuid))
-            routed = True
-        else:
-            logger.debug(f"No match for route key '{route_key}'")
-    
+    # OR logic: only iterate over tags present in the vCon, then look up in tag_routes
+    matched_keys = match_set & tag_routes.keys()
+    for route_key in matched_keys:
+        target_list = tag_routes[route_key]
+        logger.info(f"Routing vCon {vcon_uuid} to list '{target_list}' based on tag '{route_key}'")
+        redis.rpush(target_list, str(vcon_uuid))
+        routed = True
+
     if routed:
         logger.info(f"Successfully routed vCon {vcon_uuid} based on tags")
     else:
         logger.info(f"No applicable routes found for vCon {vcon_uuid}")
+        tag_name_count = len({k for k in match_set if ":" not in k})
         logger.debug(
-            f"vCon {vcon_uuid} match_set (tags found): {sorted(match_set)}; "
+            f"vCon {vcon_uuid} had {tag_name_count} unique tag name(s); "
             f"tag_route_rules count: {len(opts.get('tag_route_rules') or [])}"
         )
     
