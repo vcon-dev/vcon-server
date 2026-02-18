@@ -1,53 +1,57 @@
 # Tag Router Link
 
-The Tag Router link is a specialized plugin that routes vCon objects to different Redis lists based on their tags. It provides a flexible way to organize and distribute vCons to different processing queues or storage locations based on their tag content.
+The Tag Router link routes vCon objects to different Redis lists based on their tags. It supports name-only matching (any value) and exact `"name:value"` matching, plus optional AND rules that require all listed tags to be present.
 
 ## Features
 
 - Route vCons to different Redis lists based on tag content
-- Support for multiple tag formats (list and dictionary)
+- **Tag matching**: name-only (e.g. `category`) or exact full tag (e.g. `category:action`)
+- **AND rules** (`tag_route_rules`): route only when the vCon has *all* required tags
+- Support for multiple tag formats in attachments (list and dictionary)
 - Configurable forwarding behavior
-- Flexible tag-based routing rules
 - Efficient Redis list management
-- Seamless integration with vCon processing chains
 
 ## Configuration Options
 
 ```python
 default_options = {
     "tag_routes": {
-        "important": "important_vcons",  # Route vCons with "important" tag to "important_vcons" list
-        "urgent": "urgent_vcons"        # Route vCons with "urgent" tag to "urgent_vcons" list
+        "important": "important_vcons",   # OR logic: route if vCon has this tag (any value)
+        "category:action": "action_list"  # exact: route only when tag is "category:action"
     },
-    "forward_original": True  # Whether to continue normal processing after routing
+    "tag_route_rules": [                  # AND logic: route only when vCon has ALL listed tags
+        {"tags": ["tag1:value1", "tag2:value2"], "target_list": "target_ingress"}
+    ],
+    "forward_original": True
 }
 ```
 
 ### Options Description
 
-- `tag_routes`: A dictionary mapping tag names to target Redis list names. When a vCon has a tag matching a key in this dictionary, its UUID will be pushed to the corresponding Redis list.
-- `forward_original`: A boolean indicating whether to continue normal processing after routing. If False, the link will return None to stop further processing.
+- **`tag_routes`**: Dictionary mapping tag keys to target Redis list names (OR logic). A key can be a **name only** (e.g. `"important"`) to match any tag with that name, or a **full tag** (e.g. `"category:action"`) to match only that exact tag.
+- **`tag_route_rules`**: List of rules with AND logic. Each rule has `tags` (list of tag keys) and `target_list`. The vCon is routed to that list only when it has *all* of the listed tags.
+- **`forward_original`**: If True, processing continues after routing. If False, the link returns None to stop further processing.
 
 ## Usage
 
-The link processes vCons by:
-1. Retrieving the vCon from Redis
-2. Extracting tags from attachments
-3. Matching tags against configured routes
-4. Pushing vCon UUIDs to appropriate Redis lists
-5. Optionally continuing normal processing
+The link:
+1. Retrieves the vCon from Redis
+2. Extracts tags from attachments and builds a match set (tag names and full `"name:value"` strings)
+3. Evaluates `tag_route_rules` (AND): routes to each rule’s target list when the vCon has all required tags
+4. Evaluates `tag_routes` (OR): routes to each list whose key is in the match set
+5. Returns the vCon UUID or None according to `forward_original`
 
-## Tag Format
+## Tag Format and Matching
 
-The link supports two tag formats in attachments:
-1. List format: `["tag_name:value", "another_tag:value"]`
-2. Dictionary format: `{"tag_name": "value", "another_tag": "value"}`
+Attachments can use:
+1. **List format**: `["tag_name:value", "another_tag:value"]`
+2. **Dictionary format**: `{"tag_name": "value", "another_tag": "value"}` (only keys are used for matching)
 
-In both cases, only the tag name (before the colon in list format, or the key in dictionary format) is used for routing.
+**Matching:** A **name-only** key (e.g. `"category"`) matches any tag with that name. A **full tag** key (e.g. `"category:action"`) matches only when the vCon has that exact tag.
 
 ## Error Handling
 
-- Graceful handling of missing tag routes configuration
+- Skips when neither `tag_routes` nor `tag_route_rules` is configured
 - Logs debug information about the routing process
 - Continues processing even if some tags don't have matching routes
 - Proper handling of missing or malformed tags
