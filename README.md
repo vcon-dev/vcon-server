@@ -55,6 +55,20 @@ chmod +x install_conserver.sh
 sudo ./install_conserver.sh --domain your-domain.com --email your-email@example.com
 ```
 
+### Running tests
+
+Run tests inside the Docker environment (so all dependencies are available):
+
+```bash
+docker compose run --rm api poetry run pytest server/links/analyze/tests/ server/storage/milvus/test_milvus.py -v
+```
+
+To avoid OpenTelemetry export errors when Datadog is not configured, unset the OTLP endpoint:
+
+```bash
+docker compose run --rm -e OTEL_EXPORTER_OTLP_ENDPOINT= api poetry run pytest server/links/analyze/tests/ -v
+```
+
 ## Installation
 
 ### Manual Installation
@@ -122,6 +136,8 @@ CONSERVER_CONFIG_FILE=./config.yml
 GROQ_API_KEY=your_groq_api_key
 DNS_HOST=your-domain.com
 DNS_REGISTRATION_EMAIL=your-email@example.com
+
+# LLM credentials (LiteLLM proxy or OpenAI/Azure) are passed as options to the link's config
 ```
 
 ### Configuration File

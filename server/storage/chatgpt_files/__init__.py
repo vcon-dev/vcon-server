@@ -1,8 +1,8 @@
 from lib.logging_utils import init_logger
+from lib.openai_client import get_openai_client
 import json
 import os
 import redis_mgr
-from openai import OpenAI
 
 logger = init_logger(__name__)
 
@@ -29,11 +29,7 @@ def save(vcon_uuid: str, options: dict = default_options) -> None:
         file_name = f"{vcon_uuid}.vcon.json"
         with open(file_name, "w") as file:
             json.dump(vcon, file)
-        client = OpenAI(
-            organization=options["organization_key"],
-            project=options["project_key"],
-            api_key=options["api_key"],
-        )
+        client = get_openai_client(options)
         file = client.files.create(file=open(file_name, "rb"), purpose=options["purpose"])
         os.remove(file_name)
         client.beta.vector_stores.files.create(vector_store_id=options["vector_store_id"], file_id=file.id)

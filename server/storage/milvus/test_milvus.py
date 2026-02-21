@@ -92,20 +92,18 @@ def mock_milvus():
             'collection': mock_collection
         }
 
-# Mock OpenAI client
+# Mock OpenAI client (via shared get_openai_client)
 @pytest.fixture
 def mock_openai():
-    with patch('server.storage.milvus.OpenAI') as mock_openai_class:
-        mock_client = MagicMock()
-        mock_openai_class.return_value = mock_client
-        
-        # Mock embeddings response
-        mock_response = MagicMock()
-        mock_data = MagicMock()
-        mock_data.embedding = [0.1] * 1536  # 1536-dimensional embedding
-        mock_response.data = [mock_data]
-        mock_client.embeddings.create.return_value = mock_response
-        
+    mock_client = MagicMock()
+    # Mock embeddings response
+    mock_response = MagicMock()
+    mock_data = MagicMock()
+    mock_data.embedding = [0.1] * 1536  # 1536-dimensional embedding
+    mock_response.data = [mock_data]
+    mock_client.embeddings.create.return_value = mock_response
+
+    with patch('server.storage.milvus.get_openai_client', return_value=mock_client):
         yield mock_client
 
 def test_extract_text_from_vcon(sample_vcon):
