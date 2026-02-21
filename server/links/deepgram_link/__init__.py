@@ -1,5 +1,8 @@
 from typing import Optional
+import os
+import tempfile
 from lib.logging_utils import init_logger
+from lib.openai_client import get_openai_client
 import logging
 from deepgram import DeepgramClient, PrerecordedOptions
 from tenacity import (
@@ -25,10 +28,57 @@ logger = init_logger(__name__)
 
 # Default options for Deepgram transcription link
 # - minimum_duration: minimum length (in seconds) for a dialog to be considered for transcription
-# - DEEPGRAM_KEY: API key for Deepgram
-# - api: dictionary of Deepgram API options
-# (Note: 'api' is not present in the original default_options, but is expected in opts in run)
+# - DEEPGRAM_KEY: API key for Deepgram (when not using LiteLLM proxy)
+# - api: dictionary of Deepgram API options (when using direct Deepgram)
+# - LITELLM_PROXY_URL, LITELLM_MASTER_KEY: when set, transcription goes through LiteLLM proxy (model name in opts["model"], e.g. "nova-3")
 default_options = {"minimum_duration": 60, "DEEPGRAM_KEY": None, "minimum_confidence": 0.5}
+
+
+@retry(
+    wait=wait_exponential(multiplier=2, min=1, max=65),
+    stop=stop_after_attempt(6),
+    before_sleep=before_sleep_log(logger, logging.INFO),
+)
+def transcribe_via_litellm(url: str, opts: dict) -> Optional[dict]:
+    """
+    Transcribe audio at url via LiteLLM proxy (OpenAI-compatible /audio/transcriptions).
+    Returns a dict compatible with the rest of the link: transcript, confidence, detected_language.
+    """
+    litellm_url = (opts.get("LITELLM_PROXY_URL") or "").strip().rstrip("/")
+    litellm_key = (opts.get("LITELLM_MASTER_KEY") or "").strip()
+    if not litellm_url or not litellm_key:
+        return None
+    model = opts.get("model") or (opts.get("api") or {}).get("model", "nova-3")
+    # Download audio
+    audio_response = requests.get(url, stream=True, timeout=60)
+    audio_response.raise_for_status()
+    content = audio_response.content
+    if not content:
+        logger.warning("Empty audio content from %s", url)
+        return None
+    # OpenAI client expects a file-like object with optional .name
+    ext = os.path.splitext(url.split("?")[0])[-1] or ".mp3"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
+        tmp.write(content)
+        tmp_path = tmp.name
+    try:
+        client = get_openai_client(opts)
+        with open(tmp_path, "rb") as f:
+            response = client.audio.transcriptions.create(model=model, file=f)
+        text = getattr(response, "text", None) or (response.model_dump().get("text") if hasattr(response, "model_dump") else str(response))
+        if text is None:
+            return None
+        # Shape expected by rest of link (confidence not provided by OpenAI-format response)
+        return {
+            "transcript": text,
+            "confidence": 1.0,
+            "detected_language": "en",
+        }
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
 
 
 def get_transcription(vcon, index):
@@ -180,12 +230,17 @@ def run(
             logger.info("Dialog %s already transcribed on vCon: %s", index, vCon.uuid)
             continue
 
-        # Initialize Deepgram client for each dialog (in case key changes)
-        dg_client = DeepgramClient(opts["DEEPGRAM_KEY"])
         start = time.time()
         try:
-            logger.info(f"Transcribing dialog {index} in vCon {vCon.uuid} via Deepgram API...")
-            result = transcribe_dg(dg_client, dialog, opts["api"], vcon_uuid=vcon_uuid, run_opts=opts)
+            if opts.get("LITELLM_PROXY_URL") and opts.get("LITELLM_MASTER_KEY"):
+                logger.info(f"Transcribing dialog {index} in vCon {vCon.uuid} via LiteLLM proxy (Deepgram)...")
+                result = transcribe_via_litellm(dialog["url"], opts)
+            else:
+                if not opts.get("DEEPGRAM_KEY"):
+                    raise ValueError("DEEPGRAM_KEY or (LITELLM_PROXY_URL + LITELLM_MASTER_KEY) required for deepgram link")
+                dg_client = DeepgramClient(opts["DEEPGRAM_KEY"])
+                logger.info(f"Transcribing dialog {index} in vCon {vCon.uuid} via Deepgram API...")
+                result = transcribe_dg(dg_client, dialog, opts["api"], vcon_uuid=vcon_uuid, run_opts=opts)
         except Exception as e:
             logger.error("Failed to transcribe vCon %s after multiple retries: %s", vcon_uuid, e, exc_info=True)
             increment_counter("conserver.link.deepgram.transcription_failures")
@@ -213,7 +268,13 @@ def run(
 
         # Prepare vendor schema, omitting credentials
         vendor_schema = {}
-        sensitive_keys = {"DEEPGRAM_KEY", "ai_usage_api_token", "send_ai_usage_data_to_url"}
+        sensitive_keys = {
+            "DEEPGRAM_KEY",
+            "ai_usage_api_token",
+            "send_ai_usage_data_to_url",
+            "LITELLM_PROXY_URL",
+            "LITELLM_MASTER_KEY",
+        }
         vendor_schema["opts"] = {k: v for k, v in opts.items() if k not in sensitive_keys}
 
         # Add the transcript analysis to the vCon
