@@ -1,28 +1,22 @@
 import os
-import requests
 from links.scitt import create_hashed_signed_statement, register_signed_statement
-from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException
 from lib.vcon_redis import VconRedis
 from lib.logging_utils import init_logger
-from starlette.status import HTTP_404_NOT_FOUND, HTTP_501_NOT_IMPLEMENTED
-
-import hashlib
-import json
-import requests
+from starlette.status import HTTP_404_NOT_FOUND
 
 logger = init_logger(__name__)
 
 # Increment for any API/attribute changes
-link_version = "0.1.0"
+link_version = "0.2.0"
 
 default_options = {
-    "client_id": "<set-in-config.yml>",
-    "client_secret": "<set-in-config.yml>",
-    "scrapi_url": "https://app.datatrails.ai/archivist/v2",
-    "auth_url": "https://app.datatrails.ai/archivist/iam/v1/appidp/token",
-    "signing_key_path": None,
-    "issuer": "ANONYMOUS CONSERVER"
+    "scrapi_url": "http://scittles:8000",
+    "signing_key_path": "/etc/scitt/signing-key.pem",
+    "issuer": "conserver",
+    "key_id": "conserver-key-1",
+    "vcon_operation": "vcon_created",
+    "store_receipt": True,
 }
 
 def run(
@@ -31,98 +25,83 @@ def run(
     opts: dict = default_options
 ) -> str:
     """
-    Main function to run the SCITT link.
+    SCITT lifecycle registration link.
 
-    This function creates a SCITT Signed Statement based on the vCon data,
-    registering it on a SCITT Transparency Service.
+    Creates a COSE Sign1 signed statement from the vCon hash and registers
+    it on a SCRAPI-compatible Transparency Service (SCITTLEs).
+
+    The vcon_operation option controls the lifecycle event type:
+    - "vcon_created": registered before transcription
+    - "vcon_enhanced": registered after transcription
 
     Args:
-        vcon_uuid (str): UUID of the vCon to process.
-        link_name (str): Name of the link (for logging purposes).
-        opts (dict): Options for the link, including API URLs and credentials.
+        vcon_uuid: UUID of the vCon to process.
+        link_name: Name of the link instance (for logging).
+        opts: Configuration options.
 
     Returns:
-        str: The UUID of the processed vCon.
-
-    Raises:
-        ValueError: If client_id or client_secret is not provided in the options.
+        The UUID of the processed vCon.
     """
     module_name = __name__.split(".")[-1]
-    logger.info(f"Starting {module_name}: {link_name} plugin for: {vcon_uuid}")
+    logger.info(f"Starting {module_name}: {link_name} for: {vcon_uuid}")
     merged_opts = default_options.copy()
     merged_opts.update(opts)
     opts = merged_opts
 
-    if not opts["client_id"] or not opts["client_secret"]:
-        raise ValueError(f"{module_name} client ID and client secret must be provided")
-
-    # Get the vCon
+    # Get the vCon from Redis
     vcon_redis = VconRedis()
     vcon = vcon_redis.get_vcon(vcon_uuid)
     if not vcon:
-        logger.info(f"{link_name}: vCon not found: {vcon_uuid}") 
+        logger.info(f"{link_name}: vCon not found: {vcon_uuid}")
         raise HTTPException(
             status_code=HTTP_404_NOT_FOUND,
             detail=f"vCon not found: {vcon_uuid}"
         )
 
-    ###############################
-    # Create a Signed Statement
-    ###############################
-
-    # Set the subject to the vcon identifier
+    # Build the COSE Sign1 signed statement
     subject = vcon.subject or f"vcon://{vcon_uuid}"
-
-    # SCITT metadata for the vCon
     meta_map = {
-        "vcon_operation" : opts["vcon_operation"]
+        "vcon_operation": opts["vcon_operation"],
     }
-    # Set the payload to the hash of the vCon consistent with  
-    # cose-hash-envelope: https://datatracker.ietf.org/doc/draft-steele-cose-hash-envelope
-
     payload = vcon.hash
-    # TODO: pull hash_alg from the vcon
     payload_hash_alg = "SHA-256"
-    # TODO: pull the payload_location from the vcon.url
-    payload_location = "" # vcon.url
+    payload_location = ""
 
-    key_id = opts["key_id"]
-
-    signing_key_path = os.path.join(opts["signing_key_path"])
+    signing_key_path = opts["signing_key_path"]
     signing_key = create_hashed_signed_statement.open_signing_key(signing_key_path)
 
     signed_statement = create_hashed_signed_statement.create_hashed_signed_statement(
         issuer=opts["issuer"],
         signing_key=signing_key,
         subject=subject,
-        kid=key_id.encode('utf-8'),
+        kid=opts["key_id"].encode("utf-8"),
         meta_map=meta_map,
-        payload=payload.encode('utf-8'),
+        payload=payload.encode("utf-8"),
         payload_hash_alg=payload_hash_alg,
         payload_location=payload_location,
-        pre_image_content_type="application/vcon+json"
+        pre_image_content_type="application/vcon+json",
     )
-    logger.info(f"signed_statement: {signed_statement}")
+    logger.info(f"{link_name}: Created signed statement for {vcon_uuid} ({opts['vcon_operation']})")
 
-    ###############################
-    # Register the Signed Statement
-    ###############################
+    # Register via SCRAPI
+    scrapi_url = opts["scrapi_url"]
+    result = register_signed_statement.register_statement(scrapi_url, signed_statement)
+    logger.info(f"{link_name}: Registered entry_id={result['entry_id']} for {vcon_uuid}")
 
-    # Construct an OIDC Auth Object
-    oidc_flow = opts["OIDC_flow"]
-    if oidc_flow == "client-credentials":
-        auth = register_signed_statement.OIDC_Auth(opts)
-    else:
-        raise HTTPException(
-            status_code=HTTP_501_NOT_IMPLEMENTED,
-            detail=f"OIDC_flow not found or unsupported. OIDC_flow: {oidc_flow}"
+    # Store receipt as analysis entry on the vCon
+    if opts.get("store_receipt", True):
+        vcon.add_analysis(
+            type="scitt_receipt",
+            dialog=0,
+            vendor="scittles",
+            body={
+                "entry_id": result["entry_id"],
+                "vcon_operation": opts["vcon_operation"],
+                "vcon_hash": payload,
+                "scrapi_url": scrapi_url,
+            },
         )
-
-    operation_id = register_signed_statement.register_statement(
-        opts=opts,
-        auth=auth,
-        signed_statement=signed_statement
-    )
-    logger.info(f"operation_id: {operation_id}")
+        vcon_redis.store_vcon(vcon)
+        logger.info(f"{link_name}: Stored SCITT receipt for {vcon_uuid}")
 
     return vcon_uuid
