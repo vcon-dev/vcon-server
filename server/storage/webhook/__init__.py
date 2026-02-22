@@ -1,5 +1,8 @@
+import time
+
 from server.lib.vcon_redis import VconRedis
 from lib.logging_utils import init_logger
+from lib.metrics import record_histogram
 
 import requests
 
@@ -33,7 +36,11 @@ def save(vcon_uuid, opts=default_options):
         logger.info(
             f"webhook storage: posting vcon {vcon_uuid} to webhook url: {url}"
         )
+        webhook_start = time.time()
         resp = requests.post(url, json=json_dict, headers=headers)
+        webhook_duration = round(time.time() - webhook_start, 3)
         logger.info(
             f"webhook storage response for {vcon_uuid}: {resp.status_code} {resp.text}"
         )
+        record_histogram("conserver.webhook.duration", webhook_duration,
+                         attributes={"status_code": str(resp.status_code)})

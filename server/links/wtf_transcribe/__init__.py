@@ -42,6 +42,7 @@ from typing import Optional, Dict, Any, List
 from server.lib.vcon_redis import VconRedis
 from lib.logging_utils import init_logger
 from lib.error_tracking import init_error_tracker
+from lib.metrics import increment_counter
 from redis_mgr import redis
 
 init_error_tracker()
@@ -446,6 +447,7 @@ def run(
         if cached_body:
             # Cache hit - use cached transcription
             cache_hits += 1
+            increment_counter("conserver.wtf_transcribe.cache", attributes={"result": "hit"})
             logger.info(f"Cache HIT for dialog {i} (key={cache_key})")
 
             wtf_analysis = {
@@ -476,6 +478,7 @@ def run(
 
         # Cache miss - need to call vfun
         cache_misses += 1
+        increment_counter("conserver.wtf_transcribe.cache", attributes={"result": "miss"})
 
         # Get audio content
         audio_content = get_audio_content(dialog)

@@ -524,6 +524,8 @@ class VconChainRequest:
                         "module_name": module_name
                     }
                 )
+                record_histogram("conserver.link.duration", link_processing_time,
+                                 attributes={"link_name": link_name, "chain_name": self.chain_details["name"]})
                 if should_continue_chain:
                     self._process_tracers(should_continue_chain, self.vcon_id, links, link_index)
                 else:
@@ -573,6 +575,7 @@ def log_llen(list_name: str) -> None:
         llen,
         extra={"queue_length": llen, "queue_name": list_name},
     )
+    record_histogram("conserver.queue.depth", llen, attributes={"queue_name": list_name})
 
 
 def worker_loop(worker_id: int) -> None:
@@ -713,6 +716,7 @@ def worker_loop(worker_id: int) -> None:
                 str(e)
             )
             r.lpush(dlq_name, vcon_id)
+            increment_counter("conserver.dlq.count", attributes={"queue_name": dlq_name})
     
     logger.info("%s exiting", worker_name)
 
@@ -820,6 +824,7 @@ def main() -> None:
                         new_process.start()
                         worker_processes[i] = new_process
                         logger.info("Restarted Worker-%d (new PID %s)", worker_id, new_process.pid)
+                        increment_counter("conserver.worker.restart", attributes={"worker_id": str(worker_id)})
         except KeyboardInterrupt:
             logger.info("Keyboard interrupt received, shutting down workers")
             signal_handler(signal.SIGINT, None)
