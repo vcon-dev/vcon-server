@@ -827,14 +827,54 @@ tracers:
 
 ## Monitoring and Logging
 
-The system includes built-in monitoring through Datadog. Configure monitoring by setting the following environment variables:
+### OpenTelemetry Instrumentation
+
+The conserver emits traces, metrics, and structured logs via OpenTelemetry. Configure with these environment variables:
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+OTEL_SERVICE_NAME=conserver
+```
+
+#### Pipeline Metrics
+
+The worker pipeline emits the following OTEL metrics (via `lib/metrics.py`):
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `conserver.queue.depth` | Histogram | Redis queue length at each poll, by `queue_name` |
+| `conserver.link.duration` | Histogram | Per-link processing time (seconds), by `link_name` and `chain_name` |
+| `conserver.webhook.duration` | Histogram | Webhook POST duration (seconds) to storage endpoints, by `status_code` |
+| `conserver.dlq.count` | Counter | vCons routed to dead-letter queue, by `queue_name` |
+| `conserver.worker.restart` | Counter | Worker process restarts, by `worker_id` |
+| `conserver.wtf_transcribe.cache` | Counter | Transcription cache lookups, by `result` (`hit` or `miss`) |
+
+These metrics complement the auto-instrumented HTTP and trace spans already provided by the OTEL SDK.
+
+#### Querying Metrics
+
+If using SignOz with ClickHouse:
+
+```bash
+docker exec signoz-clickhouse clickhouse-client --query "
+  SELECT metric_name, count() FROM signoz_metrics.distributed_samples_v4
+  WHERE metric_name LIKE 'conserver.%'
+  AND unix_milli > (toUnixTimestamp(now()) - 300) * 1000
+  GROUP BY metric_name ORDER BY metric_name
+"
+```
+
+### Datadog (Legacy)
+
+Datadog monitoring is also supported via environment variables:
 
 ```bash
 DD_API_KEY=your_datadog_api_key
 DD_SITE=datadoghq.com
 ```
 
-View logs using:
+### Viewing Logs
+
 ```bash
 docker compose logs -f
 ```
