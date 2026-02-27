@@ -8,7 +8,7 @@ from starlette.status import HTTP_404_NOT_FOUND
 logger = init_logger(__name__)
 
 # Increment for any API/attribute changes
-link_version = "0.2.0"
+link_version = "0.3.0"
 
 default_options = {
     "scrapi_url": "http://scittles:8000",
@@ -58,50 +58,72 @@ def run(
             detail=f"vCon not found: {vcon_uuid}"
         )
 
-    # Build the COSE Sign1 signed statement
-    subject = vcon.subject or f"vcon://{vcon_uuid}"
-    meta_map = {
-        "vcon_operation": opts["vcon_operation"],
-    }
+    # Build per-participant SCITT registrations
     payload = vcon.hash
-    payload_hash_alg = "SHA-256"
-    payload_location = ""
+    operation = opts["vcon_operation"]
 
     signing_key_path = opts["signing_key_path"]
     signing_key = create_hashed_signed_statement.open_signing_key(signing_key_path)
 
-    signed_statement = create_hashed_signed_statement.create_hashed_signed_statement(
-        issuer=opts["issuer"],
-        signing_key=signing_key,
-        subject=subject,
-        kid=opts["key_id"].encode("utf-8"),
-        meta_map=meta_map,
-        payload=payload.encode("utf-8"),
-        payload_hash_alg=payload_hash_alg,
-        payload_location=payload_location,
-        pre_image_content_type="application/vcon+json",
-    )
-    logger.info(f"{link_name}: Created signed statement for {vcon_uuid} ({opts['vcon_operation']})")
+    # Collect tel URIs from parties (Party objects use attrs, dicts use keys)
+    party_tels = []
+    for party in (vcon.parties or []):
+        tel = party.get("tel") if isinstance(party, dict) else getattr(party, "tel", None)
+        if tel:
+            party_tels.append(tel)
+        else:
+            logger.warning(f"{link_name}: party without tel in {vcon_uuid}, skipping")
 
-    # Register via SCRAPI
+    # Fall back to vcon:// subject if no parties have tel
+    if not party_tels:
+        party_tels = [None]
+
     scrapi_url = opts["scrapi_url"]
-    result = register_signed_statement.register_statement(scrapi_url, signed_statement)
-    logger.info(f"{link_name}: Registered entry_id={result['entry_id']} for {vcon_uuid}")
+    receipts = []
 
-    # Store receipt as analysis entry on the vCon
+    for tel in party_tels:
+        if tel:
+            subject = f"tel:{tel}"
+            operation_payload = f"{payload}:{operation}:{tel}"
+            meta_map = {"vcon_operation": operation, "party_tel": tel}
+        else:
+            subject = f"vcon://{vcon_uuid}"
+            operation_payload = f"{payload}:{operation}"
+            meta_map = {"vcon_operation": operation}
+
+        signed_statement = create_hashed_signed_statement.create_hashed_signed_statement(
+            issuer=opts["issuer"],
+            signing_key=signing_key,
+            subject=subject,
+            kid=opts["key_id"].encode("utf-8"),
+            meta_map=meta_map,
+            payload=operation_payload.encode("utf-8"),
+            payload_hash_alg="SHA-256",
+            payload_location="",
+            pre_image_content_type="application/vcon+json",
+        )
+        logger.info(f"{link_name}: Created signed statement for {vcon_uuid} subject={subject} ({operation})")
+
+        result = register_signed_statement.register_statement(scrapi_url, signed_statement)
+        logger.info(f"{link_name}: Registered entry_id={result['entry_id']} subject={subject} for {vcon_uuid}")
+
+        receipts.append({
+            "entry_id": result["entry_id"],
+            "vcon_operation": operation,
+            "subject": subject,
+            "vcon_hash": payload,
+            "scrapi_url": scrapi_url,
+        })
+
+    # Store receipts as analysis entry on the vCon
     if opts.get("store_receipt", True):
         vcon.add_analysis(
             type="scitt_receipt",
             dialog=0,
             vendor="scittles",
-            body={
-                "entry_id": result["entry_id"],
-                "vcon_operation": opts["vcon_operation"],
-                "vcon_hash": payload,
-                "scrapi_url": scrapi_url,
-            },
+            body=receipts if len(receipts) > 1 else receipts[0],
         )
         vcon_redis.store_vcon(vcon)
-        logger.info(f"{link_name}: Stored SCITT receipt for {vcon_uuid}")
+        logger.info(f"{link_name}: Stored {len(receipts)} SCITT receipt(s) for {vcon_uuid}")
 
     return vcon_uuid
