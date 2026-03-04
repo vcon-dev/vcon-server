@@ -631,11 +631,6 @@ async def post_vcon(
     Stores the vCon in Redis and indexes it for searching. The vCon is added to a sorted
     set for timestamp-based retrieval and indexed by party information for searching.
     Optionally adds the vCon UUID to specified ingress lists for immediate processing.
-    
-    The vCon is stored with a default TTL of VCON_REDIS_EXPIRY seconds (default 3600s/1 hour).
-    This means vCons will automatically expire from Redis cache unless persisted to a
-    storage backend or the expiry is updated. Configure VCON_REDIS_EXPIRY environment
-    variable to change the default expiry time.
 
     Args:
         inbound_vcon: The vCon to store
@@ -659,11 +654,7 @@ async def post_vcon(
 
         logger.debug(f"Storing vCon {inbound_vcon.uuid} ({len(dict_vcon)} bytes)")
         await redis_async.json().set(key, "$", dict_vcon)
-        
-        # Set default expiry on newly created vCons
-        await redis_async.expire(key, VCON_REDIS_EXPIRY)
-        logger.debug(f"Set TTL of {VCON_REDIS_EXPIRY}s on vCon {inbound_vcon.uuid}")
-        
+
         logger.debug(f"Adding vCon {inbound_vcon.uuid} to sorted set")
         await add_vcon_to_set(key, timestamp)
 
@@ -720,9 +711,7 @@ async def external_ingress_vcon(
     - Multiple API keys can be configured for the same ingress list
 
     The submitted vCon is stored, indexed, and automatically queued for processing
-    in the specified ingress list. The vCon is stored with a default TTL of 
-    VCON_REDIS_EXPIRY seconds (default 3600s/1 hour), after which it will expire
-    from Redis cache unless persisted to a storage backend.
+    in the specified ingress list.
 
     Args:
         request: FastAPI Request object for accessing headers
@@ -760,10 +749,6 @@ async def external_ingress_vcon(
             f"Storing vCon {inbound_vcon.uuid} ({len(dict_vcon)} bytes) via external ingress"
         )
         await redis_async.json().set(key, "$", dict_vcon)
-        
-        # Set default expiry on newly created vCons
-        await redis_async.expire(key, VCON_REDIS_EXPIRY)
-        logger.debug(f"Set TTL of {VCON_REDIS_EXPIRY}s on vCon {inbound_vcon.uuid}")
 
         logger.debug(f"Adding vCon {inbound_vcon.uuid} to sorted set")
         await add_vcon_to_set(key, timestamp)
