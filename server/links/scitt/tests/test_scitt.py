@@ -221,6 +221,8 @@ class TestScittLinkRun:
         vcon.subject = "tel:+15551234567"
         vcon.hash = "a1b2c3d4e5f6abcdef1234567890abcdef1234567890abcdef1234567890abcd"
         vcon.add_analysis = Mock()
+        # Per-participant SCITT iterates over vcon.parties; must be a list
+        vcon.parties = [{"tel": "+15551234567"}]
         return vcon
 
     @pytest.fixture
@@ -277,6 +279,7 @@ class TestScittLinkRun:
             body={
                 "entry_id": "entry-abc123",
                 "vcon_operation": "vcon_created",
+                "subject": "tel:+15551234567",
                 "vcon_hash": mock_vcon.hash,
                 "scrapi_url": SCRAPI_URL,
             },
@@ -339,8 +342,8 @@ class TestScittLinkRun:
     def test_run_uses_fallback_subject(
         self, mock_open_key, mock_create_stmt, mock_register, mock_redis, mock_vcon
     ):
-        """When vcon.subject is None, uses vcon:// URI as subject."""
-        mock_vcon.subject = None
+        """When no parties have tel, uses vcon:// URI as subject."""
+        mock_vcon.parties = []  # No parties with tel -> fallback to vcon://
         mock_open_key.return_value = Mock()
         mock_create_stmt.return_value = b"\xd2signed"
         mock_register.return_value = {"entry_id": "entry-1", "receipt": b""}
