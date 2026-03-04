@@ -260,6 +260,24 @@ async def health_check() -> JSONResponse:
     })
 
 
+@app.get(
+    "/stats/queue",
+    summary="Get queue depth",
+    description="Returns the number of items in a Redis list (queue)",
+    tags=["system"],
+)
+async def get_queue_depth(
+    list_name: str = Query(..., description="Name of the Redis list to measure")
+) -> JSONResponse:
+    """Get the current depth of a Redis list. Public endpoint (no auth) for monitoring and backpressure."""
+    try:
+        depth = await redis_async.llen(list_name)
+        return JSONResponse(content={"list_name": list_name, "depth": depth})
+    except Exception as e:
+        logger.error(f"Error getting queue depth for '{list_name}': {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to get queue depth")
+
+
 class Vcon(BaseModel):
     """Pydantic model representing a vCon (Voice Conversation) record.
     
