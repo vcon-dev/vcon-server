@@ -21,3 +21,4 @@ tmp
 .qodo
 
 traefik/
+redis_data/
