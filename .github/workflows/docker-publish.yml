@@ -18,7 +18,7 @@ name: Build and Push Docker images
 
 on:
   push:
-    branches: [main, release-test]
+    branches: [main, release-test, optimize-docker-images]
     tags: ['v*']
 
 jobs:
