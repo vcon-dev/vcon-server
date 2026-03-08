@@ -631,11 +631,6 @@ async def post_vcon(
     Stores the vCon in Redis and indexes it for searching. The vCon is added to a sorted
     set for timestamp-based retrieval and indexed by party information for searching.
     Optionally adds the vCon UUID to specified ingress lists for immediate processing.
-    
-    The vCon is stored with a default TTL of VCON_REDIS_EXPIRY seconds (default 3600s/1 hour).
-    This means vCons will automatically expire from Redis cache unless persisted to a
-    storage backend or the expiry is updated. Configure VCON_REDIS_EXPIRY environment
-    variable to change the default expiry time.
 
     Args:
         inbound_vcon: The vCon to store
@@ -659,16 +654,12 @@ async def post_vcon(
 
         logger.debug(f"Storing vCon {inbound_vcon.uuid} ({len(dict_vcon)} bytes)")
         await redis_async.json().set(key, "$", dict_vcon)
-        
-        # Set default expiry on newly created vCons
-        await redis_async.expire(key, VCON_REDIS_EXPIRY)
-        logger.debug(f"Set TTL of {VCON_REDIS_EXPIRY}s on vCon {inbound_vcon.uuid}")
-        
+
         logger.debug(f"Adding vCon {inbound_vcon.uuid} to sorted set")
         await add_vcon_to_set(key, timestamp)
 
         logger.debug(f"Indexing vCon {inbound_vcon.uuid}")
-        await index_vcon(inbound_vcon.uuid)
+        await index_vcon_parties(str(inbound_vcon.uuid), dict_vcon["parties"])
 
         # Add to ingress lists if specified
         if ingress_lists:
@@ -720,9 +711,7 @@ async def external_ingress_vcon(
     - Multiple API keys can be configured for the same ingress list
 
     The submitted vCon is stored, indexed, and automatically queued for processing
-    in the specified ingress list. The vCon is stored with a default TTL of 
-    VCON_REDIS_EXPIRY seconds (default 3600s/1 hour), after which it will expire
-    from Redis cache unless persisted to a storage backend.
+    in the specified ingress list.
 
     Args:
         request: FastAPI Request object for accessing headers
@@ -760,16 +749,12 @@ async def external_ingress_vcon(
             f"Storing vCon {inbound_vcon.uuid} ({len(dict_vcon)} bytes) via external ingress"
         )
         await redis_async.json().set(key, "$", dict_vcon)
-        
-        # Set default expiry on newly created vCons
-        await redis_async.expire(key, VCON_REDIS_EXPIRY)
-        logger.debug(f"Set TTL of {VCON_REDIS_EXPIRY}s on vCon {inbound_vcon.uuid}")
 
         logger.debug(f"Adding vCon {inbound_vcon.uuid} to sorted set")
         await add_vcon_to_set(key, timestamp)
 
         logger.debug(f"Indexing vCon {inbound_vcon.uuid}")
-        await index_vcon(inbound_vcon.uuid)
+        await index_vcon_parties(str(inbound_vcon.uuid), dict_vcon["parties"])
 
         # Always add to the specified ingress list (required for this endpoint)
         vcon_uuid_str = str(inbound_vcon.uuid)
@@ -1057,25 +1042,17 @@ async def get_dlq_vcons(
         raise HTTPException(status_code=500, detail="Failed to read DLQ")
 
 
-async def index_vcon(uuid: UUID) -> None:
-    """Index a vCon for searching.
+async def index_vcon_parties(vcon_uuid: str, parties: list) -> None:
+    """Index a vCon's parties for searching.
 
-    Adds the vCon to the sorted set and indexes it by party information
-    (tel, mailto, name) for searching. All indexed keys will expire after
-    VCON_INDEX_EXPIRY seconds.
+    Indexes by party information (tel, mailto, name). All indexed keys
+    will expire after VCON_INDEX_EXPIRY seconds.
 
     Args:
-        uuid: UUID of the vCon to index
+        vcon_uuid: UUID string of the vCon
+        parties: List of party dicts from the vCon
     """
-    key = f"vcon:{uuid}"
-    vcon = await redis_async.json().get(key)
-    created_at = datetime.fromisoformat(vcon["created_at"])
-    timestamp = int(created_at.timestamp())
-    vcon_uuid = vcon["uuid"]
-    await add_vcon_to_set(key, timestamp)
-
-    # Index by party information with expiration
-    for party in vcon["parties"]:
+    for party in parties:
         if party.get("tel"):
             tel_key = f"tel:{party['tel']}"
             await redis_async.sadd(tel_key, vcon_uuid)
@@ -1088,6 +1065,25 @@ async def index_vcon(uuid: UUID) -> None:
             name_key = f"name:{party['name']}"
             await redis_async.sadd(name_key, vcon_uuid)
             await redis_async.expire(name_key, VCON_INDEX_EXPIRY)
+
+
+async def index_vcon(uuid: UUID) -> None:
+    """Index a vCon for searching (reads from Redis).
+
+    Reads the vCon from Redis, adds it to the sorted set, and indexes
+    by party information. Used for bulk re-indexing. For the ingest path,
+    use index_vcon_parties() directly to avoid redundant Redis reads.
+
+    Args:
+        uuid: UUID of the vCon to index
+    """
+    key = f"vcon:{uuid}"
+    vcon = await redis_async.json().get(key)
+    created_at = datetime.fromisoformat(vcon["created_at"])
+    timestamp = int(created_at.timestamp())
+    vcon_uuid = vcon["uuid"]
+    await add_vcon_to_set(key, timestamp)
+    await index_vcon_parties(vcon_uuid, vcon["parties"])
 
 
 @api_router.get(
