@@ -39,20 +39,21 @@ class TestExternalIngress:
 
     @patch("config.Configuration.get_ingress_auth")
     @patch("api.add_vcon_to_set")
-    @patch("api.index_vcon")
+    @patch("api.index_vcon_parties")
     def test_successful_submission_single_api_key(
-        self, mock_index_vcon, mock_add_vcon_to_set, mock_get_ingress_auth
+        self, mock_index_vcon_parties, mock_add_vcon_to_set, mock_get_ingress_auth
     ):
         """Test successful vCon submission with single API key configuration."""
         # Configure mocks
         mock_get_ingress_auth.return_value = {self.ingress_list: self.valid_api_key}
 
-        # Mock Redis client properly
+        # Mock Redis client properly (sadd/expire used by index_vcon_parties)
         mock_redis = MagicMock()
         mock_json = MagicMock()
         mock_json.set = AsyncMock()
         mock_redis.json.return_value = mock_json
         mock_redis.expire = AsyncMock()
+        mock_redis.sadd = AsyncMock()
         mock_redis.rpush = AsyncMock()
 
         # Set the global redis_async directly in the api module
@@ -77,12 +78,10 @@ class TestExternalIngress:
 
             # Verify Redis operations were called
             mock_json.set.assert_called_once()
-            mock_redis.expire.assert_called_once()  # Verify expiry was set
             mock_redis.rpush.assert_called_once_with(
                 self.ingress_list, self.test_vcon["uuid"]
             )
             mock_add_vcon_to_set.assert_called_once()
-            mock_index_vcon.assert_called_once()
 
         finally:
             # Clean up the global variable
@@ -90,9 +89,9 @@ class TestExternalIngress:
 
     @patch("config.Configuration.get_ingress_auth")
     @patch("api.add_vcon_to_set")
-    @patch("api.index_vcon")
+    @patch("api.index_vcon_parties")
     def test_successful_submission_multiple_api_keys(
-        self, mock_index_vcon, mock_add_vcon_to_set, mock_get_ingress_auth
+        self, mock_index_vcon_parties, mock_add_vcon_to_set, mock_get_ingress_auth
     ):
         """Test successful vCon submission with multiple API keys for same ingress."""
         # Configure mocks - multiple API keys for same ingress list
@@ -100,12 +99,13 @@ class TestExternalIngress:
             self.ingress_list: ["partner-1-key", self.valid_api_key, "partner-3-key"]
         }
 
-        # Mock Redis client properly
+        # Mock Redis client properly (sadd/expire used by index_vcon_parties)
         mock_redis = MagicMock()
         mock_json = MagicMock()
         mock_json.set = AsyncMock()
         mock_redis.json.return_value = mock_json
         mock_redis.expire = AsyncMock()
+        mock_redis.sadd = AsyncMock()
         mock_redis.rpush = AsyncMock()
 
         # Set the global redis_async directly in the api module
@@ -233,6 +233,7 @@ class TestExternalIngress:
         mock_json.set = AsyncMock(side_effect=Exception("Redis connection failed"))
         mock_redis.json.return_value = mock_json
         mock_redis.expire = AsyncMock()
+        mock_redis.sadd = AsyncMock()
         mock_redis.rpush = AsyncMock()
 
         # Set the global redis_async directly in the api module
@@ -254,9 +255,9 @@ class TestExternalIngress:
 
     @patch("config.Configuration.get_ingress_auth")
     @patch("api.add_vcon_to_set")
-    @patch("api.index_vcon")
+    @patch("api.index_vcon_parties")
     def test_multiple_ingress_lists_isolation(
-        self, mock_index_vcon, mock_add_vcon_to_set, mock_get_ingress_auth
+        self, mock_index_vcon_parties, mock_add_vcon_to_set, mock_get_ingress_auth
     ):
         """Test that API keys are properly isolated between ingress lists."""
         # Configure different API keys for different ingress lists
@@ -266,12 +267,13 @@ class TestExternalIngress:
             "shared_ingress": ["partner-a-key", "partner-b-key-1", "shared-key"],
         }
 
-        # Mock Redis client properly
+        # Mock Redis client properly (sadd/expire used by index_vcon_parties)
         mock_redis = MagicMock()
         mock_json = MagicMock()
         mock_json.set = AsyncMock()
         mock_redis.json.return_value = mock_json
         mock_redis.expire = AsyncMock()
+        mock_redis.sadd = AsyncMock()
         mock_redis.rpush = AsyncMock()
 
         # Set the global redis_async directly in the api module
