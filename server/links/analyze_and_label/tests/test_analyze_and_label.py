@@ -345,7 +345,6 @@ def test_run_json_parse_error(mock_sampling, mock_is_included, mock_generate_ana
 
 
 @patch('server.links.analyze_and_label.get_openai_client')
-@patch('server.links.analyze_and_label.get_openai_client')
 @patch('server.links.analyze_and_label.generate_analysis_with_labels')
 @patch('server.links.analyze_and_label.is_included', return_value=True)
 @patch('server.links.analyze_and_label.randomly_execute_with_sampling', return_value=True)

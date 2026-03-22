@@ -49,18 +49,24 @@ def transcribe_via_litellm(url: str, opts: dict) -> Optional[dict]:
     if not litellm_url or not litellm_key:
         return None
     model = opts.get("model") or (opts.get("api") or {}).get("model", "nova-3")
-    # Download audio
+    # Download audio (stream to temp file to avoid loading large files into memory)
     audio_response = requests.get(url, stream=True, timeout=60)
     audio_response.raise_for_status()
-    content = audio_response.content
-    if not content:
-        logger.warning("Empty audio content from %s", url)
-        return None
-    # OpenAI client expects a file-like object with optional .name
     ext = os.path.splitext(url.split("?")[0])[-1] or ".mp3"
     with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
-        tmp.write(content)
+        bytes_written = 0
+        for chunk in audio_response.iter_content(chunk_size=8192):
+            if chunk:
+                tmp.write(chunk)
+                bytes_written += len(chunk)
         tmp_path = tmp.name
+    if bytes_written == 0:
+        logger.warning("Empty audio content from %s", url)
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        return None
     try:
         client = get_openai_client(opts)
         with open(tmp_path, "rb") as f:
@@ -68,11 +74,10 @@ def transcribe_via_litellm(url: str, opts: dict) -> Optional[dict]:
         text = getattr(response, "text", None) or (response.model_dump().get("text") if hasattr(response, "model_dump") else str(response))
         if text is None:
             return None
-        # Shape expected by rest of link (confidence not provided by OpenAI-format response)
+        # confidence and detected_language are not available in the OpenAI-format response;
+        # omit them so callers can skip confidence filtering instead of applying a fake threshold.
         return {
             "transcript": text,
-            "confidence": 1.0,
-            "detected_language": "en",
         }
     finally:
         try:
@@ -254,15 +259,18 @@ def run(
             increment_counter("conserver.link.deepgram.transcription_failures")
             break
 
-        # Log and track confidence
-        record_histogram("conserver.link.deepgram.confidence", result["confidence"])
-        logger.info(f"Transcription confidence for dialog {index}: {result['confidence']}")
-
-        # If the confidence is too low, don't store the transcript
-        if result["confidence"] < opts["minimum_confidence"]:
-            logger.warning("Low confidence result for vCon %s, dialog %s: %s", vcon_uuid, index, result["confidence"])
-            increment_counter("conserver.link.deepgram.transcription_failures")
-            break
+        # Log and track confidence (not available for LiteLLM/OpenAI-format transcription)
+        confidence = result.get("confidence")
+        if confidence is not None:
+            record_histogram("conserver.link.deepgram.confidence", confidence)
+            logger.info(f"Transcription confidence for dialog {index}: {confidence}")
+            # If the confidence is too low, don't store the transcript
+            if confidence < opts["minimum_confidence"]:
+                logger.warning("Low confidence result for vCon %s, dialog %s: %s", vcon_uuid, index, confidence)
+                increment_counter("conserver.link.deepgram.transcription_failures")
+                continue
+        else:
+            logger.info(f"Confidence not available for dialog {index} (LiteLLM path), skipping threshold check")
 
         logger.info("Transcribed vCon: %s, dialog: %s", vCon.uuid, index)
 

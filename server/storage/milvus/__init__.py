@@ -446,7 +446,7 @@ def save(vcon_uuid: str, opts=default_options) -> None:
                 logger.info(f"vCon {vcon_uuid} already exists in Milvus collection {collection_name}, skipping")
                 return
         
-        # Initialize OpenAI client (supports LiteLLM proxy via LITELLM_PROXY_URL + LITELLM_MASTER_KEY in opts/env)
+        # Initialize OpenAI client (supports LiteLLM proxy via LITELLM_PROXY_URL + LITELLM_MASTER_KEY provided in opts)
         openai_client = get_openai_client(opts)
 
         # Extract text content from vCon
