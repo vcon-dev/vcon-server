@@ -1,7 +1,7 @@
 import os
 import json
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, Mock
 
 from server.links.analyze_and_label import run, generate_analysis_with_labels, get_analysis_for_type, navigate_dict
 from server.vcon import Vcon
