@@ -1,7 +1,7 @@
 from lib.vcon_redis import VconRedis
 from lib.logging_utils import init_logger
+from lib.openai_client import get_openai_client
 import logging
-from openai import OpenAI
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -63,13 +63,6 @@ def run(
     merged_opts.update(opts)
     opts = merged_opts
 
-    # Check for OPENAI_API_KEY in opts or environment
-    openai_key = opts.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
-    if not openai_key:
-        logger.warning("OPENAI_API_KEY not defined, skipping analysis for vCon: %s", vcon_uuid)
-        return vcon_uuid
-    opts["OPENAI_API_KEY"] = openai_key
-
     vcon_redis = VconRedis()
     vCon = vcon_redis.get_vcon(vcon_uuid)
 
@@ -81,7 +74,11 @@ def run(
         logger.info(f"Skipping {link_name} vCon {vcon_uuid} due to sampling")
         return vcon_uuid
 
-    client = OpenAI(api_key=opts["OPENAI_API_KEY"], timeout=120.0, max_retries=0)
+    try:
+        client = get_openai_client(opts)
+    except ValueError as e:
+        logger.warning("No LLM credentials (OPENAI_API_KEY, LiteLLM, or Azure): %s; skipping analysis for vCon: %s", e, vcon_uuid)
+        return vcon_uuid
     source_type = opts["source"]["analysis_type"]
     text_location = opts["source"]["text_location"]
 

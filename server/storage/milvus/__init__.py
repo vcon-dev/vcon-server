@@ -14,7 +14,7 @@ from server.lib.vcon_redis import VconRedis
 
 try:
     from pymilvus import connections, Collection, FieldSchema, CollectionSchema, DataType, utility
-    from openai import OpenAI
+    from lib.openai_client import get_openai_client
 except ImportError:
     logging.error("Required packages not found. Install with: pip install pymilvus openai")
     raise
@@ -446,12 +446,9 @@ def save(vcon_uuid: str, opts=default_options) -> None:
                 logger.info(f"vCon {vcon_uuid} already exists in Milvus collection {collection_name}, skipping")
                 return
         
-        # Initialize OpenAI client
-        openai_client = OpenAI(
-            api_key=opts["api_key"],
-            organization=opts["organization"] if opts["organization"] else None
-        )
-        
+        # Initialize OpenAI client (supports LiteLLM proxy via LITELLM_PROXY_URL + LITELLM_MASTER_KEY provided in opts)
+        openai_client = get_openai_client(opts)
+
         # Extract text content from vCon
         text = extract_text_from_vcon(vcon_dict)
         

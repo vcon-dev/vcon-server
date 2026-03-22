@@ -141,10 +141,9 @@ class TestGenerateAnalysis:
     """Test the generate_analysis function"""
     
     @patch('server.links.analyze.send_ai_usage_data_for_tracking')
-    @patch('server.links.analyze.OpenAI')
-    def test_generate_analysis_basic(self, mock_openai, mock_send_usage):
+    def test_generate_analysis_basic(self, mock_send_usage):
         """Test basic analysis generation with mocked client"""
-        # Setup mock client
+        # Setup mock client (injected into generate_analysis)
         mock_client = Mock()
         mock_response = Mock()
         mock_response.choices = [Mock()]
@@ -153,7 +152,6 @@ class TestGenerateAnalysis:
         mock_response.usage.prompt_tokens = 10
         mock_response.usage.completion_tokens = 20
         mock_client.chat.completions.create.return_value = mock_response
-        mock_openai.return_value = mock_client
         
         opts = {
             "prompt": "Summarize this",
@@ -173,10 +171,9 @@ class TestGenerateAnalysis:
         mock_client.chat.completions.create.assert_called_once()
     
     @patch('server.links.analyze.send_ai_usage_data_for_tracking')
-    @patch('server.links.analyze.OpenAI')
-    def test_generate_analysis_with_custom_system_prompt(self, mock_openai, mock_send_usage):
+    def test_generate_analysis_with_custom_system_prompt(self, mock_send_usage):
         """Test analysis generation with custom system prompt"""
-        # Setup mock client
+        # Setup mock client (injected into generate_analysis)
         mock_client = Mock()
         mock_response = Mock()
         mock_response.choices = [Mock()]
@@ -185,7 +182,6 @@ class TestGenerateAnalysis:
         mock_response.usage.prompt_tokens = 10
         mock_response.usage.completion_tokens = 20
         mock_client.chat.completions.create.return_value = mock_response
-        mock_openai.return_value = mock_client
         
         custom_system_prompt = "You are a specialized financial analyst."
         
@@ -214,10 +210,9 @@ class TestGenerateAnalysis:
         assert 'Analyze this financial data' in messages[1]['content']
     
     @patch('server.links.analyze.send_ai_usage_data_for_tracking')
-    @patch('server.links.analyze.OpenAI')
-    def test_generate_analysis_with_empty_prompt(self, mock_openai, mock_send_usage):
+    def test_generate_analysis_with_empty_prompt(self, mock_send_usage):
         """Test analysis generation with empty prompt"""
-        # Setup mock client
+        # Setup mock client (injected into generate_analysis)
         mock_client = Mock()
         mock_response = Mock()
         mock_response.choices = [Mock()]
@@ -226,7 +221,6 @@ class TestGenerateAnalysis:
         mock_response.usage.prompt_tokens = 10
         mock_response.usage.completion_tokens = 20
         mock_client.chat.completions.create.return_value = mock_response
-        mock_openai.return_value = mock_client
         
         opts = {
             "prompt": "",
@@ -250,10 +244,9 @@ class TestGenerateAnalysis:
         assert messages[1]['content'] == "\n\nTest transcript"
     
     @patch('server.links.analyze.send_ai_usage_data_for_tracking')
-    @patch('server.links.analyze.OpenAI')
-    def test_generate_analysis_with_default_system_prompt(self, mock_openai, mock_send_usage):
+    def test_generate_analysis_with_default_system_prompt(self, mock_send_usage):
         """Test analysis generation uses default system prompt when not provided"""
-        # Setup mock client
+        # Setup mock client (injected into generate_analysis)
         mock_client = Mock()
         mock_response = Mock()
         mock_response.choices = [Mock()]
@@ -262,7 +255,6 @@ class TestGenerateAnalysis:
         mock_response.usage.prompt_tokens = 10
         mock_response.usage.completion_tokens = 20
         mock_client.chat.completions.create.return_value = mock_response
-        mock_openai.return_value = mock_client
         
         opts = {
             "prompt": "Test prompt",
@@ -311,11 +303,13 @@ class TestDefaultOptions:
 class TestRunFunction:
     """Test the main run function"""
     
+    @patch('server.links.analyze.get_openai_client')
     @patch('server.links.analyze.generate_analysis')
     @patch('server.links.analyze.is_included', return_value=True)
     @patch('server.links.analyze.randomly_execute_with_sampling', return_value=True)
-    def test_run_basic(self, mock_sampling, mock_is_included, mock_generate_analysis, mock_redis_with_vcon, sample_vcon):
+    def test_run_basic(self, mock_sampling, mock_is_included, mock_generate_analysis, mock_get_client, mock_redis_with_vcon, sample_vcon):
         """Test the basic run functionality with mocked analysis generation"""
+        mock_get_client.return_value = Mock()
         # Set up mock to return analysis
         mock_generate_analysis.return_value = "This is a test analysis."
         
@@ -340,14 +334,16 @@ class TestRunFunction:
         # Check the vCon has an analysis
         sample_vcon.add_analysis.assert_called_once()
     
+    @patch('server.links.analyze.get_openai_client')
     @patch('server.links.analyze.generate_analysis')
     @patch('server.links.analyze.is_included', return_value=True)
     @patch('server.links.analyze.randomly_execute_with_sampling', return_value=True)
     def test_run_with_custom_system_prompt(
-        self, mock_sampling, mock_is_included, mock_generate_analysis, 
+        self, mock_sampling, mock_is_included, mock_generate_analysis, mock_get_client, 
         mock_redis_with_vcon, sample_vcon
     ):
         """Test run function with custom system prompt"""
+        mock_get_client.return_value = Mock()
         # Set up mock to return analysis
         mock_generate_analysis.return_value = "Custom analysis with custom system prompt."
         
@@ -373,9 +369,11 @@ class TestRunFunction:
         assert call_args[1]['opts']['system_prompt'] == "You are a specialized customer service analyst."
         assert call_args[1]['opts']['prompt'] == "Analyze this customer interaction."
     
+    @patch('server.links.analyze.get_openai_client')
     @patch('server.links.analyze.is_included', return_value=False)
-    def test_run_skipped_due_to_filters(self, mock_is_included, mock_redis_with_vcon):
+    def test_run_skipped_due_to_filters(self, mock_is_included, mock_get_client, mock_redis_with_vcon):
         """Test that run is skipped when filters exclude the vCon"""
+        mock_get_client.return_value = Mock()
         # Set up the mock Redis instance to return a sample vCon
         sample_vcon = Mock()
         mock_redis_with_vcon.get_vcon.return_value = sample_vcon
@@ -388,10 +386,12 @@ class TestRunFunction:
         # Should have called get_vcon but then skipped due to filters
         mock_redis_with_vcon.get_vcon.assert_called_once_with("test-uuid")
     
+    @patch('server.links.analyze.get_openai_client')
     @patch('server.links.analyze.is_included', return_value=True)
     @patch('server.links.analyze.randomly_execute_with_sampling', return_value=False)
-    def test_run_skipped_due_to_sampling(self, mock_sampling, mock_is_included, mock_redis_with_vcon):
+    def test_run_skipped_due_to_sampling(self, mock_sampling, mock_is_included, mock_get_client, mock_redis_with_vcon):
         """Test that run is skipped when sampling excludes the vCon"""
+        mock_get_client.return_value = Mock()
         # Set up the mock Redis instance to return a sample vCon
         sample_vcon = Mock()
         mock_redis_with_vcon.get_vcon.return_value = sample_vcon
@@ -404,14 +404,16 @@ class TestRunFunction:
         # Should have called get_vcon but then skipped due to sampling
         mock_redis_with_vcon.get_vcon.assert_called_once_with("test-uuid")
     
+    @patch('server.links.analyze.get_openai_client')
     @patch('server.links.analyze.generate_analysis')
     @patch('server.links.analyze.is_included', return_value=True)
     @patch('server.links.analyze.randomly_execute_with_sampling', return_value=True)
     def test_run_with_azure_openai(
-        self, mock_sampling, mock_is_included, mock_generate_analysis,
+        self, mock_sampling, mock_is_included, mock_generate_analysis, mock_get_client,
         mock_redis_with_vcon, sample_vcon
     ):
         """Test run function with Azure OpenAI credentials"""
+        mock_get_client.return_value = Mock()
         # Set up mock to return analysis
         mock_generate_analysis.return_value = "Azure OpenAI analysis."
         
@@ -426,32 +428,27 @@ class TestRunFunction:
             "AZURE_OPENAI_API_VERSION": "2023-12-01-preview"
         }
         
-        with patch('server.links.analyze.AzureOpenAI') as mock_azure:
-            mock_azure_instance = Mock()
-            mock_azure.return_value = mock_azure_instance
-            
-            result = run("test-uuid", "analyze", opts)
-            
-            # Check that vCon was processed and returned
-            assert result == "test-uuid"
-            
-            # Verify Azure OpenAI was used
-            mock_azure.assert_called_once()
+        result = run("test-uuid", "analyze", opts)
+        
+        # Check that vCon was processed and returned
+        assert result == "test-uuid"
+        mock_get_client.assert_called_once()
     
     def test_run_missing_credentials(self, mock_redis_with_vcon):
         """Test that run raises error when no credentials are provided"""
-        error_msg = "OpenAI or Azure OpenAI credentials not provided"
-        with pytest.raises(ValueError, match=error_msg):
+        with pytest.raises(ValueError, match="LITELLM_PROXY_URL|OPENAI_API_KEY|AZURE_OPENAI"):
             run("test-uuid", "analyze", {})
     
+    @patch('server.links.analyze.get_openai_client')
     @patch('server.links.analyze.generate_analysis')
     @patch('server.links.analyze.is_included', return_value=True)
     @patch('server.links.analyze.randomly_execute_with_sampling', return_value=True)
     def test_run_already_has_analysis(
-        self, mock_sampling, mock_is_included, mock_generate_analysis,
+        self, mock_sampling, mock_is_included, mock_generate_analysis, mock_get_client,
         mock_redis_with_vcon, sample_vcon
     ):
         """Test that run skips when analysis already exists"""
+        mock_get_client.return_value = Mock()
         # Add existing analysis to the vCon
         existing_analysis = {
             "dialog": 0,
@@ -470,14 +467,16 @@ class TestRunFunction:
         assert result == "test-uuid"
         mock_generate_analysis.assert_not_called()
     
+    @patch('server.links.analyze.get_openai_client')
     @patch('server.links.analyze.generate_analysis')
     @patch('server.links.analyze.is_included', return_value=True)
     @patch('server.links.analyze.randomly_execute_with_sampling', return_value=True)
     def test_run_analysis_failure(
-        self, mock_sampling, mock_is_included, mock_generate_analysis,
+        self, mock_sampling, mock_is_included, mock_generate_analysis, mock_get_client,
         mock_redis_with_vcon, sample_vcon
     ):
         """Test that run handles analysis generation failures"""
+        mock_get_client.return_value = Mock()
         # Set up mock to raise exception
         mock_generate_analysis.side_effect = Exception("API Error")
         

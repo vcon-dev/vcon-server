@@ -1,7 +1,7 @@
 from lib.vcon_redis import VconRedis
 from lib.logging_utils import init_logger
+from lib.openai_client import get_openai_client
 import logging
-from openai import OpenAI, AzureOpenAI
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -98,24 +98,7 @@ def run(
         logger.info(f"Skipping {link_name} vCon {vcon_uuid} due to sampling")
         return vcon_uuid
 
-    # Extract credentials from options
-    openai_api_key = opts.get("OPENAI_API_KEY")
-    azure_openai_api_key = opts.get("AZURE_OPENAI_API_KEY")
-    azure_openai_endpoint = opts.get("AZURE_OPENAI_ENDPOINT")
-    api_version = opts.get("AZURE_OPENAI_API_VERSION")
-
-    client = None
-    if openai_api_key:
-        client = OpenAI(api_key=openai_api_key, timeout=120.0, max_retries=0)
-        logger.info("Using public OpenAI client")
-    elif azure_openai_api_key and azure_openai_endpoint:
-        client = AzureOpenAI(api_key=azure_openai_api_key, azure_endpoint=azure_openai_endpoint, api_version=api_version)
-        logger.info(f"Using Azure OpenAI client at endpoint:{azure_openai_endpoint}")
-    else:
-        raise ValueError(
-            "OpenAI or Azure OpenAI credentials not provided. "
-            "Need OPENAI_API_KEY or AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT"
-        )
+    client = get_openai_client(opts)
 
     source_type = navigate_dict(opts, "source.analysis_type")
     text_location = navigate_dict(opts, "source.text_location")
