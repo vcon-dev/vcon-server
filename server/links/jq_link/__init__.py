@@ -1,5 +1,6 @@
 from lib.logging_utils import init_logger
 from lib.vcon_redis import VconRedis
+from lib.metrics import increment_counter
 import jq
 
 logger = init_logger(__name__)
@@ -41,6 +42,7 @@ def run(vcon_uuid, link_name, opts=default_options):
 
     # Convert vCon to dict for jq
     vcon_dict = vcon.to_dict()
+    attrs = {"link.name": link_name, "vcon.uuid": vcon_uuid}
 
     try:
         # Apply the jq filter
@@ -48,26 +50,28 @@ def run(vcon_uuid, link_name, opts=default_options):
         logger.debug(f"Applying jq filter '{opts['filter']}' to vCon {vcon_uuid}")
         program = jq.compile(opts["filter"])
         results = list(program.input(vcon_dict))
-        
+
         # Handle empty results
         if not results:
             logger.debug(f"JQ filter returned no results for vCon {vcon_uuid}")
             matches = False
         else:
             matches = bool(results[0])
-            
+
         logger.debug(f"JQ filter results: {results}")
     except Exception as e:
+        increment_counter("conserver.link.jq.filter_errors", attributes=attrs)
         logger.error(f"Error applying jq filter '{opts['filter']}' to vCon {vcon_uuid}: {e}")
         logger.debug(f"vCon content: {vcon_dict}")
         return None
 
     # Forward based on matches and forward_matches setting
     should_forward = matches == opts["forward_matches"]
-    
+
     if should_forward:
         logger.info(f"vCon {vcon_uuid} {'' if matches else 'did not '}match filter - forwarding")
         return vcon_uuid
     else:
+        increment_counter("conserver.link.jq.vcon_filtered_out", attributes=attrs)
         logger.info(f"vCon {vcon_uuid} {'' if matches else 'did not '}match filter - filtering out")
         return None

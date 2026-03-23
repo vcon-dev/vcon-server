@@ -321,6 +321,7 @@ def run(
                         vCon.uuid)
             continue
 
+        attrs = {"link.name": link_name, "vcon.uuid": vcon_uuid}
         try:
             # Attempt transcription with timing metrics
             start = time.time()
@@ -329,25 +330,26 @@ def run(
             result = transcribe_groq_whisper(dialog, opts)
             record_histogram(
                 "conserver.link.groq_whisper.transcription_time",
-                time.time() - start
+                time.time() - start,
+                attributes=attrs,
             )
         except RetryError as re:
             logger.error(
                 "Failed to transcribe vCon %s after multiple retry attempts: %s",
                 vcon_uuid, re)
-            increment_counter("conserver.link.groq_whisper.transcription_failures")
+            increment_counter("conserver.link.groq_whisper.transcription_failures", attributes=attrs)
             break
         except Exception as e:
             logger.error(
                 "Unexpected error transcribing vCon %s: %s",
                 vcon_uuid, e)
-            increment_counter("conserver.link.groq_whisper.transcription_failures")
+            increment_counter("conserver.link.groq_whisper.transcription_failures", attributes=attrs)
             break
 
         if not result:
             logger.warning("No transcription generated for vCon %s", vcon_uuid)
             increment_counter(
-                "conserver.link.groq_whisper.transcription_failures")
+                "conserver.link.groq_whisper.transcription_failures", attributes=attrs)
             break
 
         logger.info("Transcribed vCon: %s", vCon.uuid)

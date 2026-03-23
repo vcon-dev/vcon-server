@@ -184,20 +184,21 @@ def run(
             logger.info("Dialog %s already transcribed on vCon: %s", index, vCon.uuid)
             continue
 
+        attrs = {"link.name": link_name, "vcon.uuid": vcon_uuid}
         try:
             # Attempt transcription with timing metrics
             start = time.time()
             logger.debug("Transcribing dialog %s in vCon: %s", index, vCon.uuid)
             result = transcribe_hugging_face_whisper(dialog, opts)
-            record_histogram("conserver.link.hugging_face_whisper.transcription_time", time.time() - start)
+            record_histogram("conserver.link.hugging_face_whisper.transcription_time", time.time() - start, attributes=attrs)
         except (RetryError, Exception) as e:
             logger.error("Failed to transcribe vCon %s after multiple retries: %s", vcon_uuid, e)
-            increment_counter("conserver.link.hugging_face_whisper.transcription_failures")
+            increment_counter("conserver.link.hugging_face_whisper.transcription_failures", attributes=attrs)
             break
 
         if not result:
             logger.warning("No transcription generated for vCon %s", vcon_uuid)
-            increment_counter("conserver.link.hugging_face_whisper.transcription_failures")
+            increment_counter("conserver.link.hugging_face_whisper.transcription_failures", attributes=attrs)
             break
 
         logger.info("Transcribed vCon: %s", vCon.uuid)
