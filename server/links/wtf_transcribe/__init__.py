@@ -1,18 +1,14 @@
 """WTF Transcription Link (vfun integration)
 
-This link sends vCon audio dialogs to a vfun transcription server and adds
-the results as WTF (World Transcription Format) analysis entries.
-
-The vfun server provides:
-- Multi-language speech recognition (English + Spanish, auto-detect)
-- GPU-accelerated processing with CUDA
+This link sends every transcribable dialog to vfun for transcription,
+and receives WTF (World Transcription Format) JSON objects.
 
 Configuration options:
     vfun-server-url: URL of the vfun transcription server (required)
     language: Language override ("en" or "es"). If omitted, vfun auto-detects.
-    diarize: Enable speaker diarization (default: False)
-    timeout: Request timeout in seconds (default: 300)
-    min-duration: Minimum dialog duration to transcribe in seconds (default: 0)
+    diarize: Enable speaker diarization (default: False) (WIP)
+    vfun-timeout: Request timeout in seconds (default: 300)
+    url-timeout: URL Request timeout (when converting dialog url to audio)
     api-key: Optional API key for vfun server authentication
 
 Example configuration in config.yml:
@@ -22,9 +18,9 @@ Example configuration in config.yml:
         vfun-server-url: http://localhost:4380/wtf
         language: en
         diarize: true
-        timeout: 300
-        min-duration: 5
+        vfun-timeout: 300
         api-key: your-api-key-here
+        url-timeout: 300
 """
 
 import base64
@@ -44,70 +40,109 @@ default_options = {
     "vfun-server-url": None,
     "language": None,
     "diarize": False,
-    "timeout": 300,
-    "min-duration": 0,
+    "vfun-timeout": 300,
+    "url-timeout": 60,
     "api-key": None,
 }
 
+def analysis_is_wtf_transcription(analysis):
+    return analysis.get("type") == "wtf_transcription"
 
-def has_wtf_transcription(vcon: Any, dialog_index: int) -> bool:
-    """Check if a dialog already has a WTF transcription."""
+def analysis_dialog_index(analysis):
+    return analysis.get("dialog")
+
+def is_dialog_recording(dialog):
+    return dialog.get("type") == "recording"
+
+def does_dialog_have_content(dialog):
+    return dialog.get("body") or dialog.get("url")
+
+def is_dialog_index_already_transcribed(vcon: Any, dialog_index: int) -> bool:
     for analysis in vcon.analysis:
-        if (analysis.get("type") == "wtf_transcription" and
-            analysis.get("dialog") == dialog_index):
+        if (analysis_is_wtf_transcription(analysis) and
+            analysis_dialog_index(analysis) == dialog_index):
             return True
     return False
 
+def dialog_to_index(vcon, dialog):
+    return vcon.dialog.index(dialog)
 
-def should_transcribe_dialog(dialog: Dict[str, Any], min_duration: float) -> bool:
-    """Check if a dialog should be transcribed."""
-    if dialog.get("type") != "recording":
-        return False
-    if not dialog.get("body") and not dialog.get("url"):
-        return False
-    duration = dialog.get("duration")
-    if duration is not None and float(duration) < min_duration:
-        return False
-    return True
+def is_dialog_already_transcribed(vcon, dialog):
+    dialog_index = dialog_to_index(vcon, dialog)
+    return is_dialog_index_already_transcribed(vcon, dialog_index)
 
+def is_url_dialog(dialog):
+    return bool(dialog.get("url"))
 
-def get_audio_content(dialog: Dict[str, Any]) -> Optional[bytes]:
-    """Extract audio content from dialog body or URL."""
-    if dialog.get("body"):
-        encoding = dialog.get("encoding", "base64")
-        if encoding == "base64url":
-            return base64.urlsafe_b64decode(dialog["body"])
-        elif encoding == "base64":
-            return base64.b64decode(dialog["body"])
-        else:
-            return dialog["body"].encode() if isinstance(dialog["body"], str) else dialog["body"]
+def is_file_url(url):
+    return url.startswith("file://")
 
-    if dialog.get("url"):
-        url = dialog["url"]
-        if url.startswith("file://"):
-            filepath = url[7:]
-            try:
-                with open(filepath, "rb") as f:
-                    return f.read()
-            except Exception as e:
-                logger.error(f"Failed to read file {filepath}: {e}")
-                return None
-        else:
-            try:
-                resp = requests.get(url, timeout=60)
-                resp.raise_for_status()
-                return resp.content
-            except Exception as e:
-                logger.error(f"Failed to fetch URL {url}: {e}")
-                return None
-    return None
+def file_url_to_path(url):
+    return url.removeprefix("file://")
 
+def maybe_load_file_url(url):
+    path = file_url_to_path(url)
+    try:
+        with open(path, "rb") as f:
+            return f.read()
+    except Exception as e:
+        logger.error(f"Failed to read file {path}: {e}")
+
+def maybe_load_remote_url(url, timeout):
+    try:
+        resp = requests.get(url, timeout=timeout)
+        resp.raise_for_status()
+        return resp.content
+    except Exception as e:
+        logger.error(f"Failed to fetch URL {url}: {e}")
+        return None
+
+def url_dialog_to_binary(dialog, timeout=60):
+    url = dialog["url"]
+    if is_file_url(url):
+        return maybe_load_file_url(url)
+    return maybe_load_remote_url(url, timeout)
+
+def has_body(dialog):
+    return bool(dialog.get("body"))
+
+def has_base64url_encoding(dialog):
+    return dialog.get("encoding") == "base64url"
+
+def is_base64url_dialog(dialog):
+    return has_base64url_encoding(dialog) and has_body(dialog)
+
+def base64url_dialog_to_binary(dialog):
+    return base64.urlsafe_b64decode(dialog["body"])
+
+def is_base64_dialog(dialog):
+    return has_body(dialog)
+
+def base64_dialog_to_binary(dialog):
+    return base64.b64decode(dialog["body"])
+
+def dialog_to_binary(dialog, url_timeout=60):
+    if is_url_dialog(dialog):
+        return url_dialog_to_binary(dialog, timeout=url_timeout)
+    if is_base64url_dialog(dialog):
+        return base64url_dialog_to_binary(dialog)
+    if is_base64_dialog(dialog):
+        return base64_dialog_to_binary(dialog)
+    raise TypeError("Failed to convert dialog to binary-- unrecognized type")
+
+def is_dialog_transcribable_type(dialog):
+    return is_url_dialog(dialog) or is_base64url_dialog(dialog) or is_base64_dialog(dialog)
+
+def should_transcribe_dialog(vcon, dialog):
+    if is_dialog_transcribable_type(dialog):
+        if not is_dialog_already_transcribed(vcon, dialog):
+            return True
+    return False
 
 def create_wtf_analysis(
     dialog_index: int,
     vfun_response: Dict[str, Any],
-    language: Optional[str] = None,
-) -> Dict[str, Any]:
+    language: Optional[str] = None) -> Dict[str, Any]:
     """Create a WTF analysis entry from vfun response.
 
     vfun returns a WTF-compliant body directly. If language is set in
@@ -125,125 +160,128 @@ def create_wtf_analysis(
         "body": vfun_response,
     }
 
+def install_opts(opts):
+    for key, value in default_options.items():
+        if key not in opts:
+            opts[key] = value
+        
+
+def verify_opts(opts):
+    if not opts.get("vfun-server-url"):
+        logger.error("wtf_transcribe: vfun-server-url is required")
+        return False
+    return True
+
+def uuid_to_vcon(uuid, redis):
+    return redis.get_vcon(uuid)
+
+def init_redis():
+    return VconRedis()
+
+def dialog_to_audio_binary(dialog, url_timeout):
+    return dialog_to_binary(dialog, url_timeout=url_timeout)
+
+def dialog_filename(dialog, dialog_index):
+    return dialog.get("filename", f"audio_{dialog_index}.wav")
+
+def dialog_mimetype(dialog):
+    return dialog.get("mimetype", "audio/wav")
+
+def build_vfun_headers(api_key):
+    headers = {}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    return headers
+
+def build_vfun_data(diarize, language):
+    data = {"diarize": str(diarize).lower()}
+    if language:
+        data["language"] = language
+    return data
+
+def maybe_decode_double_encoded_json(response_json):
+    if isinstance(response_json, str):
+        return json.loads(response_json)
+    return response_json
+
+def send_audio_to_vfun(audio_binary, dialog, dialog_index, vfun_server_url, api_key, diarize, language, vfun_timeout):
+    filename = dialog_filename(dialog, dialog_index)
+    mimetype = dialog_mimetype(dialog)
+    files = {"file-binary": (filename, audio_binary, mimetype)}
+    headers = build_vfun_headers(api_key)
+    data = build_vfun_data(diarize, language)
+    response = requests.post(
+        vfun_server_url,
+        files=files,
+        data=data,
+        headers=headers,
+        timeout=vfun_timeout,
+    )
+    response.raise_for_status()
+    return maybe_decode_double_encoded_json(response.json())
+
+def add_transcription_to_vcon(vcon, dialog_index, vfun_response, language):
+    analysis = create_wtf_analysis(dialog_index, vfun_response, language=language)
+    vcon.add_analysis(
+        type=analysis["type"],
+        dialog=analysis["dialog"],
+        vendor=analysis.get("vendor"),
+        body=analysis["body"],
+        extra={
+            "mediatype": analysis.get("mediatype"),
+            "schema": analysis.get("schema"),
+        },
+    )
+
+def transcribe_dialog(vcon, dialog, dialog_index, vfun_server_url, api_key, diarize, language, vfun_timeout, url_timeout):
+    try:
+        audio_binary = dialog_to_audio_binary(dialog, url_timeout)
+        if not audio_binary:
+            logger.warning(f"Could not extract audio from dialog {dialog_index}")
+            return False
+        vfun_response = send_audio_to_vfun(audio_binary, dialog, dialog_index, vfun_server_url, api_key, diarize, language, vfun_timeout)
+        add_transcription_to_vcon(vcon, dialog_index, vfun_response, language)
+        logger.info(f"Added WTF transcription for dialog {dialog_index}")
+        return True
+    except requests.exceptions.Timeout:
+        logger.error(f"vfun transcription timed out for dialog {dialog_index}")
+        return False
+    except Exception as e:
+        logger.error(f"Error transcribing dialog {dialog_index}: {e}", exc_info=True)
+        return False
+
+def transcribe_vcon_dialogs(vcon, vfun_server_url, api_key, diarize, language, vfun_timeout, url_timeout):
+    for dialog_index, dialog in enumerate(vcon.dialog):
+        if should_transcribe_dialog(vcon, dialog):
+            transcribe_dialog(vcon, dialog, dialog_index, vfun_server_url, api_key, diarize, language, vfun_timeout, url_timeout)
+
+def save_vcon(vcon, redis):
+    redis.store_vcon(vcon)
 
 def run(
     vcon_uuid: str,
     link_name: str,
-    opts: Dict[str, Any] = None,
-) -> Optional[str]:
-    """Process a vCon through the vfun transcription service."""
-    merged_opts = default_options.copy()
-    if opts:
-        merged_opts.update(opts)
-    opts = merged_opts
-
+    opts: Dict[str, Any] = None) -> Optional[str]:
     logger.info(f"Starting wtf_transcribe link for vCon: {vcon_uuid}")
+    install_opts(opts)
+    redis = init_redis()
 
-    vfun_server_url = opts.get("vfun-server-url")
-    if not vfun_server_url:
-        logger.error("wtf_transcribe: vfun-server-url is required")
-        return vcon_uuid
+    if not verify_opts(opts):
+        return None
 
-    vcon_redis = VconRedis()
-    vcon = vcon_redis.get_vcon(vcon_uuid)
-
+    vcon = uuid_to_vcon(vcon_uuid, redis)
     if not vcon:
         logger.error(f"wtf_transcribe: vCon {vcon_uuid} not found")
-        return vcon_uuid
+        return None
 
-    # Find dialogs to transcribe
-    dialogs_processed = 0
-    dialogs_skipped = 0
-
-    for i, dialog in enumerate(vcon.dialog):
-        if not should_transcribe_dialog(dialog, opts.get("min-duration", 0)):
-            logger.debug(f"Skipping dialog {i} (not eligible)")
-            dialogs_skipped += 1
-            continue
-
-        if has_wtf_transcription(vcon, i):
-            logger.debug(f"Skipping dialog {i} (already transcribed)")
-            dialogs_skipped += 1
-            continue
-
-        # Get audio content
-        audio_content = get_audio_content(dialog)
-        if not audio_content:
-            logger.warning(f"Could not extract audio from dialog {i}")
-            dialogs_skipped += 1
-            continue
-
-        logger.info(f"Transcribing dialog {i} for vCon {vcon_uuid}")
-
-        try:
-            # Build request to vfun server
-            headers = {}
-            api_key = opts.get("api-key")
-            if api_key:
-                headers["Authorization"] = f"Bearer {api_key}"
-
-            # Get filename from dialog or generate one
-            filename = dialog.get("filename", f"audio_{i}.wav")
-            mimetype = dialog.get("mimetype", "audio/wav")
-
-            # Send audio to vfun server
-            files = {"file-binary": (filename, audio_content, mimetype)}
-            data = {
-                "diarize": str(opts.get("diarize", True)).lower(),
-            }
-            language = opts.get("language")
-            if language:
-                data["language"] = language
-
-            response = requests.post(
-                vfun_server_url,
-                files=files,
-                data=data,
-                headers=headers,
-                timeout=opts.get("timeout", 300),
-            )
-
-            if response.status_code == 200:
-                vfun_response = response.json()
-                # Handle double-encoded JSON (vfun sometimes returns JSON string)
-                if isinstance(vfun_response, str):
-                    vfun_response = json.loads(vfun_response)
-
-                wtf_analysis = create_wtf_analysis(i, vfun_response, language=opts.get("language"))
-
-                # Add analysis to vCon
-                vcon.add_analysis(
-                    type=wtf_analysis["type"],
-                    dialog=wtf_analysis["dialog"],
-                    vendor=wtf_analysis.get("vendor"),
-                    body=wtf_analysis["body"],
-                    extra={
-                        "mediatype": wtf_analysis.get("mediatype"),
-                        "schema": wtf_analysis.get("schema"),
-                    },
-                )
-
-                dialogs_processed += 1
-                logger.info(f"Added WTF transcription for dialog {i}")
-
-            else:
-                logger.error(
-                    f"vfun transcription failed for dialog {i}: "
-                    f"status={response.status_code}, response={response.text[:200]}"
-                )
-
-        except requests.exceptions.Timeout:
-            logger.error(f"vfun transcription timed out for dialog {i}")
-        except Exception as e:
-            logger.error(f"Error transcribing dialog {i}: {e}", exc_info=True)
-
-    if dialogs_processed > 0:
-        vcon_redis.store_vcon(vcon)
-        logger.info(
-            f"Updated vCon {vcon_uuid}: processed={dialogs_processed}, "
-            f"skipped={dialogs_skipped}"
-        )
-    else:
-        logger.info(f"No dialogs transcribed for vCon {vcon_uuid}")
-
+    transcribe_vcon_dialogs(
+        vcon,
+        vfun_server_url=opts["vfun-server-url"],
+        api_key=opts["api-key"],
+        diarize=opts["diarize"],
+        language=opts["language"],
+        vfun_timeout=opts["vfun-timeout"],
+        url_timeout=opts["url-timeout"],
+    )
+    save_vcon(vcon, redis)
     return vcon_uuid
