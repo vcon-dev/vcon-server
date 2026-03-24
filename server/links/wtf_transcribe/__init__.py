@@ -54,9 +54,6 @@ def analysis_dialog_index(analysis):
 def is_dialog_recording(dialog):
     return dialog.get("type") == "recording"
 
-def does_dialog_have_content(dialog):
-    return dialog.get("body") or dialog.get("url")
-
 def is_dialog_index_already_transcribed(vcon: Any, dialog_index: int) -> bool:
     for analysis in vcon.analysis:
         if (analysis_is_wtf_transcription(analysis) and
@@ -134,7 +131,7 @@ def is_dialog_transcribable_type(dialog):
     return is_url_dialog(dialog) or is_base64url_dialog(dialog) or is_base64_dialog(dialog)
 
 def should_transcribe_dialog(vcon, dialog):
-    if is_dialog_transcribable_type(dialog):
+    if is_dialog_recording(dialog) and is_dialog_transcribable_type(dialog):
         if not is_dialog_already_transcribed(vcon, dialog):
             return True
     return False
@@ -161,10 +158,10 @@ def create_wtf_analysis(
     }
 
 def install_opts(opts):
-    for key, value in default_options.items():
-        if key not in opts:
-            opts[key] = value
-        
+    merged_opts = default_options.copy()
+    if opts:
+        merged_opts.update(opts)
+    return merged_opts
 
 def verify_opts(opts):
     if not opts.get("vfun-server-url"):
@@ -263,7 +260,7 @@ def run(
     link_name: str,
     opts: Dict[str, Any] = None) -> Optional[str]:
     logger.info(f"Starting wtf_transcribe link for vCon: {vcon_uuid}")
-    install_opts(opts)
+    opts = install_opts(opts)
     redis = init_redis()
 
     if not verify_opts(opts):
