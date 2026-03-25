@@ -54,8 +54,6 @@ def analysis_dialog_index(analysis):
 def is_dialog_recording(dialog):
     return dialog.get("type") == "recording"
 
-def does_dialog_have_content(dialog):
-    return dialog.get("body") or dialog.get("url")
 
 def is_dialog_index_already_transcribed(vcon: Any, dialog_index: int) -> bool:
     for analysis in vcon.analysis:
@@ -130,11 +128,9 @@ def dialog_to_binary(dialog, url_timeout=60):
         return base64_dialog_to_binary(dialog)
     raise TypeError("Failed to convert dialog to binary-- unrecognized type")
 
-def is_dialog_transcribable_type(dialog):
-    return is_url_dialog(dialog) or is_base64url_dialog(dialog) or is_base64_dialog(dialog)
 
 def should_transcribe_dialog(vcon, dialog):
-    if is_dialog_transcribable_type(dialog):
+    if is_dialog_recording(dialog):
         if not is_dialog_already_transcribed(vcon, dialog):
             return True
     return False
@@ -263,6 +259,8 @@ def run(
     link_name: str,
     opts: Dict[str, Any] = None) -> Optional[str]:
     logger.info(f"Starting wtf_transcribe link for vCon: {vcon_uuid}")
+    # default {} can be confusing
+    opts = opts or {}
     install_opts(opts)
     redis = init_redis()
 
