@@ -1,16 +1,20 @@
 name: Build and Push Docker image
 
 # CalVer Release Workflow
-# 
+#
 # Automatically creates a CalVer release on every push to main.
 # Version format: YYYY.MM.DD (e.g., 2026.01.16)
 # If multiple releases happen on the same day, adds sequence: YYYY.MM.DD.2, YYYY.MM.DD.3, etc.
 #
-# Docker tags created:
-#   - CalVer tag (e.g., 2026.01.16)
+# Build strategy: native runners (no QEMU) for maximum speed
+#   amd64 builds on ubuntu-latest
+#   arm64 builds on ubuntu-24.04-arm
+#
+# Docker tags created (linux/amd64 + linux/arm64 multi-arch manifest):
+#   - CalVer tag (e.g., 2026.01.16)       [main only]
+#   - latest                               [main only]
 #   - Branch name (e.g., main)
-#   - Git short hash (e.g., main-a1b2c3d)
-#   - latest (for main branch only)
+#   - Branch + short sha (e.g., main-a1b2c3d)
 
 on:
   push:
@@ -18,11 +22,14 @@ on:
     tags: ['v*']
 
 jobs:
-  build:
+  prepare:
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # Need write for creating tags
-      packages: write
+      contents: write  # needed to create git tags
+    outputs:
+      version: ${{ steps.calver.outputs.version }}
+      short_sha: ${{ steps.git.outputs.short_sha }}
+      build_time: ${{ steps.git.outputs.build_time }}
 
     steps:
       - name: Checkout code
@@ -33,33 +40,23 @@ jobs:
       - name: Generate CalVer version
         id: calver
         run: |
-          # Get today's date in YYYY.MM.DD format
           TODAY=$(date +"%Y.%m.%d")
-          
-          # Get all existing tags for today
           EXISTING_TAGS=$(git tag -l "${TODAY}*" | sort -V)
-          
+
           if [ -z "$EXISTING_TAGS" ]; then
-            # No tags for today, use base date
             VERSION="${TODAY}"
           else
-            # Find the highest sequence number
             LAST_TAG=$(echo "$EXISTING_TAGS" | tail -1)
-            
             if [[ "$LAST_TAG" == "$TODAY" ]]; then
-              # First tag was just the date, next is .2
               VERSION="${TODAY}.2"
             elif [[ "$LAST_TAG" =~ ^${TODAY}\.([0-9]+)$ ]]; then
-              # Extract sequence number and increment
               SEQ="${BASH_REMATCH[1]}"
-              NEXT_SEQ=$((SEQ + 1))
-              VERSION="${TODAY}.${NEXT_SEQ}"
+              VERSION="${TODAY}.$((SEQ + 1))"
             else
-              # Fallback
               VERSION="${TODAY}.2"
             fi
           fi
-          
+
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "Generated CalVer version: ${VERSION}"
 
@@ -67,7 +64,6 @@ jobs:
         id: git
         run: |
           echo "short_sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
-          echo "full_sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
           echo "build_time=$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> $GITHUB_OUTPUT
 
       - name: Create git tag
@@ -75,8 +71,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          
-          # Check if tag already exists
+
           if git rev-parse "${{ steps.calver.outputs.version }}" >/dev/null 2>&1; then
             echo "Tag ${{ steps.calver.outputs.version }} already exists, skipping"
           else
@@ -84,6 +79,26 @@ jobs:
             git push origin "${{ steps.calver.outputs.version }}"
             echo "Created and pushed tag ${{ steps.calver.outputs.version }}"
           fi
+
+  build:
+    needs: prepare
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        include:
+          - platform: linux/amd64
+            platform_tag: amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            platform_tag: arm64
+            runner: ubuntu-24.04-arm
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -95,67 +110,94 @@ jobs:
           username: ${{ secrets.AWS_ACCESS_KEY }}
           password: ${{ secrets.AWS_SECRET }}
 
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: |
-            public.ecr.aws/r4g1k2s3/vcon-dev/vcon-server
-          tags: |
-            # CalVer tag (e.g., 2026.01.16)
-            type=raw,value=${{ steps.calver.outputs.version }},enable=${{ github.ref == 'refs/heads/main' }}
-            # Branch name
-            type=ref,event=branch
-            # PR number
-            type=ref,event=pr
-            # Semver tags (for manual v* tags)
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            # Git sha with branch prefix
-            type=sha,prefix={{branch}}-
-            # Latest tag for main branch
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-
-      - name: Build and push Docker image
+      - name: Build and push (${{ matrix.platform_tag }})
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./docker/Dockerfile
-          platforms: linux/amd64
+          platforms: ${{ matrix.platform }}
           push: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=vcon-server-${{ matrix.platform_tag }}
+          cache-to: type=gha,mode=max,scope=vcon-server-${{ matrix.platform_tag }}
+          tags: public.ecr.aws/r4g1k2s3/vcon-dev/vcon-server:${{ github.ref_name }}-${{ matrix.platform_tag }}
           build-args: |
-            VCON_SERVER_VERSION=${{ steps.calver.outputs.version }}
-            VCON_SERVER_GIT_COMMIT=${{ steps.git.outputs.short_sha }}
-            VCON_SERVER_BUILD_TIME=${{ steps.git.outputs.build_time }}
+            VCON_SERVER_VERSION=${{ needs.prepare.outputs.version }}
+            VCON_SERVER_GIT_COMMIT=${{ needs.prepare.outputs.short_sha }}
+            VCON_SERVER_BUILD_TIME=${{ needs.prepare.outputs.build_time }}
 
+  merge:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Amazon ECR Public
+        uses: docker/login-action@v3
+        with:
+          registry: public.ecr.aws
+          username: ${{ secrets.AWS_ACCESS_KEY }}
+          password: ${{ secrets.AWS_SECRET }}
+
+      - name: Create multi-arch manifests
+        env:
+          IMAGE: public.ecr.aws/r4g1k2s3/vcon-dev/vcon-server
+          VERSION: ${{ needs.prepare.outputs.version }}
+          SHORT_SHA: ${{ needs.prepare.outputs.short_sha }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          AMD64="${IMAGE}:${BRANCH}-amd64"
+          ARM64="${IMAGE}:${BRANCH}-arm64"
+
+          # Branch tag (always)
+          docker buildx imagetools create --tag "${IMAGE}:${BRANCH}" "${AMD64}" "${ARM64}"
+
+          # Branch + sha tag (always)
+          docker buildx imagetools create --tag "${IMAGE}:${BRANCH}-${SHORT_SHA}" "${AMD64}" "${ARM64}"
+
+          # CalVer and latest (main only)
+          if [ "${BRANCH}" = "main" ]; then
+            docker buildx imagetools create --tag "${IMAGE}:${VERSION}" "${AMD64}" "${ARM64}"
+            docker buildx imagetools create --tag "${IMAGE}:latest" "${AMD64}" "${ARM64}"
+          fi
+
+  release:
+    needs: [prepare, merge]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+
+    steps:
       - name: Create GitHub Release
-        if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ steps.calver.outputs.version }}
-          name: Release ${{ steps.calver.outputs.version }}
+          tag_name: ${{ needs.prepare.outputs.version }}
+          name: Release ${{ needs.prepare.outputs.version }}
           body: |
-            ## Release ${{ steps.calver.outputs.version }}
-            
-            **Commit:** ${{ steps.git.outputs.short_sha }}
-            **Build Time:** ${{ steps.git.outputs.build_time }}
-            
+            ## Release ${{ needs.prepare.outputs.version }}
+
+            **Commit:** ${{ needs.prepare.outputs.short_sha }}
+            **Build Time:** ${{ needs.prepare.outputs.build_time }}
+
             ### Docker Images
-            
+
+            Both `linux/amd64` and `linux/arm64` are supported.
+
             Pull using CalVer:
             ```bash
-            docker pull public.ecr.aws/r4g1k2s3/vcon-dev/vcon-server:${{ steps.calver.outputs.version }}
+            docker pull public.ecr.aws/r4g1k2s3/vcon-dev/vcon-server:${{ needs.prepare.outputs.version }}
             ```
-            
+
             Pull using git hash:
             ```bash
-            docker pull public.ecr.aws/r4g1k2s3/vcon-dev/vcon-server:main-${{ steps.git.outputs.short_sha }}
+            docker pull public.ecr.aws/r4g1k2s3/vcon-dev/vcon-server:main-${{ needs.prepare.outputs.short_sha }}
             ```
-            
+
             Pull latest:
             ```bash
             docker pull public.ecr.aws/r4g1k2s3/vcon-dev/vcon-server:latest
@@ -171,12 +213,13 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| **Version** | ${{ steps.calver.outputs.version }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Git Commit** | ${{ steps.git.outputs.short_sha }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Build Time** | ${{ steps.git.outputs.build_time }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Version** | ${{ needs.prepare.outputs.version }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Git Commit** | ${{ needs.prepare.outputs.short_sha }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Build Time** | ${{ needs.prepare.outputs.build_time }} |" >> $GITHUB_STEP_SUMMARY
           echo "| **Branch** | ${{ github.ref_name }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Docker Tags" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "### Docker Tags (linux/amd64 + linux/arm64)" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ needs.prepare.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`latest\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`main\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`main-${{ needs.prepare.outputs.short_sha }}\`" >> $GITHUB_STEP_SUMMARY
