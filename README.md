@@ -788,11 +788,14 @@ tracers:
 
 ## Monitoring and Logging
 
-The system includes built-in monitoring through Datadog. Configure monitoring by setting the following environment variables:
+vCon Server is instrumented with OpenTelemetry and can send traces and metrics to any OTLP-compatible backend. See [docs/operations/monitoring.md](docs/operations/monitoring.md) for full configuration details, including how to fan out to multiple backends simultaneously using the OTel Collector.
+
+Quick setup — add to your `.env`:
 
 ```bash
-DD_API_KEY=your_datadog_api_key
-DD_SITE=datadoghq.com
+OTEL_EXPORTER_OTLP_ENDPOINT=<your-backend-otlp-endpoint>
+OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf   # or grpc
+OTEL_EXPORTER_OTLP_HEADERS=<auth-header-if-required>
 ```
 
 View logs using:
