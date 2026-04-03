@@ -954,7 +954,7 @@ async def get_vcon_count(
 async def get_config() -> JSONResponse:
     """Get the current system configuration.
 
-    Reads and returns the configuration from the file specified in CONSERVER_CONFIG_FILE.
+    Returns the current configuration via Configuration.get_config().
 
     Returns:
         JSONResponse containing the configuration
@@ -963,8 +963,7 @@ async def get_config() -> JSONResponse:
         HTTPException: If there is an error reading the config file
     """
     try:
-        with open(os.getenv("CONSERVER_CONFIG_FILE"), "r") as f:
-            config = yaml.safe_load(f)
+        config = Configuration.get_config()
         return JSONResponse(content=config)
     except Exception as e:
         logger.error(f"Error reading config: {str(e)}")
