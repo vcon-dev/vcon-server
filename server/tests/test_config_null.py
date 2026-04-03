@@ -1,8 +1,7 @@
 """Tests for get_config() handling of null/empty config files (CON-510)."""
 
-import io
-import pytest
 from unittest.mock import patch, mock_open
+from config import get_config
 
 
 class TestGetConfigNullHandling:
@@ -10,11 +9,6 @@ class TestGetConfigNullHandling:
 
     def test_get_config_returns_empty_dict_when_yaml_is_null(self):
         """All-comment YAML makes yaml.safe_load return None; get_config must return {}."""
-        import importlib
-        import config
-        importlib.reload(config)
-        from config import get_config
-
         # yaml.safe_load returns None for a file with only comments
         null_yaml = "# just a comment\n"
         with patch("builtins.open", mock_open(read_data=null_yaml)):
@@ -24,11 +18,6 @@ class TestGetConfigNullHandling:
 
     def test_get_config_returns_empty_dict_when_file_is_empty(self):
         """Completely empty file also makes yaml.safe_load return None."""
-        import importlib
-        import config
-        importlib.reload(config)
-        from config import get_config
-
         with patch("builtins.open", mock_open(read_data="")):
             result = get_config()
 
@@ -36,11 +25,6 @@ class TestGetConfigNullHandling:
 
     def test_get_config_returns_dict_when_valid(self):
         """Normal config file should be returned as-is."""
-        import importlib
-        import config
-        importlib.reload(config)
-        from config import get_config
-
         valid_yaml = "chains:\n  my_chain:\n    ingress_lists:\n      - my_queue\n"
         with patch("builtins.open", mock_open(read_data=valid_yaml)):
             result = get_config()
@@ -59,11 +43,6 @@ class TestGetIngressChainMapNullConfig:
             for chain_name, chain_config in chains.items(): ...
         This must not crash when config is {}.
         """
-        import importlib
-        import config
-        importlib.reload(config)
-        from config import get_config
-
         null_yaml = "# only comments\n"
         with patch("builtins.open", mock_open(read_data=null_yaml)):
             cfg = get_config()
@@ -79,11 +58,6 @@ class TestGetIngressChainMapNullConfig:
 
     def test_worker_loop_does_not_crash_on_null_config(self):
         """Simulate the worker_loop config reload path with a null config."""
-        import importlib
-        import config
-        importlib.reload(config)
-        from config import get_config
-
         # Verify that calling .get() on the result of get_config() doesn't raise
         null_yaml = "# nothing here\n"
         with patch("builtins.open", mock_open(read_data=null_yaml)):
