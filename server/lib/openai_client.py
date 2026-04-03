@@ -86,6 +86,75 @@ def get_openai_client(opts=None):
     )
 
 
+def get_vendor_from_opts(opts=None):
+    """
+    Determine the AI vendor string from opts.
+
+    When using LiteLLM, tries to infer the actual provider from the model
+    name in opts (e.g. "claude-*" -> "anthropic"). Falls back to "litellm"
+    if the model name doesn't match a known pattern.
+
+    Returns one of: "openai", "azure", "anthropic", "google", "mistral",
+    "meta", "cohere", or "litellm".
+    """
+    opts = opts or {}
+    litellm_url = (opts.get("LITELLM_PROXY_URL") or "").strip()
+    litellm_key = (opts.get("LITELLM_MASTER_KEY") or "").strip()
+    if litellm_url and litellm_key:
+        model = opts.get("model") or ""
+        inferred = _infer_vendor_from_model_name(model)
+        return inferred if inferred else "litellm"
+
+    azure_endpoint = (opts.get("AZURE_OPENAI_ENDPOINT") or "").strip()
+    azure_api_key = (opts.get("AZURE_OPENAI_API_KEY") or "").strip()
+    if azure_endpoint and azure_api_key:
+        return "azure"
+
+    return "openai"
+
+
+def _infer_vendor_from_model_name(model_name):
+    """Infer vendor from a model name string. Returns None if unknown.
+
+    Handles LiteLLM provider-prefixed names (e.g. "azure/gpt-4o",
+    "anthropic/claude-3") as well as bare model names (e.g. "gpt-4o-mini").
+    """
+    if not model_name:
+        return None
+    parts = model_name.lower().split("/")
+    # If a provider prefix is present, use it directly
+    if len(parts) > 1:
+        prefix_map = {
+            "openai": "openai",
+            "azure": "azure",
+            "anthropic": "anthropic",
+            "google": "google",
+            "vertex_ai": "google",
+            "mistral": "mistral",
+            "meta": "meta",
+            "cohere": "cohere",
+            "groq": "groq",
+            "bedrock": "bedrock",
+        }
+        if parts[0] in prefix_map:
+            return prefix_map[parts[0]]
+    # Fall back to model name pattern matching on the last segment
+    m = parts[-1]
+    if m.startswith("claude"):
+        return "anthropic"
+    if m.startswith("gpt-") or m.startswith("o1") or m.startswith("o3") or m.startswith("chatgpt"):
+        return "openai"
+    if m.startswith("gemini"):
+        return "google"
+    if m.startswith("mistral") or m.startswith("mixtral"):
+        return "mistral"
+    if m.startswith("llama") or m.startswith("meta-llama"):
+        return "meta"
+    if m.startswith("command"):
+        return "cohere"
+    return None
+
+
 def get_async_openai_client(opts=None):
     """
     Return an async OpenAI-compatible client. Same opts semantics as get_openai_client.
