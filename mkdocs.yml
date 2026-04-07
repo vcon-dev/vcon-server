@@ -74,16 +74,38 @@ nav:
     - Dynamic Modules: extending/dynamic-modules.md
   - Reference:
     - reference/index.md
+    - vCon Data Model: reference/vcon-data-model.md
     - Links:
       - Deepgram: reference/links/deepgram.md
+      - Groq Whisper: reference/links/groq-whisper.md
+      - HuggingFace Whisper: reference/links/huggingface-whisper.md
+      - OpenAI Transcribe: reference/links/openai-transcribe.md
       - Analyze: reference/links/analyze.md
+      - Analyze and Label: reference/links/analyze-and-label.md
+      - Analyze vCon: reference/links/analyze-vcon.md
+      - Detect Engagement: reference/links/detect-engagement.md
       - Tag: reference/links/tag.md
+      - Check and Tag: reference/links/check-and-tag.md
+      - Tag Router: reference/links/tag-router.md
+      - Sampler: reference/links/sampler.md
       - Webhook: reference/links/webhook.md
+      - Slack: reference/links/slack.md
+      - Diet: reference/links/diet.md
+      - Expire vCon: reference/links/expire-vcon.md
+      - jq: reference/links/jq.md
     - Storage Adapters:
       - PostgreSQL: reference/storage-adapters/postgres.md
       - S3: reference/storage-adapters/s3.md
       - MongoDB: reference/storage-adapters/mongo.md
+      - Redis: reference/storage-adapters/redis.md
+      - Elasticsearch: reference/storage-adapters/elasticsearch.md
+      - Milvus: reference/storage-adapters/milvus.md
+      - File: reference/storage-adapters/file.md
+      - SFTP: reference/storage-adapters/sftp.md
+      - Dataverse: reference/storage-adapters/dataverse.md
+      - ChatGPT Files: reference/storage-adapters/chatgpt-files.md
     - CLI Reference: reference/cli-reference.md
+  - Contributing: contributing.md
 
 plugins:
   - search
