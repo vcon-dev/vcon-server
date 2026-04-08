@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException
 from lib.vcon_redis import VconRedis
 from lib.logging_utils import init_logger
+from lib.metrics import increment_counter
 from starlette.status import HTTP_404_NOT_FOUND, HTTP_501_NOT_IMPLEMENTED
 
 import hashlib
@@ -91,17 +92,23 @@ def run(
     signing_key_path = os.path.join(opts["signing_key_path"])
     signing_key = create_hashed_signed_statement.open_signing_key(signing_key_path)
 
-    signed_statement = create_hashed_signed_statement.create_hashed_signed_statement(
-        issuer=opts["issuer"],
-        signing_key=signing_key,
-        subject=subject,
-        kid=key_id.encode('utf-8'),
-        meta_map=meta_map,
-        payload=payload.encode('utf-8'),
-        payload_hash_alg=payload_hash_alg,
-        payload_location=payload_location,
-        pre_image_content_type="application/vcon+json"
-    )
+    attrs = {"link.name": link_name, "vcon.uuid": vcon_uuid}
+
+    try:
+        signed_statement = create_hashed_signed_statement.create_hashed_signed_statement(
+            issuer=opts["issuer"],
+            signing_key=signing_key,
+            subject=subject,
+            kid=key_id.encode('utf-8'),
+            meta_map=meta_map,
+            payload=payload.encode('utf-8'),
+            payload_hash_alg=payload_hash_alg,
+            payload_location=payload_location,
+            pre_image_content_type="application/vcon+json"
+        )
+    except Exception:
+        increment_counter("conserver.link.scitt.statement_creation_failures", attributes=attrs)
+        raise
     logger.info(f"signed_statement: {signed_statement}")
 
     ###############################
@@ -118,11 +125,15 @@ def run(
             detail=f"OIDC_flow not found or unsupported. OIDC_flow: {oidc_flow}"
         )
 
-    operation_id = register_signed_statement.register_statement(
-        opts=opts,
-        auth=auth,
-        signed_statement=signed_statement
-    )
+    try:
+        operation_id = register_signed_statement.register_statement(
+            opts=opts,
+            auth=auth,
+            signed_statement=signed_statement
+        )
+    except Exception:
+        increment_counter("conserver.link.scitt.registration_failures", attributes=attrs)
+        raise
     logger.info(f"operation_id: {operation_id}")
 
     return vcon_uuid

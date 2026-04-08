@@ -1,5 +1,6 @@
 from redis_mgr import redis
 from lib.logging_utils import init_logger
+from lib.metrics import increment_counter
 import json
 import requests
 import uuid
@@ -127,12 +128,14 @@ def _upload_to_s3_and_get_presigned_url(
 
 def run(vcon_uuid, link_name, opts=default_options):
     logger.info("Starting diet::run")
-    
+
     # Merge provided options with defaults
     options = {**default_options, **opts}
-    
+
     for key, value in options.items():
         logger.info("diet::%s: %s", key, _redact_option_value(key, value))
+
+    attrs = {"link.name": link_name, "vcon.uuid": vcon_uuid}
 
     # Load vCon from Redis using JSON.GET
     vcon = redis.json().get(f"vcon:{vcon_uuid}")
@@ -180,9 +183,11 @@ def run(vcon_uuid, link_name, opts=default_options):
                             else:
                                 dialog["body"] = ""
                         else:
+                            increment_counter("conserver.link.diet.media_post_failures", attributes=attrs)
                             logger.error(f"Failed to post media: {response.status_code}")
                             dialog["body"] = ""
                     except Exception as e:
+                        increment_counter("conserver.link.diet.media_post_failures", attributes=attrs)
                         logger.error(f"Exception posting media: {e}")
                         dialog["body"] = ""
                 else:
@@ -208,7 +213,7 @@ def run(vcon_uuid, link_name, opts=default_options):
     # Save the modified vCon back to Redis using JSON.SET
     redis.json().set(f"vcon:{vcon_uuid}", "$", vcon)
     logger.info(f"Successfully applied diet to vCon {vcon_uuid}")
-    
+
     return vcon_uuid
 
 def remove_system_prompts_recursive(obj):

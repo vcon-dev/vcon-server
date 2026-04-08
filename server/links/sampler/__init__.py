@@ -2,6 +2,7 @@ import random
 import time
 import hashlib
 from lib.logging_utils import init_logger
+from lib.metrics import increment_counter
 
 logger = init_logger(__name__)
 
@@ -42,17 +43,24 @@ def run(vcon_uuid: str, link_name: str, opts: dict = default_options) -> str | N
 
     method = options["method"]
     value = options["value"]
+    attrs = {"link.name": link_name, "vcon.uuid": vcon_uuid, "method": method}
 
     if method == "percentage":
-        return _percentage_sampling(vcon_uuid, value)
+        result = _percentage_sampling(vcon_uuid, value)
     elif method == "rate":
-        return _rate_sampling(vcon_uuid, value)
+        result = _rate_sampling(vcon_uuid, value)
     elif method == "modulo":
-        return _modulo_sampling(vcon_uuid, value)
+        result = _modulo_sampling(vcon_uuid, value)
     elif method == "time_based":
-        return _time_based_sampling(vcon_uuid, value)
+        result = _time_based_sampling(vcon_uuid, value)
     else:
         raise ValueError(f"Unknown sampling method: {method}")
+
+    if result:
+        increment_counter("conserver.link.sampler.sampled_in", attributes=attrs)
+    else:
+        increment_counter("conserver.link.sampler.sampled_out", attributes=attrs)
+    return result
 
 
 def _percentage_sampling(vcon_uuid: str, percentage: float) -> str | None:

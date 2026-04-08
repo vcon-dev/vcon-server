@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException
 from lib.vcon_redis import VconRedis
 from lib.logging_utils import init_logger
+from lib.metrics import increment_counter
 from starlette.status import HTTP_404_NOT_FOUND, HTTP_501_NOT_IMPLEMENTED
 from vcon import Vcon
 
@@ -382,7 +383,13 @@ def run(vcon_uuid: str, link_name: str, opts: dict = default_options) -> str:
     #     }
     # )
 
-    event = create_asset_event(opts, asset_id, auth, event_attributes)
+    attrs = {"link.name": link_name, "vcon.uuid": vcon_uuid}
+
+    try:
+        event = create_asset_event(opts, asset_id, auth, event_attributes)
+    except Exception:
+        increment_counter("conserver.link.datatrails.event_creation_failures", attributes=attrs)
+        raise
     event_id = event["identity"]
     logger.info(f"DataTrails: Event Created: {event_id}")
 
@@ -395,6 +402,10 @@ def run(vcon_uuid: str, link_name: str, opts: dict = default_options) -> str:
         event_id = event["identity"]
         logger.info(f"DataTrails: New Event Created: {event_id}")
     except:
+        increment_counter(
+            "conserver.link.datatrails.event_creation_failures",
+            attributes={**attrs, "event_type": "asset_free"},
+        )
         logger.info(f"DataTrails: New Event Creation Failure")
 
 
