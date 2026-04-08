@@ -1,6 +1,6 @@
 from lib.vcon_redis import VconRedis
 from lib.logging_utils import init_logger
-from lib.openai_client import get_openai_client
+from lib.openai_client import get_openai_client, get_vendor_from_opts
 import logging
 from tenacity import (
     retry,
@@ -169,7 +169,7 @@ def run(
         vCon.add_analysis(
             type=opts["analysis_type"],
             dialog=index,
-            vendor="openai",
+            vendor=get_vendor_from_opts(opts),
             body=analysis,
             encoding="none",
             extra={
