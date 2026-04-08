@@ -650,7 +650,12 @@ def worker_loop(worker_id: int) -> None:
         ingress_chain_map = get_ingress_chain_map()
         all_ingress_lists = list(ingress_chain_map.keys())
         logger.debug("[%s] Monitoring ingress lists: %s", worker_name, all_ingress_lists)
-        
+
+        if not all_ingress_lists:
+            logger.warning("[%s] No ingress lists configured, retrying in 15s", worker_name)
+            time.sleep(15)
+            continue
+
         logger.debug("[%s] Waiting for vCon on ingress lists (timeout: 15s)", worker_name)
         popped_item = r.blpop(all_ingress_lists, timeout=15)
         if not popped_item:
