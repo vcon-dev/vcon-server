@@ -1,5 +1,5 @@
 name: Python conserver unit test
-on: 
+on:
   push:
     branches: [ main ] # only run on pushes to main branch
   pull_request: # all PRs
@@ -17,10 +17,6 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y docker-compose
-    
-    - name: Copy example_docker-compose.yml to docker-compose.yml
-      run: |
-        cp example_docker-compose.yml docker-compose.yml
 
     - name: Create .env file
       run: |
@@ -35,7 +31,6 @@ jobs:
       run: |
         docker-compose up --build --detach
 
-    # Step 3: Run Docker container with additional commands
     - name: Run tests inside Docker container
       run: |
         docker-compose run --rm conserver bash -c "

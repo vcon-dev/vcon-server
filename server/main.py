@@ -28,6 +28,7 @@ from dlq_utils import get_ingress_list_dlq_name
 import hook
 from settings import VCON_DLQ_EXPIRY
 from lib.context_utils import retrieve_context, store_context_sync, extract_otel_trace_context
+from lib.tracing import init_tracing
 from lib.error_tracking import init_error_tracker
 from lib.metrics import record_histogram, increment_counter
 from storage.base import Storage
@@ -594,7 +595,14 @@ def worker_loop(worker_id: int) -> None:
     
     # Initialize error tracking in this worker process
     init_error_tracker()
-    
+
+    # Re-instrument OpenAI in this worker process.
+    # When using 'spawn', worker_loop runs in a fresh process where openai is
+    # imported after the parent's init_tracing() call, so the parent's patch
+    # does not carry over. Re-calling here ensures LLM spans are captured
+    # regardless of start method (fork or spawn).
+    init_tracing()
+
     # Re-initialize Redis client in worker process
     r = redis_mgr.get_client()
     
@@ -771,7 +779,9 @@ def main() -> None:
         version_info["git_commit"],
         version_info["build_time"]
     )
-    
+
+    init_tracing()
+
     worker_count = get_worker_count()
     parallel_storage = is_parallel_storage_enabled()
     start_method = get_start_method()

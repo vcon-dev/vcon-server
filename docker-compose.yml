@@ -1,0 +1,412 @@
+networks:
+  conserver:
+    external: true
+
+# ── Profiles ────────────────────────────────────────────────────────────────
+# Set COMPOSE_PROFILES in your .env to control which optional services start.
+# Available profiles: postgres, elasticsearch, langfuse
+#
+# redis is always required — conserver and api depend on it.
+#
+#   COMPOSE_PROFILES=postgres              # local postgres, no elasticsearch
+#   COMPOSE_PROFILES=postgres,langfuse     # local postgres + Langfuse for tracing
+#   COMPOSE_PROFILES=                      # redis only (use external DB + no tracing)
+
+services:
+  conserver:
+    build:
+      dockerfile: ./docker/Dockerfile
+      context: .
+    # image: vcon-server-enterprise:latest
+    command: "watchmedo auto-restart -p '*.py' -R -- opentelemetry-instrument python ./server/main.py"
+    volumes:
+      - .:/app
+      - ./config.yml:/app/config.yml
+    depends_on:
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      - OTEL_SERVICE_NAME=conserver
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      - OTEL_EXPORTER_OTLP_PROTOCOL=${OTEL_EXPORTER_OTLP_PROTOCOL:-grpc}
+      - OTEL_EXPORTER_OTLP_INSECURE=${OTEL_EXPORTER_OTLP_INSECURE:-false}
+      - OTEL_EXPORTER_OTLP_HEADERS=${OTEL_EXPORTER_OTLP_HEADERS:-}
+      - OTEL_RESOURCE_ATTRIBUTES=deployment.environment=dev
+    stop_grace_period: 5s
+    networks:
+      - conserver
+    labels:
+      - "com.datadoghq.ad.check_names=['python']"
+      - "com.datadoghq.ad.init_configs=[{}]"
+      - "com.datadoghq.ad.instances=[{'python_service': 'conserver.main'}]"
+
+  api:
+    build:
+      dockerfile: ./docker/Dockerfile
+      context: .
+    command: /bin/bash -c "opentelemetry-instrument uvicorn api:app --host 0.0.0.0 --port 8000"
+    volumes:
+      - .:/app
+    ports:
+      - "${CONSERVER_EXTERNAL_PORT:-8000}:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      - OTEL_SERVICE_NAME=api
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      - OTEL_EXPORTER_OTLP_PROTOCOL=${OTEL_EXPORTER_OTLP_PROTOCOL:-grpc}
+      - OTEL_EXPORTER_OTLP_INSECURE=${OTEL_EXPORTER_OTLP_INSECURE:-false}
+      - OTEL_EXPORTER_OTLP_HEADERS=${OTEL_EXPORTER_OTLP_HEADERS:-}
+      - OTEL_RESOURCE_ATTRIBUTES=deployment.environment=dev
+    networks:
+      - conserver
+    labels: []
+      # - "traefik.enable=true"
+      # - "traefik.http.routers.api.rule=Host(`${DNS_HOST}`) && PathPrefix(`/api`)"
+      # - "traefik.http.routers.api.entrypoints=websecure"
+      # - "traefik.http.routers.api.tls.certresolver=myresolver"
+      # - "traefik.http.services.api.loadbalancer.server.port=8000"
+      # - "traefik.http.middlewares.strip-api-prefix.stripprefix.prefixes=/api"
+      # - "com.datadoghq.ad.check_names=['python']"
+      # - "com.datadoghq.ad.init_configs=[{}]"
+      # - "com.datadoghq.ad.instances=[{'python_service': 'conserver.api'}]"
+
+  redis:
+    image: "redis/redis-stack:latest"
+    ports:
+      - "${REDIS_EXTERNAL_PORT:-8001}:8001"
+    environment:
+      REDIS_ARGS: --save 20 1 --notify-keyspace-events Ex --dir /data --appendonly yes
+    mem_limit: 1gb
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - conserver
+    labels:
+      - "com.datadoghq.ad.check_names=['conserver.redis']"
+      - "com.datadoghq.ad.init_configs=[{}]"
+      - "com.datadoghq.ad.instances=[{'host': 'redis', 'port': 6379}]"
+
+  postgres:
+    profiles: [postgres]
+    image: postgres:alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - conserver
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  elasticsearch:
+    profiles: [elasticsearch]
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+    environment:
+      - discovery.type=single-node
+      - ELASTIC_USERNAME=elastic
+      - ELASTIC_PASSWORD=changeme
+      - xpack.security.enabled=true
+      - xpack.security.transport.ssl.enabled=false
+      - xpack.security.http.ssl.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    networks:
+      - conserver
+    healthcheck:
+      test: ["CMD-SHELL", "curl -u elastic:changeme -s http://localhost:9200/_cluster/health | grep -q '\"status\":\"green\"\\|\"status\":\"yellow\"'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Uncomment the below to include the `JLINC` link functionality
+  # -------------------------------------------------------------
+  #
+  # jlinc-server:
+  #   image: registry.jlinc.io/jlinc-server
+  #   environment:
+  #     # BASE CONFIGURATION
+  #     # ==================
+  #     # If you wish to display debug logging
+  #     # DEBUG: "true"
+  #     #
+  #     # DB URL
+  #     POSTGRES_URL: postgresql://jlinc:password@jlinc-db/jlinc
+  #     # Public URLs, callback URLS will be PUBLIC_CALLBACK_URL + '/callback/<module>'
+  #     PUBLIC_CORE_URL: http://localhost:9090
+  #     PUBLIC_ARCHIVE_URL: http://localhost:9090
+  #     PUBLIC_CALLBACK_URL: http://localhost:9090
+  #     # Enabled app modules
+  #     APP_MODULES: core, archive
+  #     # Enabled authentication modules
+  #     AUTH_MODULES: oidc, github, google
+  #     # Secure secret for memory store, generate with `openssl rand -hex 64`
+  #     SECURE_SECRET: 9ed678e6da3333a53c635039a5f53015ba3d4c841a0ade4e46f31c2d42c9b3e71edcdda7e1d75d066a39a8f56f9eb325d556a90195c6e7f45c6e2fffd0e98a7a
+  #     # Default FedID server to use for identity management
+  #     DEFAULT_FEDID_URL: http://fedid-server:8881
+
+  #     # AUTH MODULES
+  #     # ============
+
+  #     # OpenID Connect
+  #     # --------------
+  #     # Works with any OIDC provider
+  #     # OIDC_CLIENT_ID:
+  #     # OIDC_CLIENT_SECRET:
+  #     # OIDC_ISSUER: https://fedid-test.jlinc.io/oidc
+  #     # OIDC_AUTHORIZATION_URL: https://fedid-test.jlinc.io/oidc/auth
+  #     # OIDC_TOKEN_URL: https://fedid-test.jlinc.io/oidc/token
+  #     # OIDC_USERINFO_URL: https://fedid-test.jlinc.io/oidc/me
+  #     # OIDC_LOGOUT_URL: https://fedid-test.jlinc.io/oidc/session/end
+
+  #     # GitHub
+  #     # --------------
+  #     # Set up your GitHub app: https://github.com/settings/applications/new
+  #     # GITHUB_CLIENT_ID:
+  #     # GITHUB_CLIENT_SECRET:
+
+  #     # Google
+  #     # --------------
+  #     # Set up your Google app: https://console.developers.google.com/
+  #     #   - Create a new app
+  #     #   - Set up auth: https://console.cloud.google.com/auth/overview
+  #     # GOOGLE_CLIENT_ID:
+  #     # GOOGLE_CLIENT_SECRET:
+  #   restart: unless-stopped
+  #   depends_on:
+  #     - jlinc-db
+  #   networks:
+  #     - conserver
+  #   # For dev
+  #   ports:
+  #     - 9090:9090
+
+  # jlinc-db:
+  #   image: postgres:17-alpine
+  #   environment:
+  #     - POSTGRES_USER=jlinc
+  #     - POSTGRES_PASSWORD=password
+  #     - POSTGRES_DB=jlinc
+  #   volumes:
+  #     - ./.data/jlinc-db:/var/lib/postgresql/data
+  #   restart: unless-stopped
+  #   networks:
+  #     - conserver
+
+  # fedid-server:
+  #   image: registry.jlinc.io/fedid-server
+  #   environment:
+  #     CONFIG: '{
+  #               "publicUrl": "http://fedid-server:8881",
+  #               "port": 8881,
+  #               "schema": "http",
+  #               "primaryDomain": "vcon.local",
+  #               "domains": [
+  #                 "vcon.local"
+  #               ],
+  #               "dbUrl": "postgresql://fedid:password@fedid-db/fedid",
+  #               "redisUrl": "redis://fedid-redis:6379",
+  #               "allowInsecure": true
+  #             }'
+  #   restart: unless-stopped
+  #   depends_on:
+  #     - fedid-db
+  #     - fedid-redis
+  #   networks:
+  #     - conserver
+
+  # fedid-db:
+  #   image: postgres:15-alpine
+  #   hostname: postgres
+  #   environment:
+  #     - POSTGRES_USER=fedid
+  #     - POSTGRES_PASSWORD=password
+  #     - POSTGRES_DB=fedid
+  #   volumes:
+  #     - ./.data/fedid-db:/var/lib/postgresql/data
+  #   restart: unless-stopped
+  #   networks:
+  #     - conserver
+
+  # fedid-redis:
+  #   image: redis
+  #   healthcheck:
+  #     test: ["CMD", "redis-cli", "ping"]
+  #     interval: 10s
+  #     timeout: 30s
+  #     retries: 3
+  #   networks:
+  #     - conserver
+
+  # ── Langfuse (optional — profile: langfuse) ───────────────────────────────
+  # Local LLM observability for dev/testing. Langfuse v3 (latest).
+  # Pre-seeded credentials (dev only — never use these in production):
+  #   UI:         http://localhost:3000
+  #   Email:      admin@langfuse.local
+  #   Password:   admin1234
+  #   Public key: pk-lf-localdev
+  #   Secret key: sk-lf-localdev
+  # Set these in .env to route traces here:
+  #   OTEL_EXPORTER_OTLP_ENDPOINT=http://langfuse-server:3000/api/public/otel
+  #   OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+  #   OTEL_EXPORTER_OTLP_HEADERS=Authorization=Basic cGstbGYtbG9jYWxkZXY6c2stbGYtbG9jYWxkZXY=
+
+  langfuse-server:
+    profiles: [langfuse]
+    image: langfuse/langfuse:latest
+    ports:
+      - "3000:3000"
+    depends_on:
+      langfuse-postgres:
+        condition: service_healthy
+      langfuse-clickhouse:
+        condition: service_healthy
+      langfuse-minio:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@langfuse-postgres:5432/langfuse
+      - CLICKHOUSE_MIGRATION_URL=clickhouse://langfuse-clickhouse:9000
+      - CLICKHOUSE_URL=http://langfuse-clickhouse:8123
+      - CLICKHOUSE_USER=clickhouse
+      - CLICKHOUSE_PASSWORD=clickhouse
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - NEXTAUTH_URL=http://localhost:3000
+      - NEXTAUTH_SECRET=dev-nextauth-secret-not-for-production
+      - SALT=dev-salt-not-for-production
+      - ENCRYPTION_KEY=0000000000000000000000000000000000000000000000000000000000000000
+      - TELEMETRY_ENABLED=false
+      - LANGFUSE_S3_EVENT_UPLOAD_ENABLED=true
+      - LANGFUSE_S3_EVENT_UPLOAD_BUCKET=langfuse
+      - LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID=minio
+      - LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY=miniopassword
+      - LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT=http://langfuse-minio:9000
+      - LANGFUSE_S3_EVENT_UPLOAD_REGION=auto
+      - LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE=true
+      - LANGFUSE_INIT_ORG_ID=default
+      - LANGFUSE_INIT_ORG_NAME=vconic
+      - LANGFUSE_INIT_PROJECT_ID=vcon-server
+      - LANGFUSE_INIT_PROJECT_NAME=vcon-server
+      - LANGFUSE_INIT_PROJECT_PUBLIC_KEY=pk-lf-localdev
+      - LANGFUSE_INIT_PROJECT_SECRET_KEY=sk-lf-localdev
+      - LANGFUSE_INIT_USER_EMAIL=admin@langfuse.local
+      - LANGFUSE_INIT_USER_NAME=admin
+      - LANGFUSE_INIT_USER_PASSWORD=admin1234
+    networks:
+      - conserver
+
+  langfuse-worker:
+    profiles: [langfuse]
+    image: langfuse/langfuse-worker:latest
+    depends_on:
+      langfuse-postgres:
+        condition: service_healthy
+      langfuse-clickhouse:
+        condition: service_healthy
+      langfuse-minio:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@langfuse-postgres:5432/langfuse
+      - CLICKHOUSE_MIGRATION_URL=clickhouse://langfuse-clickhouse:9000
+      - CLICKHOUSE_URL=http://langfuse-clickhouse:8123
+      - CLICKHOUSE_USER=clickhouse
+      - CLICKHOUSE_PASSWORD=clickhouse
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - SALT=dev-salt-not-for-production
+      - ENCRYPTION_KEY=0000000000000000000000000000000000000000000000000000000000000000
+      - TELEMETRY_ENABLED=false
+      - LANGFUSE_S3_EVENT_UPLOAD_ENABLED=true
+      - LANGFUSE_S3_EVENT_UPLOAD_BUCKET=langfuse
+      - LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID=minio
+      - LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY=miniopassword
+      - LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT=http://langfuse-minio:9000
+      - LANGFUSE_S3_EVENT_UPLOAD_REGION=auto
+      - LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE=true
+    networks:
+      - conserver
+
+  langfuse-minio:
+    profiles: [langfuse]
+    image: minio/minio
+    entrypoint: sh
+    command: -c 'mkdir -p /data/langfuse && minio server /data --console-address ":9001"'
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: miniopassword
+    volumes:
+      - langfuse_minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - conserver
+
+  langfuse-clickhouse:
+    profiles: [langfuse]
+    image: clickhouse/clickhouse-server:24.12
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: clickhouse
+    volumes:
+      - langfuse_clickhouse_data:/var/lib/clickhouse
+      - langfuse_clickhouse_logs:/var/log/clickhouse-server
+      - ./docker/clickhouse/keeper.xml:/etc/clickhouse-server/config.d/keeper.xml:ro
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://localhost:8123/ping
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - conserver
+
+  langfuse-postgres:
+    profiles: [langfuse]
+    image: postgres:alpine
+    environment:
+      POSTGRES_DB: langfuse
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - langfuse_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - conserver
+
+volumes:
+  es_data: {}
+  redis_data: {}
+  postgres_data: {}
+  langfuse_postgres_data: {}
+  langfuse_clickhouse_data: {}
+  langfuse_clickhouse_logs: {}
+  langfuse_minio_data: {}
