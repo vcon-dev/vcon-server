@@ -704,6 +704,61 @@ The system is designed to scale horizontally. The conserver service can be scale
 docker compose up --scale conserver=4 -d
 ```
 
+## SCITT Lifecycle Registration
+
+The `links.scitt` module registers vCon lifecycle events on a [SCRAPI](https://datatracker.ietf.org/doc/draft-ietf-scitt-scrapi/)-compatible transparency service, creating an immutable audit trail per [draft-howe-vcon-lifecycle](https://www.ietf.org/archive/id/draft-howe-vcon-lifecycle-00.html).
+
+Each registration creates a COSE Sign1 signed statement from the vCon's SHA-256 hash and registers it via `POST /entries`. The receipt is stored as a `scitt_receipt` analysis entry on the vCon.
+
+### Configuration
+
+```yaml
+links:
+  scitt_created:
+    module: links.scitt
+    options:
+      scrapi_url: http://scittles:8000   # SCRAPI service URL
+      signing_key_path: /etc/scitt/signing-key.pem  # EC P-256 key
+      issuer: conserver                   # CWT issuer claim
+      key_id: conserver-key-1             # COSE key ID
+      vcon_operation: vcon_created        # Lifecycle event type
+
+  scitt_enhanced:
+    module: links.scitt
+    options:
+      scrapi_url: http://scittles:8000
+      signing_key_path: /etc/scitt/signing-key.pem
+      issuer: conserver
+      key_id: conserver-key-1
+      vcon_operation: vcon_enhanced
+```
+
+Use two instances in a chain to capture the vCon hash before and after transcription:
+
+```yaml
+chains:
+  transcription_chain:
+    links:
+      - tag
+      - scitt_created       # Hash before transcription
+      - wtf_transcribe
+      - keyword_tagger
+      - scitt_enhanced      # Hash after transcription
+      - expire_vcon
+```
+
+### Signing Key
+
+Generate an EC P-256 signing key:
+
+```bash
+openssl ecparam -name prime256v1 -genkey -noout -out scitt-signing-key.pem
+```
+
+### Transparency Service
+
+The link is compatible with any SCRAPI service. [SCITTLEs](https://github.com/vcon-dev/scittles) is a lightweight, self-hosted option using SQLite.
+
 ## Storage Modules
 
 ### PostgreSQL Storage
