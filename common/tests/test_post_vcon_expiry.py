@@ -69,6 +69,7 @@ class TestPostVconExpiry:
 
     def test_post_vcon_expiry_value_is_3600(self):
         """Test that the default expiry value is 3600 seconds (1 hour)."""
+        # Verify the configured value
         assert VCON_REDIS_EXPIRY == 3600, "Default VCON_REDIS_EXPIRY should be 3600 seconds"
 
     @patch("api.add_vcon_to_set")

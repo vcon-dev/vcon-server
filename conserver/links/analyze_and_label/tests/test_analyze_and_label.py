@@ -1,7 +1,7 @@
 import os
 import json
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, Mock
 
 from server.links.analyze_and_label import run, generate_analysis_with_labels, get_analysis_for_type, navigate_dict
 from server.vcon import Vcon
@@ -222,11 +222,13 @@ def test_navigate_dict():
     assert navigate_dict(test_dict, "z") is None
 
 
+@patch('server.links.analyze_and_label.get_openai_client')
 @patch('server.links.analyze_and_label.generate_analysis_with_labels')
 @patch('server.links.analyze_and_label.is_included', return_value=True)
 @patch('server.links.analyze_and_label.randomly_execute_with_sampling', return_value=True)
-def test_run_basic(mock_sampling, mock_is_included, mock_generate_analysis, mock_redis_with_vcon, sample_vcon):
+def test_run_basic(mock_sampling, mock_is_included, mock_generate_analysis, mock_get_client, mock_redis_with_vcon, sample_vcon):
     """Test the basic run functionality with mocked analysis generation"""
+    mock_get_client.return_value = Mock()
     # Set up mock to return analysis JSON
     mock_generate_analysis.return_value = json.dumps({
         "labels": ["customer_service", "billing_issue", "refund"]
@@ -264,12 +266,14 @@ def test_run_basic(mock_sampling, mock_is_included, mock_generate_analysis, mock
     assert "refund:refund" in tags_attachment["body"]
 
 
+@patch('server.links.analyze_and_label.get_openai_client')
 @patch('server.links.analyze_and_label.get_analysis_for_type')
 @patch('server.links.analyze_and_label.generate_analysis_with_labels')
 @patch('server.links.analyze_and_label.is_included', return_value=True)
 @patch('server.links.analyze_and_label.randomly_execute_with_sampling', return_value=True)
-def test_run_skip_existing_analysis(mock_sampling, mock_is_included, mock_generate_analysis, mock_get_analysis, mock_redis_with_vcon, sample_vcon_with_analysis):
+def test_run_skip_existing_analysis(mock_sampling, mock_is_included, mock_generate_analysis, mock_get_analysis, mock_get_client, mock_redis_with_vcon, sample_vcon_with_analysis):
     """Test that run skips dialogs with existing labeled analysis"""
+    mock_get_client.return_value = Mock()
     # Set up mock for generate_analysis_with_labels
     mock_generate_analysis.return_value = json.dumps({
         "labels": ["new_label_that_should_not_be_added"]
@@ -307,11 +311,13 @@ def test_run_skip_existing_analysis(mock_sampling, mock_is_included, mock_genera
     mock_generate_analysis.assert_not_called()
 
 
+@patch('server.links.analyze_and_label.get_openai_client')
 @patch('server.links.analyze_and_label.generate_analysis_with_labels')
 @patch('server.links.analyze_and_label.is_included', return_value=True)
 @patch('server.links.analyze_and_label.randomly_execute_with_sampling', return_value=True)
-def test_run_json_parse_error(mock_sampling, mock_is_included, mock_generate_analysis, mock_redis_with_vcon, sample_vcon):
+def test_run_json_parse_error(mock_sampling, mock_is_included, mock_generate_analysis, mock_get_client, mock_redis_with_vcon, sample_vcon):
     """Test handling of JSON parse errors"""
+    mock_get_client.return_value = Mock()
     # Set up mock to return invalid JSON
     mock_generate_analysis.return_value = "This is not valid JSON"
     
@@ -338,11 +344,13 @@ def test_run_json_parse_error(mock_sampling, mock_is_included, mock_generate_ana
     assert tags_attachment is None or len(tags_attachment["body"]) == 0
 
 
+@patch('server.links.analyze_and_label.get_openai_client')
 @patch('server.links.analyze_and_label.generate_analysis_with_labels')
 @patch('server.links.analyze_and_label.is_included', return_value=True)
 @patch('server.links.analyze_and_label.randomly_execute_with_sampling', return_value=True)
-def test_run_analysis_exception(mock_sampling, mock_is_included, mock_generate_analysis, mock_redis_with_vcon, sample_vcon):
+def test_run_analysis_exception(mock_sampling, mock_is_included, mock_generate_analysis, mock_get_client, mock_redis_with_vcon, sample_vcon):
     """Test handling of analysis generation exceptions"""
+    mock_get_client.return_value = Mock()
     # Make analysis function raise an exception
     mock_generate_analysis.side_effect = Exception("Analysis generation failed")
     
@@ -358,11 +366,13 @@ def test_run_analysis_exception(mock_sampling, mock_is_included, mock_generate_a
         run("test-uuid", "analyze_and_label", opts)
 
 
+@patch('server.links.analyze_and_label.get_openai_client')
 @patch('server.links.analyze_and_label.generate_analysis_with_labels')
 @patch('server.links.analyze_and_label.is_included', return_value=True)
 @patch('server.links.analyze_and_label.randomly_execute_with_sampling', return_value=True)
-def test_run_message_format(mock_sampling, mock_is_included, mock_generate_analysis, mock_redis_with_vcon, sample_vcon_message_format):
+def test_run_message_format(mock_sampling, mock_is_included, mock_generate_analysis, mock_get_client, mock_redis_with_vcon, sample_vcon_message_format):
     """Test analyzing a dialog with message format"""
+    mock_get_client.return_value = Mock()
     # Set up the mock Redis instance to return our sample vCon with message format
     mock_instance = mock_redis_with_vcon.return_value
     mock_instance.get_vcon.return_value = sample_vcon_message_format

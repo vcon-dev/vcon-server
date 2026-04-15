@@ -4,22 +4,23 @@ This link sends vCon audio dialogs to a vfun transcription server and adds
 the results as WTF (World Transcription Format) analysis entries.
 
 The vfun server provides:
-- Multi-language speech recognition (English + auto-detect)
-- Speaker diarization (who spoke when)
+- Multi-language speech recognition (English + Spanish, auto-detect)
 - GPU-accelerated processing with CUDA
 
 Configuration options:
     vfun-server-url: URL of the vfun transcription server (required)
-    diarize: Enable speaker diarization (default: true)
+    language: Language override ("en" or "es"). If omitted, vfun auto-detects.
+    diarize: Enable speaker diarization (default: False)
     timeout: Request timeout in seconds (default: 300)
-    min-duration: Minimum dialog duration to transcribe in seconds (default: 5)
+    min-duration: Minimum dialog duration to transcribe in seconds (default: 0)
     api-key: Optional API key for vfun server authentication
 
 Example configuration in config.yml:
     wtf_transcribe:
       module: links.wtf_transcribe
       options:
-        vfun-server-url: http://localhost:8443/transcribe
+        vfun-server-url: http://localhost:4380/wtf
+        language: en
         diarize: true
         timeout: 300
         min-duration: 5
@@ -29,11 +30,8 @@ Example configuration in config.yml:
 import base64
 import json
 import logging
-import os
-import tempfile
 import requests
-from datetime import datetime, timezone
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any
 
 from lib.vcon_redis import VconRedis
 from lib.logging_utils import init_logger
@@ -44,9 +42,10 @@ logger = init_logger(__name__)
 
 default_options = {
     "vfun-server-url": None,
-    "diarize": True,
+    "language": None,
+    "diarize": False,
     "timeout": 300,
-    "min-duration": 5,
+    "min-duration": 0,
     "api-key": None,
 }
 
@@ -107,113 +106,23 @@ def get_audio_content(dialog: Dict[str, Any]) -> Optional[bytes]:
 def create_wtf_analysis(
     dialog_index: int,
     vfun_response: Dict[str, Any],
-    duration: float,
+    language: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Create a WTF analysis entry from vfun response."""
-    now = datetime.now(timezone.utc).isoformat()
+    """Create a WTF analysis entry from vfun response.
 
-    # Extract text and segments from vfun response
-    # vfun returns: analysis[].body with transcription data
-    analysis_entries = vfun_response.get("analysis", [])
-
-    full_text = ""
-    segments = []
-    language = "en-US"
-
-    for entry in analysis_entries:
-        if entry.get("type") in ("transcription", "wtf_transcription"):
-            body = entry.get("body", {})
-
-            # Handle different response formats
-            if isinstance(body, dict):
-                # WTF format from vfun
-                transcript = body.get("transcript", {})
-                full_text = transcript.get("text", body.get("text", ""))
-                language = transcript.get("language", body.get("language", "en-US"))
-                segments = body.get("segments", [])
-            elif isinstance(body, str):
-                full_text = body
-            break
-
-    # If no analysis found, check for direct text field
-    if not full_text:
-        full_text = vfun_response.get("text", "")
-        segments = vfun_response.get("segments", [])
-
-    # Calculate confidence
-    if segments:
-        confidences = [s.get("confidence", 0.9) for s in segments]
-        avg_confidence = sum(confidences) / len(confidences)
-    else:
-        avg_confidence = 0.9
-
-    # Build WTF segments
-    wtf_segments = []
-    for i, seg in enumerate(segments):
-        wtf_seg = {
-            "id": seg.get("id", i),
-            "start": float(seg.get("start", seg.get("start_time", 0.0))),
-            "end": float(seg.get("end", seg.get("end_time", 0.0))),
-            "text": seg.get("text", seg.get("transcription", "")),
-            "confidence": float(seg.get("confidence", 0.9)),
-        }
-        if "speaker" in seg:
-            wtf_seg["speaker"] = seg["speaker"]
-        wtf_segments.append(wtf_seg)
-
-    # Build speakers section
-    speakers = {}
-    for seg in wtf_segments:
-        speaker = seg.get("speaker")
-        if speaker is not None:
-            speaker_key = str(speaker)
-            if speaker_key not in speakers:
-                speakers[speaker_key] = {
-                    "id": speaker,
-                    "label": f"Speaker {speaker}",
-                    "segments": [],
-                    "total_time": 0.0,
-                }
-            speakers[speaker_key]["segments"].append(seg["id"])
-            speakers[speaker_key]["total_time"] += seg["end"] - seg["start"]
-
-    # Build WTF body
-    wtf_body = {
-        "transcript": {
-            "text": full_text,
-            "language": language,
-            "duration": float(duration),
-            "confidence": float(avg_confidence),
-        },
-        "segments": wtf_segments,
-        "metadata": {
-            "created_at": now,
-            "processed_at": now,
-            "provider": "vfun",
-            "model": "parakeet-tdt-110m",
-            "audio": {
-                "duration": float(duration),
-            },
-        },
-        "quality": {
-            "average_confidence": float(avg_confidence),
-            "multiple_speakers": len(speakers) > 1,
-            "low_confidence_words": sum(1 for s in wtf_segments if s.get("confidence", 1.0) < 0.5),
-        },
-    }
-
-    if speakers:
-        wtf_body["speakers"] = speakers
+    vfun returns a WTF-compliant body directly. If language is set in
+    config, it is added to the transcript object.
+    """
+    if language and "transcript" in vfun_response:
+        vfun_response["transcript"]["language"] = language
 
     return {
         "type": "wtf_transcription",
         "dialog": dialog_index,
         "mediatype": "application/json",
         "vendor": "vfun",
-        "product": "parakeet-tdt-110m",
         "schema": "wtf-1.0",
-        # Note: encoding omitted since body is a direct object, not a JSON string
-        "body": wtf_body,
+        "body": vfun_response,
     }
 
 
@@ -247,7 +156,7 @@ def run(
     dialogs_skipped = 0
 
     for i, dialog in enumerate(vcon.dialog):
-        if not should_transcribe_dialog(dialog, opts.get("min-duration", 5)):
+        if not should_transcribe_dialog(dialog, opts.get("min-duration", 0)):
             logger.debug(f"Skipping dialog {i} (not eligible)")
             dialogs_skipped += 1
             continue
@@ -278,11 +187,13 @@ def run(
             mimetype = dialog.get("mimetype", "audio/wav")
 
             # Send audio to vfun server
-            files = {"file": (filename, audio_content, mimetype)}
+            files = {"file-binary": (filename, audio_content, mimetype)}
             data = {
-                "diarize": str(opts.get("diarize", True)),
-                "block": "true",
+                "diarize": str(opts.get("diarize", True)).lower(),
             }
+            language = opts.get("language")
+            if language:
+                data["language"] = language
 
             response = requests.post(
                 vfun_server_url,
@@ -292,14 +203,13 @@ def run(
                 timeout=opts.get("timeout", 300),
             )
 
-            if response.status_code in (200, 302):
+            if response.status_code == 200:
                 vfun_response = response.json()
                 # Handle double-encoded JSON (vfun sometimes returns JSON string)
                 if isinstance(vfun_response, str):
                     vfun_response = json.loads(vfun_response)
 
-                duration = dialog.get("duration", 30.0)
-                wtf_analysis = create_wtf_analysis(i, vfun_response, float(duration))
+                wtf_analysis = create_wtf_analysis(i, vfun_response, language=opts.get("language"))
 
                 # Add analysis to vCon
                 vcon.add_analysis(
@@ -309,7 +219,6 @@ def run(
                     body=wtf_analysis["body"],
                     extra={
                         "mediatype": wtf_analysis.get("mediatype"),
-                        "product": wtf_analysis.get("product"),
                         "schema": wtf_analysis.get("schema"),
                     },
                 )

@@ -145,6 +145,126 @@ service:
       exporters: [prometheus]
 ```
 
+### Langfuse Integration
+
+Langfuse accepts traces via the standard OTLP HTTP endpoint — no separate collector needed.
+
+#### Step 1 — Generate your auth header
+
+In Langfuse, go to **Settings → API Keys** and copy your Public Key and Secret Key. Then run:
+
+```bash
+echo -n "pk-lf-YOUR_PUBLIC_KEY:sk-lf-YOUR_SECRET_KEY" | base64
+```
+
+Copy the output for the next step.
+
+#### Step 2 — Set environment variables
+
+Add the following to your `.env` file:
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://<your-langfuse-host>:3000/api/public/otel
+OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+OTEL_EXPORTER_OTLP_HEADERS=Authorization=Basic <output_from_step_1>
+```
+
+For Langfuse Cloud use:
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=https://cloud.langfuse.com/api/public/otel
+```
+
+Traces will appear in Langfuse under the service names `conserver` and `api`.
+
+### Sending to Multiple Backends (Fan-out via OTel Collector)
+
+vCon Server can only point to one OTLP endpoint via environment variables. To fan out to multiple backends simultaneously, use the OTel Collector as a proxy. The example below uses SigNoz and Langfuse, but the same pattern works with any two OTLP-compatible backends.
+
+```
+vcon-server ──OTLP──▶ OTel Collector ──▶ Backend A (gRPC :4317)
+                                      └──▶ Backend B (HTTP)
+```
+
+#### Step 1 — Point vCon Server at the collector
+
+In your `.env`:
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+```
+
+No auth header needed here — the collector handles authentication to each backend separately.
+
+#### Step 2 — Add the collector to docker-compose.yml
+
+```yaml
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml
+    ports:
+      - "4317:4317"
+    networks:
+      - conserver
+```
+
+> Use `otel/opentelemetry-collector-contrib` (not the slim `otel/opentelemetry-collector`) — it includes the `otlphttp` exporter needed for Langfuse.
+
+#### Step 3 — Configure the collector (otel-collector-config.yaml)
+
+Generate your Langfuse Basic auth token first:
+
+```bash
+echo -n "pk-lf-YOUR_PUBLIC_KEY:sk-lf-YOUR_SECRET_KEY" | base64
+```
+
+Then create `otel-collector-config.yaml`:
+
+```yaml
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  batch:
+
+exporters:
+  # SigNoz — receives OTLP gRPC
+  otlp/signoz:
+    endpoint: <your-signoz-host>:4317
+    tls:
+      insecure: true
+
+  # Langfuse — receives OTLP HTTP
+  otlphttp/langfuse:
+    endpoint: http://<your-langfuse-host>:3000/api/public/otel
+    headers:
+      Authorization: "Basic <base64_from_above>"
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp/signoz, otlphttp/langfuse]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp/signoz]
+```
+
+> Langfuse only ingests **traces** (LLM spans). Metrics go to SigNoz only.
+
+Traces will appear in both backends. In Langfuse, look under service names `conserver` and `api`.
+
+---
+
 ## Prometheus Integration
 
 ### Metrics Endpoint

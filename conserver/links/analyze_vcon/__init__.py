@@ -1,7 +1,7 @@
 from lib.vcon_redis import VconRedis
 from lib.logging_utils import init_logger
+from lib.openai_client import get_openai_client
 import logging
-from openai import OpenAI
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -119,8 +119,8 @@ def run(
         )
         return vcon_uuid
 
-    client = OpenAI(api_key=opts["OPENAI_API_KEY"], timeout=120.0, max_retries=0)
-    
+    client = get_openai_client(opts)
+
     # Prepare vCon data for analysis (removing body properties if specified)
     vcon_data = prepare_vcon_for_analysis(vCon, opts["remove_body_properties"])
     

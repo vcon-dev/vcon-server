@@ -146,11 +146,13 @@ async def test_check_engagement_not_engaged():
     )
     assert result is False
 
-def test_run_skips_if_no_transcript(mock_redis, mock_vcon):
+@patch("server.links.detect_engagement.get_openai_client")
+def test_run_skips_if_no_transcript(mock_get_client, mock_redis, mock_vcon):
     """
     Test that run does nothing if there is no transcript analysis present.
     Should not add analysis or tag.
     """
+    mock_get_client.return_value = Mock()
     mock_redis.get_vcon.return_value = mock_vcon
     mock_vcon.analysis = []
     result = run("test-uuid", "test-link", {"OPENAI_API_KEY": os.getenv("OPENAI_API_KEY", "test-key")})
@@ -158,11 +160,15 @@ def test_run_skips_if_no_transcript(mock_redis, mock_vcon):
     mock_vcon.add_analysis.assert_not_called()
     mock_vcon.add_tag.assert_not_called()
 
-def test_run_processes_transcript(mock_redis, mock_vcon):
+@patch("server.links.detect_engagement.get_openai_client")
+def test_run_processes_transcript(mock_get_client, mock_redis, mock_vcon):
     """
     Test that run processes a valid transcript and adds analysis and tag if engagement is detected.
     """
     skip_if_no_openai_key()
+    mock_client = Mock()
+    mock_client.responses.create.return_value = Mock(output_text="true")
+    mock_get_client.return_value = mock_client
     transcript_analysis = {
         "dialog": 0,
         "type": "transcript",
