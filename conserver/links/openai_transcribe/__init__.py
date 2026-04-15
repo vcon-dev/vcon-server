@@ -18,7 +18,7 @@ import requests
 import tempfile
 import os
 import ffmpeg
-from openai import OpenAI, AzureOpenAI
+from lib.openai_client import get_openai_client
 from pydub import AudioSegment
 from pydub.silence import detect_nonsilent
 
@@ -364,30 +364,9 @@ def transcribe_openai(url: str, opts: dict = None, vcon_uuid: str = None) -> dic
     if opts is None:
         opts = default_options
 
-    # Extract credentials from options
-    openai_api_key = opts.get("OPENAI_API_KEY")
-    azure_openai_api_key = opts.get("AZURE_OPENAI_API_KEY")
-    azure_openai_endpoint = opts.get("AZURE_OPENAI_ENDPOINT")
-    api_version = opts.get("AZURE_OPENAI_API_VERSION")
     model = opts.get("model", "gpt-4o-transcribe")
     max_chunk_duration = opts.get("max_chunk_duration", 480)
-
-    client = None
-    if openai_api_key:
-        client = OpenAI(api_key=openai_api_key)
-        logger.info("Using public OpenAI client")
-    elif azure_openai_api_key and azure_openai_endpoint:
-        client = AzureOpenAI(
-            api_key=azure_openai_api_key,
-            azure_endpoint=azure_openai_endpoint,
-            api_version=api_version
-        )
-        logger.info(f"Using Azure OpenAI client at endpoint:{azure_openai_endpoint}")
-    else:
-        raise ValueError(
-            "OpenAI or Azure OpenAI credentials not provided. "
-            "Need OPENAI_API_KEY or AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT"
-        )
+    client = get_openai_client(opts)
 
     try:
         # Download the audio file from the URL

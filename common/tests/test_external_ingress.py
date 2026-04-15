@@ -39,9 +39,9 @@ class TestExternalIngress:
 
     @patch("config.Configuration.get_ingress_auth")
     @patch("api.add_vcon_to_set")
-    @patch("api.index_vcon_parties")
+    @patch("api.index_vcon")
     def test_successful_submission_single_api_key(
-        self, mock_index_vcon_parties, mock_add_vcon_to_set, mock_get_ingress_auth
+        self, mock_index_vcon, mock_add_vcon_to_set, mock_get_ingress_auth
     ):
         """Test successful vCon submission with single API key configuration."""
         # Configure mocks
@@ -89,9 +89,9 @@ class TestExternalIngress:
 
     @patch("config.Configuration.get_ingress_auth")
     @patch("api.add_vcon_to_set")
-    @patch("api.index_vcon_parties")
+    @patch("api.index_vcon")
     def test_successful_submission_multiple_api_keys(
-        self, mock_index_vcon_parties, mock_add_vcon_to_set, mock_get_ingress_auth
+        self, mock_index_vcon, mock_add_vcon_to_set, mock_get_ingress_auth
     ):
         """Test successful vCon submission with multiple API keys for same ingress."""
         # Configure mocks - multiple API keys for same ingress list
