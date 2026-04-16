@@ -33,7 +33,7 @@ def reset_globals():
 @pytest.fixture
 def mock_vcon_redis():
     """Mock the VconRedis class"""
-    with patch('server.tracers.jlinc.VconRedis', autospec=True) as mock:
+    with patch('tracers.jlinc.VconRedis', autospec=True) as mock:
         yield mock
 
 @pytest.fixture
@@ -48,8 +48,8 @@ def test_sanitize():
     assert jlinc_module._sanitize("Hello World!") == "hello_world_"
     assert jlinc_module._sanitize("safe-Name.123") == "safe-name.123"
 
-@patch("server.tracers.jlinc.requests.post")
-@patch("server.tracers.jlinc.VconRedis")
+@patch("tracers.jlinc.requests.post")
+@patch("tracers.jlinc.VconRedis")
 def test_run_success(mock_redis_with_vcon, mock_post, sample_vcon):
     # Set up the mock Redis instance to return our sample vCon
     mock_instance = mock_redis_with_vcon.return_value

@@ -1,9 +1,9 @@
 import pytest
 from unittest.mock import patch, MagicMock, mock_open
 
-from server.lib.vcon_redis import VconRedis
-from server.vcon import Vcon
-from server.storage.milvus import (
+from lib.vcon_redis import VconRedis
+from vcon import Vcon
+from storage.milvus import (
     save, 
     get,
     extract_text_from_vcon,
@@ -63,7 +63,7 @@ def sample_vcon():
 # Mock Redis
 @pytest.fixture
 def mock_vcon_redis(sample_vcon):
-    with patch('server.lib.vcon_redis.VconRedis') as MockVconRedis:
+    with patch('lib.vcon_redis.VconRedis') as MockVconRedis:
         mock_redis = MagicMock()
         mock_redis.get_vcon.return_value = sample_vcon
         MockVconRedis.return_value = mock_redis
@@ -72,9 +72,9 @@ def mock_vcon_redis(sample_vcon):
 # Mock Milvus connections and utility
 @pytest.fixture
 def mock_milvus():
-    with patch('server.storage.milvus.connections') as mock_connections, \
-         patch('server.storage.milvus.utility') as mock_utility, \
-         patch('server.storage.milvus.Collection') as mock_collection_class:
+    with patch('storage.milvus.connections') as mock_connections, \
+         patch('storage.milvus.utility') as mock_utility, \
+         patch('storage.milvus.Collection') as mock_collection_class:
         
         # Setup utility mocks
         mock_utility.has_collection.return_value = True
@@ -103,7 +103,7 @@ def mock_openai():
     mock_response.data = [mock_data]
     mock_client.embeddings.create.return_value = mock_response
 
-    with patch('server.storage.milvus.get_openai_client', return_value=mock_client):
+    with patch('storage.milvus.get_openai_client', return_value=mock_client):
         yield mock_client
 
 def test_extract_text_from_vcon(sample_vcon):
@@ -171,9 +171,9 @@ def test_check_vcon_exists(mock_milvus):
     mock_milvus['collection'].query.return_value = [{"vcon_uuid": "test-uuid"}]
     assert check_vcon_exists(mock_milvus['collection'], "test-uuid") is True
 
-@patch('server.storage.milvus.extract_text_from_vcon')
-@patch('server.storage.milvus.extract_party_id')
-@patch('server.storage.milvus.get_embedding')
+@patch('storage.milvus.extract_text_from_vcon')
+@patch('storage.milvus.extract_party_id')
+@patch('storage.milvus.get_embedding')
 def test_save(mock_get_embedding, mock_extract_party_id, mock_extract_text,
               mock_milvus, mock_openai, mock_vcon_redis, sample_vcon):
     """Test saving a vCon to Milvus."""
@@ -187,7 +187,7 @@ def test_save(mock_get_embedding, mock_extract_party_id, mock_extract_text,
     mock_instance.get_vcon.return_value = sample_vcon
     
     # Also patch VconRedis to ensure our mock is used
-    with patch('server.storage.milvus.VconRedis', return_value=mock_instance):
+    with patch('storage.milvus.VconRedis', return_value=mock_instance):
         # Test options
         test_options = {
             "host": "localhost",
@@ -215,7 +215,7 @@ def test_save(mock_get_embedding, mock_extract_party_id, mock_extract_text,
         assert insert_args[0]["text"] == "Extracted text content"
         assert len(insert_args[0]["embedding"]) == 1536
 
-@patch('server.storage.milvus.ensure_milvus_connection')
+@patch('storage.milvus.ensure_milvus_connection')
 def test_get_vcon_from_milvus(mock_ensure_connection, mock_milvus):
     """Test retrieving a vCon from Milvus."""
     # Setup mocks

@@ -30,7 +30,7 @@ class MockVconRedis:
 
 @pytest.fixture
 def mock_auth() -> Generator[DataTrailsAuth, Any, None]:
-    with patch('server.links.datatrails.requests.post') as mock_post:
+    with patch('links.datatrails.requests.post') as mock_post:
         mock_post.return_value.json.return_value = {
             "access_token": "test_token",
             "expires_in": 3600
@@ -51,7 +51,7 @@ def test_datatrails_auth_refresh_token(mock_auth):
 
 
 def test_create_asset(mock_auth):
-    with patch('server.links.datatrails.requests.post') as mock_post:
+    with patch('links.datatrails.requests.post') as mock_post:
         mock_post.return_value.json.return_value = {
             "id": "new_asset",
             "access_token": "test_token",

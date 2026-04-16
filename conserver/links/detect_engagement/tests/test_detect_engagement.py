@@ -14,7 +14,7 @@ import pytest
 from unittest.mock import Mock, patch
 import json
 from tenacity import RetryError
-from server.links.detect_engagement import (
+from links.detect_engagement import (
     check_engagement,
     get_analysis_for_type,
     navigate_dict,
@@ -69,7 +69,7 @@ def mock_redis(mock_vcon):
     """
     Patches VconRedis to return the mock Vcon object for testing.
     """
-    with patch("server.links.detect_engagement.VconRedis") as mock:
+    with patch("links.detect_engagement.VconRedis") as mock:
         redis = Mock()
         redis.get_vcon.return_value = mock_vcon
         mock.return_value = redis
@@ -146,7 +146,7 @@ async def test_check_engagement_not_engaged():
     )
     assert result is False
 
-@patch("server.links.detect_engagement.get_openai_client")
+@patch("links.detect_engagement.get_openai_client")
 def test_run_skips_if_no_transcript(mock_get_client, mock_redis, mock_vcon):
     """
     Test that run does nothing if there is no transcript analysis present.
@@ -160,7 +160,7 @@ def test_run_skips_if_no_transcript(mock_get_client, mock_redis, mock_vcon):
     mock_vcon.add_analysis.assert_not_called()
     mock_vcon.add_tag.assert_not_called()
 
-@patch("server.links.detect_engagement.get_openai_client")
+@patch("links.detect_engagement.get_openai_client")
 def test_run_processes_transcript(mock_get_client, mock_redis, mock_vcon):
     """
     Test that run processes a valid transcript and adds analysis and tag if engagement is detected.
@@ -184,7 +184,7 @@ def test_run_processes_transcript(mock_get_client, mock_redis, mock_vcon):
     mock_vcon.add_analysis.assert_called_once()
     mock_vcon.add_tag.assert_called_once_with(tag_name="engagement", tag_value="true")
 
-@patch("server.links.detect_engagement.get_openai_client")
+@patch("links.detect_engagement.get_openai_client")
 def test_run_handles_api_error(mock_get_client, mock_redis, mock_vcon):
     """
     Test that run handles OpenAI API errors gracefully and does not add analysis or tag.
@@ -208,7 +208,7 @@ def test_run_handles_api_error(mock_get_client, mock_redis, mock_vcon):
     mock_vcon.add_analysis.assert_not_called()
     mock_vcon.add_tag.assert_not_called()
 
-@patch("server.links.detect_engagement.get_openai_client")
+@patch("links.detect_engagement.get_openai_client")
 def test_run_respects_sampling_rate(mock_get_client, mock_redis, mock_vcon):
     """
     Test that run respects the sampling rate and skips processing if randomly_execute_with_sampling returns False.
@@ -226,12 +226,12 @@ def test_run_respects_sampling_rate(mock_get_client, mock_redis, mock_vcon):
     }
     mock_vcon.analysis = [transcript_analysis]
     # Patch randomly_execute_with_sampling to always return False (simulate skipping)
-    with patch("server.links.detect_engagement.randomly_execute_with_sampling", return_value=False):
+    with patch("links.detect_engagement.randomly_execute_with_sampling", return_value=False):
         result = run("test-uuid", "test-link", {"OPENAI_API_KEY": os.getenv("OPENAI_API_KEY"), "sampling_rate": 0})
     assert result == "test-uuid"
     mock_vcon.add_analysis.assert_not_called()
 
-@patch("server.links.detect_engagement.get_openai_client")
+@patch("links.detect_engagement.get_openai_client")
 def test_run_skips_existing_analysis(mock_get_client, mock_redis, mock_vcon):
     """
     Test that run skips processing if engagement_analysis already exists for the dialog.

@@ -12,14 +12,14 @@ Environment variables are loaded from .env using python-dotenv.
 import os
 import pytest
 from unittest.mock import Mock, patch
-from server.links.analyze import (
+from links.analyze import (
     generate_analysis,
     run,
     default_options,
     navigate_dict,
     get_analysis_for_type,
 )
-from server.vcon import Vcon
+from vcon import Vcon
 from dotenv import load_dotenv
 
 # Load environment variables from .env file for API keys, etc.
@@ -35,7 +35,7 @@ API_KEY = os.environ.get("OPENAI_API_KEY", "test_api_key_for_testing_only")
 @pytest.fixture
 def mock_vcon_redis():
     """Mock the VconRedis class"""
-    with patch('server.links.analyze.VconRedis', autospec=True) as mock:
+    with patch('links.analyze.VconRedis', autospec=True) as mock:
         yield mock
 
 
@@ -140,7 +140,7 @@ class TestGetAnalysisForType:
 class TestGenerateAnalysis:
     """Test the generate_analysis function"""
     
-    @patch('server.links.analyze.send_ai_usage_data_for_tracking')
+    @patch('links.analyze.send_ai_usage_data_for_tracking')
     def test_generate_analysis_basic(self, mock_send_usage):
         """Test basic analysis generation with mocked client"""
         # Setup mock client (injected into generate_analysis)
@@ -170,7 +170,7 @@ class TestGenerateAnalysis:
         assert result == "This is a test analysis."
         mock_client.chat.completions.create.assert_called_once()
     
-    @patch('server.links.analyze.send_ai_usage_data_for_tracking')
+    @patch('links.analyze.send_ai_usage_data_for_tracking')
     def test_generate_analysis_with_custom_system_prompt(self, mock_send_usage):
         """Test analysis generation with custom system prompt"""
         # Setup mock client (injected into generate_analysis)
@@ -209,7 +209,7 @@ class TestGenerateAnalysis:
         assert messages[1]['role'] == 'user'
         assert 'Analyze this financial data' in messages[1]['content']
     
-    @patch('server.links.analyze.send_ai_usage_data_for_tracking')
+    @patch('links.analyze.send_ai_usage_data_for_tracking')
     def test_generate_analysis_with_empty_prompt(self, mock_send_usage):
         """Test analysis generation with empty prompt"""
         # Setup mock client (injected into generate_analysis)
@@ -243,7 +243,7 @@ class TestGenerateAnalysis:
         messages = call_args[1]['messages']
         assert messages[1]['content'] == "\n\nTest transcript"
     
-    @patch('server.links.analyze.send_ai_usage_data_for_tracking')
+    @patch('links.analyze.send_ai_usage_data_for_tracking')
     def test_generate_analysis_with_default_system_prompt(self, mock_send_usage):
         """Test analysis generation uses default system prompt when not provided"""
         # Setup mock client (injected into generate_analysis)
@@ -303,10 +303,10 @@ class TestDefaultOptions:
 class TestRunFunction:
     """Test the main run function"""
     
-    @patch('server.links.analyze.get_openai_client')
-    @patch('server.links.analyze.generate_analysis')
-    @patch('server.links.analyze.is_included', return_value=True)
-    @patch('server.links.analyze.randomly_execute_with_sampling', return_value=True)
+    @patch('links.analyze.get_openai_client')
+    @patch('links.analyze.generate_analysis')
+    @patch('links.analyze.is_included', return_value=True)
+    @patch('links.analyze.randomly_execute_with_sampling', return_value=True)
     def test_run_basic(self, mock_sampling, mock_is_included, mock_generate_analysis, mock_get_client, mock_redis_with_vcon, sample_vcon):
         """Test the basic run functionality with mocked analysis generation"""
         mock_get_client.return_value = Mock()
@@ -334,10 +334,10 @@ class TestRunFunction:
         # Check the vCon has an analysis
         sample_vcon.add_analysis.assert_called_once()
     
-    @patch('server.links.analyze.get_openai_client')
-    @patch('server.links.analyze.generate_analysis')
-    @patch('server.links.analyze.is_included', return_value=True)
-    @patch('server.links.analyze.randomly_execute_with_sampling', return_value=True)
+    @patch('links.analyze.get_openai_client')
+    @patch('links.analyze.generate_analysis')
+    @patch('links.analyze.is_included', return_value=True)
+    @patch('links.analyze.randomly_execute_with_sampling', return_value=True)
     def test_run_with_custom_system_prompt(
         self, mock_sampling, mock_is_included, mock_generate_analysis, mock_get_client, 
         mock_redis_with_vcon, sample_vcon
@@ -369,8 +369,8 @@ class TestRunFunction:
         assert call_args[1]['opts']['system_prompt'] == "You are a specialized customer service analyst."
         assert call_args[1]['opts']['prompt'] == "Analyze this customer interaction."
     
-    @patch('server.links.analyze.get_openai_client')
-    @patch('server.links.analyze.is_included', return_value=False)
+    @patch('links.analyze.get_openai_client')
+    @patch('links.analyze.is_included', return_value=False)
     def test_run_skipped_due_to_filters(self, mock_is_included, mock_get_client, mock_redis_with_vcon):
         """Test that run is skipped when filters exclude the vCon"""
         mock_get_client.return_value = Mock()
@@ -386,9 +386,9 @@ class TestRunFunction:
         # Should have called get_vcon but then skipped due to filters
         mock_redis_with_vcon.get_vcon.assert_called_once_with("test-uuid")
     
-    @patch('server.links.analyze.get_openai_client')
-    @patch('server.links.analyze.is_included', return_value=True)
-    @patch('server.links.analyze.randomly_execute_with_sampling', return_value=False)
+    @patch('links.analyze.get_openai_client')
+    @patch('links.analyze.is_included', return_value=True)
+    @patch('links.analyze.randomly_execute_with_sampling', return_value=False)
     def test_run_skipped_due_to_sampling(self, mock_sampling, mock_is_included, mock_get_client, mock_redis_with_vcon):
         """Test that run is skipped when sampling excludes the vCon"""
         mock_get_client.return_value = Mock()
@@ -404,10 +404,10 @@ class TestRunFunction:
         # Should have called get_vcon but then skipped due to sampling
         mock_redis_with_vcon.get_vcon.assert_called_once_with("test-uuid")
     
-    @patch('server.links.analyze.get_openai_client')
-    @patch('server.links.analyze.generate_analysis')
-    @patch('server.links.analyze.is_included', return_value=True)
-    @patch('server.links.analyze.randomly_execute_with_sampling', return_value=True)
+    @patch('links.analyze.get_openai_client')
+    @patch('links.analyze.generate_analysis')
+    @patch('links.analyze.is_included', return_value=True)
+    @patch('links.analyze.randomly_execute_with_sampling', return_value=True)
     def test_run_with_azure_openai(
         self, mock_sampling, mock_is_included, mock_generate_analysis, mock_get_client,
         mock_redis_with_vcon, sample_vcon
@@ -439,10 +439,10 @@ class TestRunFunction:
         with pytest.raises(ValueError, match="LITELLM_PROXY_URL|OPENAI_API_KEY|AZURE_OPENAI"):
             run("test-uuid", "analyze", {})
     
-    @patch('server.links.analyze.get_openai_client')
-    @patch('server.links.analyze.generate_analysis')
-    @patch('server.links.analyze.is_included', return_value=True)
-    @patch('server.links.analyze.randomly_execute_with_sampling', return_value=True)
+    @patch('links.analyze.get_openai_client')
+    @patch('links.analyze.generate_analysis')
+    @patch('links.analyze.is_included', return_value=True)
+    @patch('links.analyze.randomly_execute_with_sampling', return_value=True)
     def test_run_already_has_analysis(
         self, mock_sampling, mock_is_included, mock_generate_analysis, mock_get_client,
         mock_redis_with_vcon, sample_vcon
@@ -467,10 +467,10 @@ class TestRunFunction:
         assert result == "test-uuid"
         mock_generate_analysis.assert_not_called()
     
-    @patch('server.links.analyze.get_openai_client')
-    @patch('server.links.analyze.generate_analysis')
-    @patch('server.links.analyze.is_included', return_value=True)
-    @patch('server.links.analyze.randomly_execute_with_sampling', return_value=True)
+    @patch('links.analyze.get_openai_client')
+    @patch('links.analyze.generate_analysis')
+    @patch('links.analyze.is_included', return_value=True)
+    @patch('links.analyze.randomly_execute_with_sampling', return_value=True)
     def test_run_analysis_failure(
         self, mock_sampling, mock_is_included, mock_generate_analysis, mock_get_client,
         mock_redis_with_vcon, sample_vcon

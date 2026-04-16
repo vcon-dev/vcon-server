@@ -2,9 +2,9 @@ import pytest
 import json
 from unittest.mock import patch, MagicMock, ANY
 
-from server.lib.vcon_redis import VconRedis
-from server.vcon import Vcon
-from server.storage.dataverse import (
+from lib.vcon_redis import VconRedis
+from vcon import Vcon
+from storage.dataverse import (
     save,
     get,
     get_access_token,
@@ -55,7 +55,7 @@ def sample_vcon():
 # Mock Redis
 @pytest.fixture
 def mock_vcon_redis(sample_vcon):
-    with patch('server.lib.vcon_redis.VconRedis') as MockVconRedis:
+    with patch('lib.vcon_redis.VconRedis') as MockVconRedis:
         mock_redis = MagicMock()
         mock_redis.get_vcon.return_value = sample_vcon
         MockVconRedis.return_value = mock_redis
@@ -65,7 +65,7 @@ def mock_vcon_redis(sample_vcon):
 # Mock MSAL
 @pytest.fixture
 def mock_msal():
-    with patch('server.storage.dataverse.msal') as mock_msal:
+    with patch('storage.dataverse.msal') as mock_msal:
         mock_client_app = MagicMock()
         mock_msal.ConfidentialClientApplication.return_value = mock_client_app
         
@@ -82,7 +82,7 @@ def mock_msal():
 # Mock Requests
 @pytest.fixture
 def mock_requests():
-    with patch('server.storage.dataverse.requests') as mock_requests:
+    with patch('storage.dataverse.requests') as mock_requests:
         mock_session = MagicMock()
         mock_requests.Session.return_value = mock_session
         
@@ -169,7 +169,7 @@ def test_create_dataverse_session(mock_msal, mock_requests):
     assert session is None
 
 
-@patch('server.storage.dataverse.create_dataverse_session')
+@patch('storage.dataverse.create_dataverse_session')
 def test_save_new_entity(mock_create_session, mock_requests, mock_vcon_redis, sample_vcon):
     """Test saving a new vCon entity to Dataverse."""
     # Setup mocks
@@ -195,7 +195,7 @@ def test_save_new_entity(mock_create_session, mock_requests, mock_vcon_redis, sa
     }
     
     # Call save
-    with patch('server.storage.dataverse.VconRedis', return_value=mock_instance):
+    with patch('storage.dataverse.VconRedis', return_value=mock_instance):
         save("test-uuid", test_options)
     
     # Verify entity was created (POST request)
@@ -211,7 +211,7 @@ def test_save_new_entity(mock_create_session, mock_requests, mock_vcon_redis, sa
     assert "vcon_created_at" in post_data
 
 
-@patch('server.storage.dataverse.create_dataverse_session')
+@patch('storage.dataverse.create_dataverse_session')
 def test_save_existing_entity(mock_create_session, mock_requests, mock_vcon_redis, sample_vcon):
     """Test updating an existing vCon entity in Dataverse."""
     # Setup mocks
@@ -242,7 +242,7 @@ def test_save_existing_entity(mock_create_session, mock_requests, mock_vcon_redi
     }
     
     # Call save
-    with patch('server.storage.dataverse.VconRedis', return_value=mock_instance):
+    with patch('storage.dataverse.VconRedis', return_value=mock_instance):
         save("test-uuid", test_options)
     
     # Verify entity was updated (PATCH request)
@@ -258,7 +258,7 @@ def test_save_existing_entity(mock_create_session, mock_requests, mock_vcon_redi
     assert "vcon_created_at" in patch_data
 
 
-@patch('server.storage.dataverse.create_dataverse_session')
+@patch('storage.dataverse.create_dataverse_session')
 def test_get_vcon(mock_create_session, mock_requests):
     """Test retrieving a vCon from Dataverse."""
     # Setup mocks
@@ -305,7 +305,7 @@ def test_get_vcon(mock_create_session, mock_requests):
     assert result is None
 
 
-@patch('server.storage.dataverse.create_dataverse_session')
+@patch('storage.dataverse.create_dataverse_session')
 def test_get_vcon_error_handling(mock_create_session, mock_requests):
     """Test error handling when retrieving a vCon."""
     # Setup mocks

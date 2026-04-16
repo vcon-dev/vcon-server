@@ -17,7 +17,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-from server.storage.file import (
+from storage.file import (
     save,
     get,
     delete,
@@ -28,7 +28,7 @@ from server.storage.file import (
     _find_vcon_file,
     _cleanup_empty_dirs,
 )
-from server.vcon import Vcon
+from vcon import Vcon
 
 
 @pytest.fixture
@@ -50,7 +50,7 @@ def sample_vcon():
 @pytest.fixture
 def mock_vcon_redis(sample_vcon):
     """Mock VconRedis to return sample vCon."""
-    with patch("server.storage.file.VconRedis") as MockVconRedis:
+    with patch("storage.file.VconRedis") as MockVconRedis:
         mock_redis = MagicMock()
         mock_redis.get_vcon.return_value = sample_vcon
         MockVconRedis.return_value = mock_redis

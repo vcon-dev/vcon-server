@@ -25,8 +25,8 @@ def clear_proxy_env_vars():
 # Clear proxy settings before importing
 clear_proxy_env_vars()
 
-from server.links.groq_whisper import run, transcribe_groq_whisper, get_file_content, get_transcription
-from server.vcon import Vcon
+from links.groq_whisper import run, transcribe_groq_whisper, get_file_content, get_transcription
+from vcon import Vcon
 
 # Print current API key status (for debugging)
 print(f"\nCurrent API key status at module import time:")
@@ -64,7 +64,7 @@ To run only unit tests:
   poetry run pytest server/links/groq_whisper/test_groq_whisper.py -k "not TestGroqWhisperIntegration"
 
 To run integration tests:
-  GROQ_API_KEY=your_api_key poetry run python -m server.links.groq_whisper.test_groq_whisper
+  GROQ_API_KEY=your_api_key poetry run python -m links.groq_whisper.test_groq_whisper
 
 To run all tests:
   GROQ_API_KEY=your_api_key poetry run pytest server/links/groq_whisper/test_groq_whisper.py -v
@@ -122,7 +122,7 @@ class TestGroqWhisperIntegration:
     @pytest.fixture
     def mock_vcon_redis_with_real_vcon(self, test_vcon_with_audio):
         """Set up a mock VconRedis that returns our test vCon but allows actual storage"""
-        with patch('server.links.groq_whisper.VconRedis') as mock:
+        with patch('links.groq_whisper.VconRedis') as mock:
             mock_instance = MagicMock()
             mock_instance.get_vcon.return_value = test_vcon_with_audio
             # Allow real store_vcon to be tracked
@@ -340,7 +340,7 @@ class TestGroqWhisperIntegration:
 @pytest.fixture
 def mock_vcon_redis():
     """Mock the VconRedis class"""
-    with patch('server.links.groq_whisper.VconRedis') as mock:
+    with patch('links.groq_whisper.VconRedis') as mock:
         yield mock
 
 @pytest.fixture
@@ -400,7 +400,7 @@ def mock_redis_with_vcon(mock_vcon_redis, sample_vcon):
 @pytest.fixture
 def mock_groq_client():
     """Mock the Groq client for the audio transcription API"""
-    with patch('server.links.groq_whisper.Groq') as mock_groq:
+    with patch('links.groq_whisper.Groq') as mock_groq:
         mock_client = MagicMock()
         mock_groq.return_value = mock_client
         
@@ -448,7 +448,7 @@ def test_get_file_content_from_body():
     content = get_file_content(dialog)
     assert content == b"test audio content"
 
-@patch('server.links.groq_whisper.requests.get')
+@patch('links.groq_whisper.requests.get')
 def test_get_file_content_from_url(mock_get):
     """Test extracting file content from URL reference"""
     # Set up mock response
@@ -464,7 +464,7 @@ def test_get_file_content_from_url(mock_get):
     assert content == b"test audio content from url"
     mock_get.assert_called_once_with("https://example.com/audio.flac", verify=True)
 
-@patch('server.links.groq_whisper.requests.get')
+@patch('links.groq_whisper.requests.get')
 def test_get_file_content_with_signature_verification(mock_get):
     """Test file content extraction with signature verification"""
     # Content that will produce a predictable SHA-512 hash
@@ -499,7 +499,7 @@ def test_get_file_content_error_handling():
         get_file_content(dialog)
     assert "Dialog contains neither inline body nor external URL" in str(excinfo.value)
 
-@patch('server.links.groq_whisper.requests.get')
+@patch('links.groq_whisper.requests.get')
 def test_get_file_content_download_failure(mock_get):
     """Test handling of download failure"""
     mock_response = MagicMock()
@@ -614,7 +614,7 @@ def test_run_skip_non_recording(mock_redis_with_vcon, mock_groq_client):
     assert result == "test-uuid"
     mock_groq_client.audio.transcriptions.create.assert_not_called()
 
-@patch('server.links.groq_whisper.transcribe_groq_whisper')
+@patch('links.groq_whisper.transcribe_groq_whisper')
 def test_run_transcription_failure(mock_transcribe, mock_redis_with_vcon, sample_vcon):
     """Test handling of transcription failure"""
     # Make transcription function raise an exception
@@ -648,7 +648,7 @@ if __name__ == "__main__":
         print("WARNING: No valid GROQ_API_KEY environment variable found.")
         print("Integration tests will be skipped.")
         print("\nTo run integration tests with a real API key:")
-        print("GROQ_API_KEY=your_api_key poetry run python -m server.links.groq_whisper.test_groq_whisper")
+        print("GROQ_API_KEY=your_api_key poetry run python -m links.groq_whisper.test_groq_whisper")
         print("======================================================================\n")
         exit(1)
     
