@@ -15,12 +15,31 @@ from unittest.mock import patch, MagicMock, Mock
 from datetime import datetime
 from io import BytesIO
 
-# Mock the logger module before importing the S3 module
+# Mock the logger module and vcon_redis before importing the S3 module.
+# We save the originals and restore them afterwards so that other test modules
+# that patch 'lib.vcon_redis.redis' are not affected by our module-level
+# sys.modules injection.
+_orig_lib_logging_utils = sys.modules.get("lib.logging_utils")
+_orig_lib_vcon_redis = sys.modules.get("lib.vcon_redis")
+
 mock_logger = MagicMock()
 sys.modules["lib.logging_utils"] = MagicMock(init_logger=MagicMock(return_value=mock_logger))
 sys.modules["lib.vcon_redis"] = MagicMock()
 
 from storage.s3 import _create_s3_client, _build_s3_key, _build_lookup_key, _date_prefix, save, get, delete, default_options
+
+# Restore sys.modules so subsequent test files see the real modules.
+# storage.s3 already has its local bindings (VconRedis, logger) set from the
+# mocks above, so restoring sys.modules here does not break s3 tests.
+if _orig_lib_logging_utils is not None:
+    sys.modules["lib.logging_utils"] = _orig_lib_logging_utils
+else:
+    sys.modules.pop("lib.logging_utils", None)
+
+if _orig_lib_vcon_redis is not None:
+    sys.modules["lib.vcon_redis"] = _orig_lib_vcon_redis
+else:
+    sys.modules.pop("lib.vcon_redis", None)
 
 
 class TestCreateS3Client:
