@@ -1,50 +1,45 @@
-FROM python:3.12.2
+# Dev / test image — installs all dependency groups (conserver + api + dev).
+# Used by docker-compose for local development and CI tests.
+FROM python:3.12-slim
 
-# Build arguments for version information (injected by CI/CD)
 ARG VCON_SERVER_VERSION=dev
 ARG VCON_SERVER_GIT_COMMIT=unknown
 ARG VCON_SERVER_BUILD_TIME=unknown
 
-# Set version info as environment variables (available at runtime)
 ENV VCON_SERVER_VERSION=${VCON_SERVER_VERSION}
 ENV VCON_SERVER_GIT_COMMIT=${VCON_SERVER_GIT_COMMIT}
 ENV VCON_SERVER_BUILD_TIME=${VCON_SERVER_BUILD_TIME}
 
 RUN apt-get update && \
-    apt-get install -y libavdevice-dev ffmpeg
+    apt-get install -y --no-install-recommends \
+        libavdevice-dev \
+        ffmpeg \
+        libsox-fmt-all \
+        sox \
+        libpq5 \
+        redis-tools \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install SoX dependency
-# https://pysox.readthedocs.io/en/latest/#installation
-RUN apt-get install -y libsox-fmt-all sox
-
-# This is required in order to wait for Redis
-RUN apt-get install -y redis-tools
-RUN pip install --upgrade pip
-
-# Install watchdog
-RUN pip install watchdog
+COPY --from=ghcr.io/astral-sh/uv:0.10.9 /uv /usr/local/bin/uv
+ENV UV_SYSTEM_PYTHON=1
 
 WORKDIR /app
 
-# Install Poetry
-RUN pip install poetry==2.1.3
-RUN poetry config virtualenvs.create false
+COPY pyproject.toml uv.lock /app/
 
-# Copy dependency files first for better caching
-COPY pyproject.toml poetry.lock* /app/
+# Install all groups (conserver + api + dev) so the image works for both
+# running services and running pytest.
+# Venv at /opt/venv so docker-compose volume mounts don't wipe it.
+RUN uv venv --seed /opt/venv && \
+    UV_PROJECT_ENVIRONMENT=/opt/venv uv sync --frozen --group conserver --group api --group dev
+ENV PATH="/opt/venv/bin:$PATH"
 
-# Regenerate lock file if needed and install dependencies
-RUN poetry lock --no-update || poetry lock
-RUN poetry install --only=main --no-interaction
-
-# Install OpenTelemetry instrumentation libraries for detected packages
+# Auto-install OTel instrumentation packages for the installed libraries.
 RUN opentelemetry-bootstrap -a install
 
-# Copy the rest of the application
 COPY . /app
 
-ENV PYTHONPATH "${PYTHONPATH}:/app/:/app/server/"
+ENV PYTHONPATH="/app:/app/common:/app/conserver:/app/api"
 
 ENTRYPOINT ["/app/docker/wait_for_redis.sh"]
-
-CMD [ "opentelemetry-instrument", "python", "./server/main.py" ]
+CMD ["opentelemetry-instrument", "python", "/app/conserver/main.py"]

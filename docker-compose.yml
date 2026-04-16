@@ -18,7 +18,7 @@ services:
       dockerfile: ./docker/Dockerfile
       context: .
     # image: vcon-server-enterprise:latest
-    command: "watchmedo auto-restart -p '*.py' -R -- opentelemetry-instrument python ./server/main.py"
+    command: "watchmedo auto-restart -p '*.py' -R -- opentelemetry-instrument python ./conserver/main.py"
     volumes:
       - .:/app
       - ./config.yml:/app/config.yml
