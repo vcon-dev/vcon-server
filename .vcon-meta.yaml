@@ -1,0 +1,21 @@
+# .vcon-meta.yaml — vCon Ecosystem Repo Self-Descriptor
+# Schema: https://github.com/vconic/vconic-docs/blob/main/schema/repo-descriptor.schema.json
+
+name: vcon-server
+category: infrastructure
+tags: [server, pipeline, links, redis, mongodb, processing-engine]
+description: "vCon processing server with pluggable links, chains, and storage backends"
+spec_version: "0.4.0"
+
+relationships:
+  - type: depends-on
+    target: vcon-dev/vcon
+    note: "Uses core Python vCon library"
+  - type: related-to
+    target: vcon-dev/vcon-sample-link
+    note: "Sample link template"
+
+entry_points:
+  readme: README.md
+  claude_md: null
+  api_docs: null
