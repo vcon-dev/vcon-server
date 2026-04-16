@@ -8,7 +8,7 @@ def get_config() -> dict:
     """This is to keep logic of accessing config in one place"""
     global _config
     with open(settings.CONSERVER_CONFIG_FILE) as file:
-        _config = yaml.safe_load(file)
+        _config = yaml.safe_load(file) or {}
     return _config
 
 
