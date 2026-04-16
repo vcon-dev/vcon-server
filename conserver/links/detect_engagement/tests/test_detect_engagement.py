@@ -184,11 +184,15 @@ def test_run_processes_transcript(mock_get_client, mock_redis, mock_vcon):
     mock_vcon.add_analysis.assert_called_once()
     mock_vcon.add_tag.assert_called_once_with(tag_name="engagement", tag_value="true")
 
-def test_run_handles_api_error(mock_redis, mock_vcon):
+@patch("server.links.detect_engagement.get_openai_client")
+def test_run_handles_api_error(mock_get_client, mock_redis, mock_vcon):
     """
     Test that run handles OpenAI API errors gracefully and does not add analysis or tag.
     """
     skip_if_no_openai_key()
+    mock_client = Mock()
+    mock_client.responses.create.side_effect = Exception("API Error")
+    mock_get_client.return_value = mock_client
     transcript_analysis = {
         "dialog": 0,
         "type": "transcript",
@@ -199,17 +203,18 @@ def test_run_handles_api_error(mock_redis, mock_vcon):
         }
     }
     mock_vcon.analysis = [transcript_analysis]
-    # Intentionally pass an invalid API key to trigger an error
     with pytest.raises(Exception):
         run("test-uuid", "test-link", {"OPENAI_API_KEY": "invalid-key"})
     mock_vcon.add_analysis.assert_not_called()
     mock_vcon.add_tag.assert_not_called()
 
-def test_run_respects_sampling_rate(mock_redis, mock_vcon):
+@patch("server.links.detect_engagement.get_openai_client")
+def test_run_respects_sampling_rate(mock_get_client, mock_redis, mock_vcon):
     """
     Test that run respects the sampling rate and skips processing if randomly_execute_with_sampling returns False.
     """
     skip_if_no_openai_key()
+    mock_get_client.return_value = Mock()
     transcript_analysis = {
         "dialog": 0,
         "type": "transcript",
@@ -226,11 +231,13 @@ def test_run_respects_sampling_rate(mock_redis, mock_vcon):
     assert result == "test-uuid"
     mock_vcon.add_analysis.assert_not_called()
 
-def test_run_skips_existing_analysis(mock_redis, mock_vcon):
+@patch("server.links.detect_engagement.get_openai_client")
+def test_run_skips_existing_analysis(mock_get_client, mock_redis, mock_vcon):
     """
     Test that run skips processing if engagement_analysis already exists for the dialog.
     """
     skip_if_no_openai_key()
+    mock_get_client.return_value = Mock()
     transcript_analysis = {
         "dialog": 0,
         "type": "transcript",

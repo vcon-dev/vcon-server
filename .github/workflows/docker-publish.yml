@@ -29,11 +29,12 @@ jobs:
   prepare:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write  # needed to create git tags
     outputs:
       version: ${{ steps.calver.outputs.version }}
       short_sha: ${{ steps.git.outputs.short_sha }}
       build_time: ${{ steps.git.outputs.build_time }}
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -54,8 +55,7 @@ jobs:
               VERSION="${TODAY}.2"
             elif [[ "$LAST_TAG" =~ ^${TODAY}\.([0-9]+)$ ]]; then
               SEQ="${BASH_REMATCH[1]}"
-              NEXT_SEQ=$((SEQ + 1))
-              VERSION="${TODAY}.${NEXT_SEQ}"
+              VERSION="${TODAY}.$((SEQ + 1))"
             else
               VERSION="${TODAY}.2"
             fi
@@ -200,6 +200,7 @@ jobs:
     if: github.ref == 'refs/heads/main'
     permissions:
       contents: write
+
     steps:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1

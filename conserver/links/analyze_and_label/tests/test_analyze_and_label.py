@@ -414,11 +414,13 @@ def test_run_message_format(mock_sampling, mock_is_included, mock_generate_analy
         assert tag in mock_tags
 
 
+@patch('server.links.analyze_and_label.get_openai_client')
 @patch('server.links.analyze_and_label.generate_analysis_with_labels')
 @patch('server.links.analyze_and_label.is_included', return_value=True)
 @patch('server.links.analyze_and_label.randomly_execute_with_sampling', return_value=True)
-def test_run_chat_format(mock_sampling, mock_is_included, mock_generate_analysis, mock_redis_with_vcon, sample_vcon_chat_format):
+def test_run_chat_format(mock_sampling, mock_is_included, mock_generate_analysis, mock_get_client, mock_redis_with_vcon, sample_vcon_chat_format):
     """Test analyzing a dialog with chat format"""
+    mock_get_client.return_value = Mock()
     # Set up the mock Redis instance to return our sample vCon with chat format
     mock_instance = mock_redis_with_vcon.return_value
     mock_instance.get_vcon.return_value = sample_vcon_chat_format
@@ -459,11 +461,13 @@ def test_run_chat_format(mock_sampling, mock_is_included, mock_generate_analysis
         assert tag in mock_tags
 
 
+@patch('server.links.analyze_and_label.get_openai_client')
 @patch('server.links.analyze_and_label.generate_analysis_with_labels')
 @patch('server.links.analyze_and_label.is_included', return_value=True)
 @patch('server.links.analyze_and_label.randomly_execute_with_sampling', return_value=True)
-def test_run_email_format(mock_sampling, mock_is_included, mock_generate_analysis, mock_redis_with_vcon, sample_vcon_email_format):
+def test_run_email_format(mock_sampling, mock_is_included, mock_generate_analysis, mock_get_client, mock_redis_with_vcon, sample_vcon_email_format):
     """Test analyzing a dialog with email format"""
+    mock_get_client.return_value = Mock()
     # Set up the mock Redis instance to return our sample vCon with email format
     mock_instance = mock_redis_with_vcon.return_value
     mock_instance.get_vcon.return_value = sample_vcon_email_format

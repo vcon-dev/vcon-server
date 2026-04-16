@@ -20,7 +20,7 @@ mock_logger = MagicMock()
 sys.modules["lib.logging_utils"] = MagicMock(init_logger=MagicMock(return_value=mock_logger))
 sys.modules["server.lib.vcon_redis"] = MagicMock()
 
-from server.storage.s3 import _create_s3_client, _build_s3_key, save, get, default_options
+from server.storage.s3 import _create_s3_client, _build_s3_key, _build_lookup_key, _date_prefix, save, get, delete, default_options
 
 
 class TestCreateS3Client:
@@ -183,6 +183,43 @@ class TestCreateS3Client:
                 )
 
 
+class TestDatePrefix:
+    """Tests for the _date_prefix helper function."""
+
+    def test_date_prefix_basic(self):
+        assert _date_prefix("2025-12-10T15:30:00Z") == "2025/12/10"
+
+    def test_date_prefix_zero_padded(self):
+        assert _date_prefix("2024-01-05T00:00:00Z") == "2024/01/05"
+
+    def test_date_prefix_without_time(self):
+        assert _date_prefix("2026-03-26") == "2026/03/26"
+
+
+class TestBuildLookupKey:
+    """Tests for the _build_lookup_key helper function."""
+
+    def test_build_lookup_key_without_prefix(self):
+        key = _build_lookup_key("test-uuid")
+        assert key == "lookup/test-uuid.txt"
+
+    def test_build_lookup_key_with_prefix(self):
+        key = _build_lookup_key("test-uuid", s3_path="vcons")
+        assert key == "vcons/lookup/test-uuid.txt"
+
+    def test_build_lookup_key_with_trailing_slash_prefix(self):
+        key = _build_lookup_key("test-uuid", s3_path="vcons/")
+        assert key == "vcons/lookup/test-uuid.txt"
+
+    def test_build_lookup_key_with_nested_prefix(self):
+        key = _build_lookup_key("test-uuid", s3_path="data/vcons")
+        assert key == "data/vcons/lookup/test-uuid.txt"
+
+    def test_build_lookup_key_with_none_prefix(self):
+        key = _build_lookup_key("test-uuid", s3_path=None)
+        assert key == "lookup/test-uuid.txt"
+
+
 class TestBuildS3Key:
     """Tests for the _build_s3_key helper function."""
 
@@ -216,19 +253,19 @@ class TestBuildS3Key:
         key = _build_s3_key("test-uuid", s3_path="data/vcons/archive")
         assert key == "data/vcons/archive/test-uuid.vcon"
 
-    def test_build_key_with_created_at(self):
-        """Test key building with created_at generates date folder."""
-        key = _build_s3_key("test-uuid", created_at="2025-12-10T15:30:00Z")
+    def test_build_key_with_date_path(self):
+        """Test key building with date_path generates date folder."""
+        key = _build_s3_key("test-uuid", date_path="2025/12/10")
         assert key == "2025/12/10/test-uuid.vcon"
 
-    def test_build_key_with_created_at_and_prefix(self):
-        """Test key building with both created_at and s3_path."""
-        key = _build_s3_key("test-uuid", created_at="2025-12-10T15:30:00Z", s3_path="vcons")
+    def test_build_key_with_date_path_and_prefix(self):
+        """Test key building with both date_path and s3_path."""
+        key = _build_s3_key("test-uuid", date_path="2025/12/10", s3_path="vcons")
         assert key == "vcons/2025/12/10/test-uuid.vcon"
 
-    def test_build_key_with_created_at_and_nested_prefix(self):
-        """Test key building with created_at and nested prefix."""
-        key = _build_s3_key("test-uuid", created_at="2024-01-15T08:00:00Z", s3_path="data/archive")
+    def test_build_key_with_date_path_and_nested_prefix(self):
+        """Test key building with date_path and nested prefix."""
+        key = _build_s3_key("test-uuid", date_path="2024/01/15", s3_path="data/archive")
         assert key == "data/archive/2024/01/15/test-uuid.vcon"
 
 
@@ -253,7 +290,7 @@ class TestSave:
         }
 
     def test_save_basic(self, mock_vcon, base_opts):
-        """Test basic save operation with date folder."""
+        """Test basic save operation writes vcon file and lookup pointer."""
         with patch("server.storage.s3.VconRedis") as mock_redis_class, \
              patch("server.storage.s3.boto3.client") as mock_boto_client:
 
@@ -267,14 +304,16 @@ class TestSave:
             save("test-uuid", base_opts)
 
             mock_redis.get_vcon.assert_called_once_with("test-uuid")
-            mock_s3.put_object.assert_called_once()
+            assert mock_s3.put_object.call_count == 2
 
-            call_args = mock_s3.put_object.call_args
-            assert call_args.kwargs["Bucket"] == "test-bucket"
-            assert call_args.kwargs["Key"] == "2025/12/10/test-uuid.vcon"
+            calls = {c.kwargs["Key"]: c.kwargs for c in mock_s3.put_object.call_args_list}
+            assert "2025/12/10/test-uuid.vcon" in calls
+            assert calls["2025/12/10/test-uuid.vcon"]["Bucket"] == "test-bucket"
+            assert "lookup/test-uuid.txt" in calls
+            assert calls["lookup/test-uuid.txt"]["Body"] == b"2025/12/10"
 
     def test_save_with_s3_path_prefix(self, mock_vcon, base_opts):
-        """Test save operation with s3_path prefix and date folder."""
+        """Test save operation with s3_path prefix writes correct keys."""
         base_opts["s3_path"] = "vcons"
 
         with patch("server.storage.s3.VconRedis") as mock_redis_class, \
@@ -289,8 +328,10 @@ class TestSave:
 
             save("test-uuid", base_opts)
 
-            call_args = mock_s3.put_object.call_args
-            assert call_args.kwargs["Key"] == "vcons/2025/12/10/test-uuid.vcon"
+            calls = {c.kwargs["Key"]: c.kwargs for c in mock_s3.put_object.call_args_list}
+            assert "vcons/2025/12/10/test-uuid.vcon" in calls
+            assert "vcons/lookup/test-uuid.txt" in calls
+            assert calls["vcons/lookup/test-uuid.txt"]["Body"] == b"2025/12/10"
 
     def test_save_with_region(self, mock_vcon, base_opts):
         """Test save operation with region specified."""
@@ -344,45 +385,43 @@ class TestGet:
             "aws_bucket": "test-bucket",
         }
 
+    def _make_s3_mock(self, vcon_data: dict, date_path: str = "2025/12/10"):
+        """Return a mock S3 client that serves a lookup pointer then the vcon."""
+        mock_s3 = MagicMock()
+        lookup_response = {"Body": BytesIO(date_path.encode())}
+        vcon_response = {"Body": BytesIO(json.dumps(vcon_data).encode("utf-8"))}
+        mock_s3.get_object.side_effect = [lookup_response, vcon_response]
+        return mock_s3
+
     def test_get_basic(self, base_opts):
-        """Test basic get operation."""
+        """Test get resolves path via lookup pointer then fetches vcon."""
         vcon_data = {"uuid": "test-uuid", "vcon": "1.0.0"}
 
         with patch("server.storage.s3.boto3.client") as mock_boto_client:
-            mock_s3 = MagicMock()
-            mock_response = {
-                "Body": BytesIO(json.dumps(vcon_data).encode("utf-8"))
-            }
-            mock_s3.get_object.return_value = mock_response
+            mock_s3 = self._make_s3_mock(vcon_data, "2025/12/10")
             mock_boto_client.return_value = mock_s3
 
             result = get("test-uuid", base_opts)
 
             assert result == vcon_data
-            mock_s3.get_object.assert_called_once_with(
-                Bucket="test-bucket",
-                Key="test-uuid.vcon"
-            )
+            assert mock_s3.get_object.call_count == 2
+            mock_s3.get_object.assert_any_call(Bucket="test-bucket", Key="lookup/test-uuid.txt")
+            mock_s3.get_object.assert_any_call(Bucket="test-bucket", Key="2025/12/10/test-uuid.vcon")
 
     def test_get_with_s3_path_prefix(self, base_opts):
-        """Test get operation with s3_path prefix."""
+        """Test get uses prefixed lookup and vcon keys when s3_path is set."""
         base_opts["s3_path"] = "vcons"
         vcon_data = {"uuid": "test-uuid"}
 
         with patch("server.storage.s3.boto3.client") as mock_boto_client:
-            mock_s3 = MagicMock()
-            mock_response = {
-                "Body": BytesIO(json.dumps(vcon_data).encode("utf-8"))
-            }
-            mock_s3.get_object.return_value = mock_response
+            mock_s3 = self._make_s3_mock(vcon_data, "2025/12/10")
             mock_boto_client.return_value = mock_s3
 
             result = get("test-uuid", base_opts)
 
-            mock_s3.get_object.assert_called_once_with(
-                Bucket="test-bucket",
-                Key="vcons/test-uuid.vcon"
-            )
+            assert result == vcon_data
+            mock_s3.get_object.assert_any_call(Bucket="test-bucket", Key="vcons/lookup/test-uuid.txt")
+            mock_s3.get_object.assert_any_call(Bucket="test-bucket", Key="vcons/2025/12/10/test-uuid.vcon")
 
     def test_get_with_region(self, base_opts):
         """Test get operation with region specified."""
@@ -390,11 +429,7 @@ class TestGet:
         vcon_data = {"uuid": "test-uuid"}
 
         with patch("server.storage.s3.boto3.client") as mock_boto_client:
-            mock_s3 = MagicMock()
-            mock_response = {
-                "Body": BytesIO(json.dumps(vcon_data).encode("utf-8"))
-            }
-            mock_s3.get_object.return_value = mock_response
+            mock_s3 = self._make_s3_mock(vcon_data)
             mock_boto_client.return_value = mock_s3
 
             result = get("test-uuid", base_opts)
@@ -406,19 +441,8 @@ class TestGet:
                 region_name="eu-west-1",
             )
 
-    def test_get_returns_none_on_error(self, base_opts):
-        """Test that get returns None on S3 error."""
-        with patch("server.storage.s3.boto3.client") as mock_boto_client:
-            mock_s3 = MagicMock()
-            mock_s3.get_object.side_effect = Exception("S3 Error")
-            mock_boto_client.return_value = mock_s3
-
-            result = get("test-uuid", base_opts)
-
-            assert result is None
-
-    def test_get_returns_none_on_not_found(self, base_opts):
-        """Test that get returns None when object not found."""
+    def test_get_returns_none_on_lookup_error(self, base_opts):
+        """Test that get returns None when the lookup pointer is missing."""
         from botocore.exceptions import ClientError
 
         with patch("server.storage.s3.boto3.client") as mock_boto_client:
@@ -430,6 +454,91 @@ class TestGet:
             result = get("nonexistent-uuid", base_opts)
 
             assert result is None
+
+    def test_get_returns_none_on_vcon_fetch_error(self, base_opts):
+        """Test that get returns None when the vcon object fetch fails."""
+        from botocore.exceptions import ClientError
+
+        with patch("server.storage.s3.boto3.client") as mock_boto_client:
+            mock_s3 = MagicMock()
+            lookup_response = {"Body": BytesIO(b"2025/12/10")}
+            error_response = {"Error": {"Code": "NoSuchKey", "Message": "Not found"}}
+            mock_s3.get_object.side_effect = [
+                lookup_response,
+                ClientError(error_response, "GetObject"),
+            ]
+            mock_boto_client.return_value = mock_s3
+
+            result = get("test-uuid", base_opts)
+
+            assert result is None
+
+
+class TestDelete:
+    """Tests for the delete function."""
+
+    @pytest.fixture
+    def base_opts(self):
+        return {
+            "aws_access_key_id": "test-access-key",
+            "aws_secret_access_key": "test-secret-key",
+            "aws_bucket": "test-bucket",
+        }
+
+    def test_delete_basic(self, base_opts):
+        """Test delete removes the vcon file and lookup pointer."""
+        with patch("server.storage.s3.boto3.client") as mock_boto_client:
+            mock_s3 = MagicMock()
+            mock_s3.get_object.return_value = {"Body": BytesIO(b"2025/12/10")}
+            mock_boto_client.return_value = mock_s3
+
+            result = delete("test-uuid", base_opts)
+
+            assert result is True
+            mock_s3.delete_object.assert_any_call(Bucket="test-bucket", Key="2025/12/10/test-uuid.vcon")
+            mock_s3.delete_object.assert_any_call(Bucket="test-bucket", Key="lookup/test-uuid.txt")
+            assert mock_s3.delete_object.call_count == 2
+
+    def test_delete_with_s3_path_prefix(self, base_opts):
+        """Test delete uses prefixed keys when s3_path is set."""
+        base_opts["s3_path"] = "vcons"
+
+        with patch("server.storage.s3.boto3.client") as mock_boto_client:
+            mock_s3 = MagicMock()
+            mock_s3.get_object.return_value = {"Body": BytesIO(b"2025/12/10")}
+            mock_boto_client.return_value = mock_s3
+
+            result = delete("test-uuid", base_opts)
+
+            assert result is True
+            mock_s3.delete_object.assert_any_call(Bucket="test-bucket", Key="vcons/2025/12/10/test-uuid.vcon")
+            mock_s3.delete_object.assert_any_call(Bucket="test-bucket", Key="vcons/lookup/test-uuid.txt")
+
+    def test_delete_returns_false_when_not_found(self, base_opts):
+        """Test delete returns False when the lookup pointer is missing."""
+        from botocore.exceptions import ClientError
+
+        with patch("server.storage.s3.boto3.client") as mock_boto_client:
+            mock_s3 = MagicMock()
+            error_response = {"Error": {"Code": "NoSuchKey", "Message": "Not found"}}
+            mock_s3.get_object.side_effect = ClientError(error_response, "GetObject")
+            mock_boto_client.return_value = mock_s3
+
+            result = delete("nonexistent-uuid", base_opts)
+
+            assert result is False
+            mock_s3.delete_object.assert_not_called()
+
+    def test_delete_returns_false_on_error(self, base_opts):
+        """Test delete returns False on unexpected S3 error."""
+        with patch("server.storage.s3.boto3.client") as mock_boto_client:
+            mock_s3 = MagicMock()
+            mock_s3.get_object.side_effect = Exception("S3 Error")
+            mock_boto_client.return_value = mock_s3
+
+            result = delete("test-uuid", base_opts)
+
+            assert result is False
 
 
 class TestRegionErrorScenario:
