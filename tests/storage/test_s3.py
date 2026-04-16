@@ -18,9 +18,9 @@ from io import BytesIO
 # Mock the logger module before importing the S3 module
 mock_logger = MagicMock()
 sys.modules["lib.logging_utils"] = MagicMock(init_logger=MagicMock(return_value=mock_logger))
-sys.modules["server.lib.vcon_redis"] = MagicMock()
+sys.modules["lib.vcon_redis"] = MagicMock()
 
-from server.storage.s3 import _create_s3_client, _build_s3_key, _build_lookup_key, _date_prefix, save, get, delete, default_options
+from storage.s3 import _create_s3_client, _build_s3_key, _build_lookup_key, _date_prefix, save, get, delete, default_options
 
 
 class TestCreateS3Client:
@@ -33,7 +33,7 @@ class TestCreateS3Client:
             "aws_secret_access_key": "test-secret-key",
         }
 
-        with patch("server.storage.s3.boto3.client") as mock_client:
+        with patch("storage.s3.boto3.client") as mock_client:
             _create_s3_client(opts)
 
             mock_client.assert_called_once_with(
@@ -50,7 +50,7 @@ class TestCreateS3Client:
             "aws_region": "us-west-2",
         }
 
-        with patch("server.storage.s3.boto3.client") as mock_client:
+        with patch("storage.s3.boto3.client") as mock_client:
             _create_s3_client(opts)
 
             mock_client.assert_called_once_with(
@@ -68,7 +68,7 @@ class TestCreateS3Client:
             "aws_region": "us-east-2",
         }
 
-        with patch("server.storage.s3.boto3.client") as mock_client:
+        with patch("storage.s3.boto3.client") as mock_client:
             _create_s3_client(opts)
 
             mock_client.assert_called_once_with(
@@ -86,7 +86,7 @@ class TestCreateS3Client:
             "endpoint_url": "http://localhost:9000",
         }
 
-        with patch("server.storage.s3.boto3.client") as mock_client:
+        with patch("storage.s3.boto3.client") as mock_client:
             _create_s3_client(opts)
 
             mock_client.assert_called_once_with(
@@ -105,7 +105,7 @@ class TestCreateS3Client:
             "endpoint_url": "https://s3.eu-west-1.amazonaws.com",
         }
 
-        with patch("server.storage.s3.boto3.client") as mock_client:
+        with patch("storage.s3.boto3.client") as mock_client:
             _create_s3_client(opts)
 
             mock_client.assert_called_once_with(
@@ -124,7 +124,7 @@ class TestCreateS3Client:
             "aws_region": "",
         }
 
-        with patch("server.storage.s3.boto3.client") as mock_client:
+        with patch("storage.s3.boto3.client") as mock_client:
             _create_s3_client(opts)
 
             mock_client.assert_called_once_with(
@@ -141,7 +141,7 @@ class TestCreateS3Client:
             "aws_region": None,
         }
 
-        with patch("server.storage.s3.boto3.client") as mock_client:
+        with patch("storage.s3.boto3.client") as mock_client:
             _create_s3_client(opts)
 
             mock_client.assert_called_once_with(
@@ -172,7 +172,7 @@ class TestCreateS3Client:
                 "aws_region": region,
             }
 
-            with patch("server.storage.s3.boto3.client") as mock_client:
+            with patch("storage.s3.boto3.client") as mock_client:
                 _create_s3_client(opts)
 
                 mock_client.assert_called_once_with(
@@ -291,8 +291,8 @@ class TestSave:
 
     def test_save_basic(self, mock_vcon, base_opts):
         """Test basic save operation writes vcon file and lookup pointer."""
-        with patch("server.storage.s3.VconRedis") as mock_redis_class, \
-             patch("server.storage.s3.boto3.client") as mock_boto_client:
+        with patch("storage.s3.VconRedis") as mock_redis_class, \
+             patch("storage.s3.boto3.client") as mock_boto_client:
 
             mock_redis = MagicMock()
             mock_redis.get_vcon.return_value = mock_vcon
@@ -316,8 +316,8 @@ class TestSave:
         """Test save operation with s3_path prefix writes correct keys."""
         base_opts["s3_path"] = "vcons"
 
-        with patch("server.storage.s3.VconRedis") as mock_redis_class, \
-             patch("server.storage.s3.boto3.client") as mock_boto_client:
+        with patch("storage.s3.VconRedis") as mock_redis_class, \
+             patch("storage.s3.boto3.client") as mock_boto_client:
 
             mock_redis = MagicMock()
             mock_redis.get_vcon.return_value = mock_vcon
@@ -337,8 +337,8 @@ class TestSave:
         """Test save operation with region specified."""
         base_opts["aws_region"] = "us-east-2"
 
-        with patch("server.storage.s3.VconRedis") as mock_redis_class, \
-             patch("server.storage.s3.boto3.client") as mock_boto_client:
+        with patch("storage.s3.VconRedis") as mock_redis_class, \
+             patch("storage.s3.boto3.client") as mock_boto_client:
 
             mock_redis = MagicMock()
             mock_redis.get_vcon.return_value = mock_vcon
@@ -358,8 +358,8 @@ class TestSave:
 
     def test_save_raises_exception_on_error(self, mock_vcon, base_opts):
         """Test that save raises exception on S3 error."""
-        with patch("server.storage.s3.VconRedis") as mock_redis_class, \
-             patch("server.storage.s3.boto3.client") as mock_boto_client:
+        with patch("storage.s3.VconRedis") as mock_redis_class, \
+             patch("storage.s3.boto3.client") as mock_boto_client:
 
             mock_redis = MagicMock()
             mock_redis.get_vcon.return_value = mock_vcon
@@ -397,7 +397,7 @@ class TestGet:
         """Test get resolves path via lookup pointer then fetches vcon."""
         vcon_data = {"uuid": "test-uuid", "vcon": "1.0.0"}
 
-        with patch("server.storage.s3.boto3.client") as mock_boto_client:
+        with patch("storage.s3.boto3.client") as mock_boto_client:
             mock_s3 = self._make_s3_mock(vcon_data, "2025/12/10")
             mock_boto_client.return_value = mock_s3
 
@@ -413,7 +413,7 @@ class TestGet:
         base_opts["s3_path"] = "vcons"
         vcon_data = {"uuid": "test-uuid"}
 
-        with patch("server.storage.s3.boto3.client") as mock_boto_client:
+        with patch("storage.s3.boto3.client") as mock_boto_client:
             mock_s3 = self._make_s3_mock(vcon_data, "2025/12/10")
             mock_boto_client.return_value = mock_s3
 
@@ -428,7 +428,7 @@ class TestGet:
         base_opts["aws_region"] = "eu-west-1"
         vcon_data = {"uuid": "test-uuid"}
 
-        with patch("server.storage.s3.boto3.client") as mock_boto_client:
+        with patch("storage.s3.boto3.client") as mock_boto_client:
             mock_s3 = self._make_s3_mock(vcon_data)
             mock_boto_client.return_value = mock_s3
 
@@ -445,7 +445,7 @@ class TestGet:
         """Test that get returns None when the lookup pointer is missing."""
         from botocore.exceptions import ClientError
 
-        with patch("server.storage.s3.boto3.client") as mock_boto_client:
+        with patch("storage.s3.boto3.client") as mock_boto_client:
             mock_s3 = MagicMock()
             error_response = {"Error": {"Code": "NoSuchKey", "Message": "Not found"}}
             mock_s3.get_object.side_effect = ClientError(error_response, "GetObject")
@@ -459,7 +459,7 @@ class TestGet:
         """Test that get returns None when the vcon object fetch fails."""
         from botocore.exceptions import ClientError
 
-        with patch("server.storage.s3.boto3.client") as mock_boto_client:
+        with patch("storage.s3.boto3.client") as mock_boto_client:
             mock_s3 = MagicMock()
             lookup_response = {"Body": BytesIO(b"2025/12/10")}
             error_response = {"Error": {"Code": "NoSuchKey", "Message": "Not found"}}
@@ -487,7 +487,7 @@ class TestDelete:
 
     def test_delete_basic(self, base_opts):
         """Test delete removes the vcon file and lookup pointer."""
-        with patch("server.storage.s3.boto3.client") as mock_boto_client:
+        with patch("storage.s3.boto3.client") as mock_boto_client:
             mock_s3 = MagicMock()
             mock_s3.get_object.return_value = {"Body": BytesIO(b"2025/12/10")}
             mock_boto_client.return_value = mock_s3
@@ -503,7 +503,7 @@ class TestDelete:
         """Test delete uses prefixed keys when s3_path is set."""
         base_opts["s3_path"] = "vcons"
 
-        with patch("server.storage.s3.boto3.client") as mock_boto_client:
+        with patch("storage.s3.boto3.client") as mock_boto_client:
             mock_s3 = MagicMock()
             mock_s3.get_object.return_value = {"Body": BytesIO(b"2025/12/10")}
             mock_boto_client.return_value = mock_s3
@@ -518,7 +518,7 @@ class TestDelete:
         """Test delete returns False when the lookup pointer is missing."""
         from botocore.exceptions import ClientError
 
-        with patch("server.storage.s3.boto3.client") as mock_boto_client:
+        with patch("storage.s3.boto3.client") as mock_boto_client:
             mock_s3 = MagicMock()
             error_response = {"Error": {"Code": "NoSuchKey", "Message": "Not found"}}
             mock_s3.get_object.side_effect = ClientError(error_response, "GetObject")
@@ -531,7 +531,7 @@ class TestDelete:
 
     def test_delete_returns_false_on_error(self, base_opts):
         """Test delete returns False on unexpected S3 error."""
-        with patch("server.storage.s3.boto3.client") as mock_boto_client:
+        with patch("storage.s3.boto3.client") as mock_boto_client:
             mock_s3 = MagicMock()
             mock_s3.get_object.side_effect = Exception("S3 Error")
             mock_boto_client.return_value = mock_s3
@@ -551,7 +551,7 @@ class TestRegionErrorScenario:
             "aws_secret_access_key": "test-secret",
         }
 
-        with patch("server.storage.s3.boto3.client") as mock_client:
+        with patch("storage.s3.boto3.client") as mock_client:
             _create_s3_client(opts)
 
             # Verify region_name is NOT passed when not specified
@@ -566,7 +566,7 @@ class TestRegionErrorScenario:
             "aws_region": "us-east-2",
         }
 
-        with patch("server.storage.s3.boto3.client") as mock_client:
+        with patch("storage.s3.boto3.client") as mock_client:
             _create_s3_client(opts)
 
             call_kwargs = mock_client.call_args.kwargs
@@ -585,7 +585,7 @@ class TestEndpointUrlScenarios:
             "endpoint_url": "http://localhost:9000",
         }
 
-        with patch("server.storage.s3.boto3.client") as mock_client:
+        with patch("storage.s3.boto3.client") as mock_client:
             _create_s3_client(opts)
 
             call_kwargs = mock_client.call_args.kwargs
@@ -600,7 +600,7 @@ class TestEndpointUrlScenarios:
             "aws_region": "us-east-1",
         }
 
-        with patch("server.storage.s3.boto3.client") as mock_client:
+        with patch("storage.s3.boto3.client") as mock_client:
             _create_s3_client(opts)
 
             call_kwargs = mock_client.call_args.kwargs
@@ -616,7 +616,7 @@ class TestEndpointUrlScenarios:
             "aws_region": "nyc3",
         }
 
-        with patch("server.storage.s3.boto3.client") as mock_client:
+        with patch("storage.s3.boto3.client") as mock_client:
             _create_s3_client(opts)
 
             call_kwargs = mock_client.call_args.kwargs
