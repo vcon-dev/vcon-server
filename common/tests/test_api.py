@@ -1,3 +1,6 @@
+import json
+import os
+
 from fastapi.testclient import TestClient
 from vcon_fixture import generate_mock_vcon
 import pytest
@@ -85,6 +88,26 @@ def test_create_vcon_with_extra_attribute():
         response = client.get("/vcon/{}".format(test_vcon["uuid"]))
         assert response.status_code == 200
         assert response.json()["meta"] == {"foo": "bar"}
+
+
+_INVALID_FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "invalid_fixtures")
+
+
+@pytest.mark.parametrize("filename", [
+    "bad_party_ref.json",
+    "bad_duration.json",
+    "bad_url.json",
+    "bad_mimetype.json",
+])
+def test_invalid_vcon_rejected(filename):
+    """Malformed vCons must be rejected with 422, not silently accepted."""
+    with open(os.path.join(_INVALID_FIXTURES_DIR, filename)) as f:
+        broken_vcon = json.load(f)
+    with TestClient(app=api.app, headers={CONSERVER_HEADER_NAME: CONSERVER_API_TOKEN}) as client:
+        response = client.post("/vcon", json=broken_vcon)
+    assert response.status_code == 422, (
+        f"{filename} was unexpectedly accepted: status={response.status_code}, body={response.json()}"
+    )
 
 
 @pytest.mark.anyio
