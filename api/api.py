@@ -21,6 +21,7 @@ storage backend again.
 """
 
 import os
+import re
 import traceback
 from typing import Dict, List, Optional
 from uuid import UUID
@@ -38,7 +39,7 @@ from playhouse.postgres_ext import (
     PostgresqlExtDatabase,
     UUIDField,
 )
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 from starlette.status import HTTP_403_FORBIDDEN
 
 from config import Configuration
@@ -278,6 +279,79 @@ async def get_queue_depth(
         raise HTTPException(status_code=500, detail="Failed to get queue depth")
 
 
+# --- vCon field validation constants & helpers ---
+
+_VALID_ALG = frozenset({
+    "SHA-256", "SHA-384", "SHA-512",
+    "HS256", "HS384", "HS512",
+    "RS256", "RS384", "RS512",
+    "ES256", "ES384", "ES512",
+    "PS256", "PS384", "PS512",
+})
+_MIME_RE = re.compile(
+    r'^[a-zA-Z0-9][a-zA-Z0-9!\#$&\-^_]*/[a-zA-Z0-9][a-zA-Z0-9!\#$&\-^_.+]*$'
+)
+_URL_RE = re.compile(r'^[a-zA-Z][a-zA-Z0-9+\-.]*://.+')
+_TEL_RE = re.compile(r'^[+\d(][\d\s\-().+xX#*]{4,}$')
+
+
+class DialogEntry(BaseModel):
+    """A single dialog entry within a vCon."""
+    model_config = ConfigDict(extra='allow')
+
+    duration: Optional[float] = None
+    start:    Optional[str]   = None
+    parties:  Optional[List[int]] = None
+    url:      Optional[str]   = None
+    mimetype: Optional[str]   = None
+    alg:      Optional[str]   = None
+
+    @field_validator("duration")
+    @classmethod
+    def duration_non_negative(cls, v):
+        if v is not None and v < 0:
+            raise ValueError("duration must be >= 0")
+        return v
+
+    @field_validator("url")
+    @classmethod
+    def url_valid(cls, v):
+        if v is not None and not _URL_RE.match(v):
+            raise ValueError(f"url does not look like a valid URL: {v!r}")
+        return v
+
+    @field_validator("mimetype")
+    @classmethod
+    def mimetype_valid(cls, v):
+        if v is not None and not _MIME_RE.match(v):
+            raise ValueError(f"mimetype has invalid format: {v!r}")
+        return v
+
+    @field_validator("alg")
+    @classmethod
+    def alg_known(cls, v):
+        if v is not None and v not in _VALID_ALG:
+            raise ValueError(f"alg {v!r} is not a recognised algorithm")
+        return v
+
+
+class PartyEntry(BaseModel):
+    """A single party entry within a vCon."""
+    model_config = ConfigDict(extra='allow')
+
+    tel: Optional[str] = None
+
+    @field_validator("tel")
+    @classmethod
+    def tel_valid(cls, v):
+        if v is not None and not _TEL_RE.match(v):
+            raise ValueError(f"tel has invalid format: {v!r}")
+        return v
+
+
+# --- end vCon field validation ---
+
+
 class Vcon(BaseModel):
     """Pydantic model representing a vCon (Voice Conversation) record.
     
@@ -302,10 +376,24 @@ class Vcon(BaseModel):
     redacted: dict = {}
     appended: Optional[dict] = None
     group: List[Dict] = []
-    parties: List[Dict] = []
-    dialog: List[Dict] = []
+    parties: List[PartyEntry] = []
+    dialog: List[DialogEntry] = []
     analysis: List[Dict] = []
     attachments: List[Dict] = []
+
+    @model_validator(mode='after')
+    def check_party_refs(self) -> 'Vcon':
+        """Ensure every dialog.parties index references an existing party."""
+        n = len(self.parties)
+        for i, d in enumerate(self.dialog):
+            if d.parties:
+                for ref in d.parties:
+                    if ref < 0 or ref >= n:
+                        raise ValueError(
+                            f"dialog[{i}].parties contains index {ref} "
+                            f"which is out of range (parties has {n} entries)"
+                        )
+        return self
 
 
 if VCON_STORAGE:

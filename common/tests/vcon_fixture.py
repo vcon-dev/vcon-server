@@ -21,6 +21,25 @@ def generate_mock_vcon():
         "attachments": [],
     }
 
+    # Generate parties first so dialog can reference valid indices.
+    # Minimum 2 parties so the hardcoded [0, 1] party references are always valid.
+    num_parties = random.randint(2, 5)
+    for i in range(num_parties):
+        vcon["parties"].append(
+            {
+                "tel": fake.phone_number(),
+                "meta": {"role": random.choice(["agent", "customer"])},
+                "name": fake.name(),
+                "stir": None,
+                "jcard": None,
+                "gmlpos": None,
+                "mailto": fake.email(),
+                "timezone": None,
+                "validation": None,
+                "civicaddress": None,
+            }
+        )
+
     num_dialogs = random.randint(1, 5)
     for i in range(num_dialogs):
         vcon["dialog"].append(
@@ -42,23 +61,6 @@ def generate_mock_vcon():
                 "filename": None,
                 "mimetype": "audio/x-wav",
                 "signature": fake.sha256(),
-            }
-        )
-
-    num_parties = random.randint(1, 5)
-    for i in range(num_parties):
-        vcon["parties"].append(
-            {
-                "tel": fake.phone_number(),
-                "meta": {"role": random.choice(["agent", "customer"])},
-                "name": fake.name(),
-                "stir": None,
-                "jcard": None,
-                "gmlpos": None,
-                "mailto": fake.email(),
-                "timezone": None,
-                "validation": None,
-                "civicaddress": None,
             }
         )
 
