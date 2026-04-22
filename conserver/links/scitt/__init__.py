@@ -10,6 +10,7 @@ from links.scitt import create_hashed_signed_statement, register_signed_statemen
 from fastapi import HTTPException
 from lib.vcon_redis import VconRedis
 from lib.logging_utils import init_logger
+from lib.metrics import increment_counter
 from starlette.status import HTTP_404_NOT_FOUND
 
 logger = init_logger(__name__)
@@ -175,20 +176,29 @@ def run(
             operation_payload = f"{payload}:{operation}"
             meta_map = {"vcon_operation": operation}
 
-        signed_statement = create_hashed_signed_statement.create_hashed_signed_statement(
-            issuer=opts["issuer"],
-            signing_key=signing_key,
-            subject=subject,
-            kid=opts["key_id"].encode("utf-8"),
-            meta_map=meta_map,
-            payload=operation_payload.encode("utf-8"),
-            payload_hash_alg="SHA-256",
-            payload_location="",
-            pre_image_content_type="application/vcon+json",
-        )
+        attrs = {"link.name": link_name, "vcon.uuid": vcon_uuid}
+        try:
+            signed_statement = create_hashed_signed_statement.create_hashed_signed_statement(
+                issuer=opts["issuer"],
+                signing_key=signing_key,
+                subject=subject,
+                kid=opts["key_id"].encode("utf-8"),
+                meta_map=meta_map,
+                payload=operation_payload.encode("utf-8"),
+                payload_hash_alg="SHA-256",
+                payload_location="",
+                pre_image_content_type="application/vcon+json",
+            )
+        except Exception:
+            increment_counter("conserver.link.scitt.statement_creation_failures", attributes=attrs)
+            raise
         logger.info(f"{link_name}: Created signed statement for {vcon_uuid} subject={subject} ({operation})")
 
-        result = register_signed_statement.register_statement(scrapi_url, signed_statement)
+        try:
+            result = register_signed_statement.register_statement(scrapi_url, signed_statement)
+        except Exception:
+            increment_counter("conserver.link.scitt.registration_failures", attributes=attrs)
+            raise
         logger.info(f"{link_name}: Registered entry_id={result['entry_id']} subject={subject} for {vcon_uuid}")
 
         statement_hash = hashlib.sha256(operation_payload.encode("utf-8")).digest()

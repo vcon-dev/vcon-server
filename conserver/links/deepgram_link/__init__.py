@@ -235,6 +235,7 @@ def run(
             logger.info("Dialog %s already transcribed on vCon: %s", index, vCon.uuid)
             continue
 
+        attrs = {"link.name": link_name, "vcon.uuid": vcon_uuid}
         start = time.time()
         try:
             if opts.get("LITELLM_PROXY_URL") and opts.get("LITELLM_MASTER_KEY"):
@@ -248,26 +249,26 @@ def run(
                 result = transcribe_dg(dg_client, dialog, opts["api"], vcon_uuid=vcon_uuid, run_opts=opts)
         except Exception as e:
             logger.error("Failed to transcribe vCon %s after multiple retries: %s", vcon_uuid, e, exc_info=True)
-            increment_counter("conserver.link.deepgram.transcription_failures")
+            increment_counter("conserver.link.deepgram.transcription_failures", attributes=attrs)
             raise e
         elapsed = time.time() - start
-        record_histogram("conserver.link.deepgram.transcription_time", elapsed)
+        record_histogram("conserver.link.deepgram.transcription_time", elapsed, attributes=attrs)
         logger.info(f"Transcription for dialog {index} took {elapsed:.2f} seconds.")
 
         if not result:
             logger.warning("No transcription generated for vCon %s, dialog %s", vcon_uuid, index)
-            increment_counter("conserver.link.deepgram.transcription_failures")
+            increment_counter("conserver.link.deepgram.transcription_failures", attributes=attrs)
             break
 
         # Log and track confidence (not available for LiteLLM/OpenAI-format transcription)
         confidence = result.get("confidence")
         if confidence is not None:
-            record_histogram("conserver.link.deepgram.confidence", confidence)
+            record_histogram("conserver.link.deepgram.confidence", confidence, attributes=attrs)
             logger.info(f"Transcription confidence for dialog {index}: {confidence}")
             # If the confidence is too low, don't store the transcript
             if confidence < opts["minimum_confidence"]:
                 logger.warning("Low confidence result for vCon %s, dialog %s: %s", vcon_uuid, index, confidence)
-                increment_counter("conserver.link.deepgram.transcription_failures")
+                increment_counter("conserver.link.deepgram.transcription_failures", attributes=attrs)
                 continue
         else:
             logger.info(f"Confidence not available for dialog {index} (LiteLLM path), skipping threshold check")

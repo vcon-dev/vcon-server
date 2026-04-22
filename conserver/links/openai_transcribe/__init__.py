@@ -535,6 +535,7 @@ def run(
             continue
 
         # Initialize OpenAI client for each dialog (in case key changes)
+        attrs = {"link.name": link_name, "vcon.uuid": vcon_uuid}
         start = time.time()
         result = None
         try:
@@ -542,15 +543,15 @@ def run(
             result = transcribe_openai(dialog["url"], opts, vcon_uuid)
         except Exception as e:
             logger.error("Failed to transcribe vCon %s after multiple retries: %s", vcon_uuid, e, exc_info=True)
-            increment_counter("conserver.link.openai.transcription_failures")
+            increment_counter("conserver.link.openai.transcription_failures", attributes=attrs)
             raise e
         elapsed = time.time() - start
-        record_histogram("conserver.link.openai.transcription_time", elapsed)
+        record_histogram("conserver.link.openai.transcription_time", elapsed, attributes=attrs)
         logger.info(f"Transcription for dialog {index} took {elapsed:.2f} seconds.")
 
         if not result:
             logger.warning("No transcription generated for vCon %s, dialog %s", vcon_uuid, index)
-            increment_counter("conserver.link.openai.transcription_failures")
+            increment_counter("conserver.link.openai.transcription_failures", attributes=attrs)
             break
 
         logger.info("Transcribed vCon: %s, dialog: %s", vCon.uuid, index)

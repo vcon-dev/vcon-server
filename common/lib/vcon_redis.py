@@ -1,5 +1,6 @@
 from typing import Optional
 from lib.logging_utils import init_logger
+from lib.metrics import increment_counter
 from redis.commands.json.path import Path
 from redis_mgr import redis
 from settings import VCON_REDIS_EXPIRY
@@ -49,6 +50,7 @@ class VconRedis:
             f"vcon:{vcon_id}", Path.root_path()
         )
         if not vcon_dict:
+            increment_counter("conserver.lib.vcon_redis.get_vcon_not_found")
             return None
         _vcon = vcon.Vcon(vcon_dict)
         return _vcon
