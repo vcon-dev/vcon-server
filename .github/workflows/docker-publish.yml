@@ -1,4 +1,4 @@
-name: Build and Push Docker image
+name: Build and Push Docker images
 
 # CalVer Release Workflow
 #
@@ -6,11 +6,15 @@ name: Build and Push Docker image
 # Version format: YYYY.MM.DD (e.g., 2026.01.16)
 # If multiple releases happen on the same day, adds sequence: YYYY.MM.DD.2, YYYY.MM.DD.3, etc.
 #
+# Two separate images are built and pushed for both linux/amd64 and linux/arm64:
+#   vcon-server-api        — lightweight FastAPI/uvicorn image (main deps only)
+#   vcon-server-conserver  — full processing image (main + links + storage deps)
+#
 # Build strategy: native runners (no QEMU) for maximum speed
 #   amd64 builds on ubuntu-latest
 #   arm64 builds on ubuntu-24.04-arm
 #
-# Docker tags created (linux/amd64 + linux/arm64 multi-arch manifest):
+# Docker tags created for each image:
 #   - CalVer tag (e.g., 2026.01.16)       [main only]
 #   - latest                               [main only]
 #   - Branch name (e.g., main)
@@ -18,7 +22,7 @@ name: Build and Push Docker image
 
 on:
   push:
-    branches: [main, release-test]
+    branches: [main, release-test, optimize-docker-images]
     tags: ['v*']
 
 jobs:
@@ -35,7 +39,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Fetch all history for tags
+          fetch-depth: 0
 
       - name: Generate CalVer version
         id: calver
@@ -89,10 +93,28 @@ jobs:
     strategy:
       matrix:
         include:
-          - platform: linux/amd64
+          - service: api
+            dockerfile: ./docker/Dockerfile.api
+            image: public.ecr.aws/r4g1k2s3/vcon-dev/vcon-server-api
+            platform: linux/amd64
             platform_tag: amd64
             runner: ubuntu-latest
-          - platform: linux/arm64
+          - service: api
+            dockerfile: ./docker/Dockerfile.api
+            image: public.ecr.aws/r4g1k2s3/vcon-dev/vcon-server-api
+            platform: linux/arm64
+            platform_tag: arm64
+            runner: ubuntu-24.04-arm
+          - service: conserver
+            dockerfile: ./docker/Dockerfile.conserver
+            image: public.ecr.aws/r4g1k2s3/vcon-dev/vcon-server-conserver
+            platform: linux/amd64
+            platform_tag: amd64
+            runner: ubuntu-latest
+          - service: conserver
+            dockerfile: ./docker/Dockerfile.conserver
+            image: public.ecr.aws/r4g1k2s3/vcon-dev/vcon-server-conserver
+            platform: linux/arm64
             platform_tag: arm64
             runner: ubuntu-24.04-arm
 
@@ -110,16 +132,16 @@ jobs:
           username: ${{ secrets.AWS_ACCESS_KEY }}
           password: ${{ secrets.AWS_SECRET }}
 
-      - name: Build and push (${{ matrix.platform_tag }})
+      - name: Build and push ${{ matrix.service }} (${{ matrix.platform_tag }})
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./docker/Dockerfile
+          file: ${{ matrix.dockerfile }}
           platforms: ${{ matrix.platform }}
           push: true
-          cache-from: type=gha,scope=vcon-server-${{ matrix.platform_tag }}
-          cache-to: type=gha,mode=max,scope=vcon-server-${{ matrix.platform_tag }}
-          tags: public.ecr.aws/r4g1k2s3/vcon-dev/vcon-server:${{ github.ref_name }}-${{ matrix.platform_tag }}
+          cache-from: type=gha,scope=${{ matrix.service }}-${{ matrix.platform_tag }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}-${{ matrix.platform_tag }}
+          tags: ${{ matrix.image }}:${{ github.ref_name }}-${{ matrix.platform_tag }}
           build-args: |
             VCON_SERVER_VERSION=${{ needs.prepare.outputs.version }}
             VCON_SERVER_GIT_COMMIT=${{ needs.prepare.outputs.short_sha }}
@@ -131,6 +153,13 @@ jobs:
     permissions:
       contents: read
       packages: write
+    strategy:
+      matrix:
+        include:
+          - service: api
+            image: public.ecr.aws/r4g1k2s3/vcon-dev/vcon-server-api
+          - service: conserver
+            image: public.ecr.aws/r4g1k2s3/vcon-dev/vcon-server-conserver
 
     steps:
       - name: Set up Docker Buildx
@@ -143,9 +172,9 @@ jobs:
           username: ${{ secrets.AWS_ACCESS_KEY }}
           password: ${{ secrets.AWS_SECRET }}
 
-      - name: Create multi-arch manifests
+      - name: Create multi-arch manifest for ${{ matrix.service }}
         env:
-          IMAGE: public.ecr.aws/r4g1k2s3/vcon-dev/vcon-server
+          IMAGE: ${{ matrix.image }}
           VERSION: ${{ needs.prepare.outputs.version }}
           SHORT_SHA: ${{ needs.prepare.outputs.short_sha }}
           BRANCH: ${{ github.ref_name }}
@@ -186,21 +215,18 @@ jobs:
 
             ### Docker Images
 
-            Both `linux/amd64` and `linux/arm64` are supported.
+            Both images support `linux/amd64` and `linux/arm64`.
 
-            Pull using CalVer:
+            **API service** (FastAPI/uvicorn, lightweight):
             ```bash
-            docker pull public.ecr.aws/r4g1k2s3/vcon-dev/vcon-server:${{ needs.prepare.outputs.version }}
+            docker pull public.ecr.aws/r4g1k2s3/vcon-dev/vcon-server-api:${{ needs.prepare.outputs.version }}
+            docker pull public.ecr.aws/r4g1k2s3/vcon-dev/vcon-server-api:latest
             ```
 
-            Pull using git hash:
+            **Conserver service** (processing pipeline, full dependencies):
             ```bash
-            docker pull public.ecr.aws/r4g1k2s3/vcon-dev/vcon-server:main-${{ needs.prepare.outputs.short_sha }}
-            ```
-
-            Pull latest:
-            ```bash
-            docker pull public.ecr.aws/r4g1k2s3/vcon-dev/vcon-server:latest
+            docker pull public.ecr.aws/r4g1k2s3/vcon-dev/vcon-server-conserver:${{ needs.prepare.outputs.version }}
+            docker pull public.ecr.aws/r4g1k2s3/vcon-dev/vcon-server-conserver:latest
             ```
           draft: false
           prerelease: false
@@ -218,8 +244,6 @@ jobs:
           echo "| **Build Time** | ${{ needs.prepare.outputs.build_time }} |" >> $GITHUB_STEP_SUMMARY
           echo "| **Branch** | ${{ github.ref_name }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Docker Tags (linux/amd64 + linux/arm64)" >> $GITHUB_STEP_SUMMARY
-          echo "- \`${{ needs.prepare.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \`latest\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \`main\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \`main-${{ needs.prepare.outputs.short_sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "### Docker Images Built (linux/amd64 + linux/arm64)" >> $GITHUB_STEP_SUMMARY
+          echo "- \`vcon-server-api\` — API service (main deps only)" >> $GITHUB_STEP_SUMMARY
+          echo "- \`vcon-server-conserver\` — Conserver service (main + links + storage)" >> $GITHUB_STEP_SUMMARY

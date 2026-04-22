@@ -1,0 +1,44 @@
+# API service image — FastAPI/uvicorn only, no audio or ML packages.
+# Installs only the "api" dependency group from pyproject.toml.
+FROM python:3.12-slim
+
+ARG VCON_SERVER_VERSION=dev
+ARG VCON_SERVER_GIT_COMMIT=unknown
+ARG VCON_SERVER_BUILD_TIME=unknown
+
+ENV VCON_SERVER_VERSION=${VCON_SERVER_VERSION}
+ENV VCON_SERVER_GIT_COMMIT=${VCON_SERVER_GIT_COMMIT}
+ENV VCON_SERVER_BUILD_TIME=${VCON_SERVER_BUILD_TIME}
+
+# libpq5  — runtime library required by psycopg2-binary
+# redis-tools — required by wait_for_redis.sh
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        libpq5 \
+        redis-tools \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=ghcr.io/astral-sh/uv:0.10.9 /uv /usr/local/bin/uv
+ENV UV_SYSTEM_PYTHON=1
+
+WORKDIR /app
+
+COPY pyproject.toml uv.lock /app/
+
+# Install core + API-specific dependencies (FastAPI, uvicorn, peewee, etc.).
+# Venv at /opt/venv (not /app) so docker-compose volume mounts don't wipe it.
+# --seed adds pip so opentelemetry-bootstrap can use it.
+RUN uv venv --seed /opt/venv && UV_PROJECT_ENVIRONMENT=/opt/venv uv sync --frozen --no-dev --group api
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Auto-install OTel instrumentation packages for the installed libraries.
+RUN opentelemetry-bootstrap -a install
+
+COPY common/ /app/common/
+COPY api/ /app/api/
+COPY docker/ /app/docker/
+
+ENV PYTHONPATH="${PYTHONPATH}:/app/:/app/common/:/app/api/"
+
+ENTRYPOINT ["/app/docker/wait_for_redis.sh"]
+CMD ["opentelemetry-instrument", "uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]

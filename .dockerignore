@@ -4,6 +4,8 @@
 .docker
 .git
 .gitignore
+.github
+.claude
 .pytest_cache
 .vscode
 __pycache__
@@ -17,8 +19,6 @@ build
 *.log
 *.swp
 *.swo
-*.pyc
-*.pyo
 *.DS_Store
 *.idea
 *.coverage
@@ -27,6 +27,8 @@ docs
 examples
 htmlcov
 test-reports
+tests
+redis_data
 venv
 config.yml
 docker-compose.dev.yml

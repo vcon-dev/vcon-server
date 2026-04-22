@@ -34,9 +34,6 @@ jobs:
     - name: Run tests inside Docker container
       run: |
         docker-compose run --rm conserver bash -c "
-          # Install tests dependencies
-          poetry install &&
-          # Run the tests
           pytest --maxfail=5 --disable-warnings
         "
 

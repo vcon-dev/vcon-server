@@ -22,3 +22,5 @@ tmp
 
 traefik/
 redis_data/
+litellm_config.yaml
+litellm_config.yml
