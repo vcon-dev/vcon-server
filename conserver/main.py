@@ -243,8 +243,9 @@ class VconChainRequest:
                 "chain_name": self.chain_details["name"]
             }
         )
-        record_histogram("conserver.main_loop.vcon_processing_time", vcon_processing_time)
-        increment_counter("conserver.main_loop.count_vcons_processed")
+        chain_attrs = {"chain.name": self.chain_details["name"]}
+        record_histogram("conserver.main_loop.vcon_processing_time", vcon_processing_time, attributes=chain_attrs)
+        increment_counter("conserver.main_loop.count_vcons_processed", attributes=chain_attrs)
         
         # End span if created - exit the context manager
         if self._span_context_manager:
@@ -515,6 +516,15 @@ class VconChainRequest:
                 started = time.time()
                 should_continue_chain = module.run(self.vcon_id, link_name, options)
                 link_processing_time = round(time.time() - started, 3)
+                record_histogram(
+                    "conserver.link.execution_time",
+                    link_processing_time,
+                    attributes={
+                        "link.name": link_name,
+                        "vcon.uuid": self.vcon_id,
+                        "chain.name": self.chain_details["name"],
+                    },
+                )
                 logger.info(
                     "Completed link %s (module: %s) for vCon: %s in %s seconds",
                     link_name,

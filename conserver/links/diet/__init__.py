@@ -1,5 +1,6 @@
 from redis_mgr import redis
 from lib.logging_utils import init_logger
+from lib.metrics import increment_counter
 import json
 import requests
 import uuid
@@ -134,6 +135,8 @@ def run(vcon_uuid, link_name, opts=default_options):
     for key, value in options.items():
         logger.info("diet::%s: %s", key, _redact_option_value(key, value))
 
+    attrs = {"link.name": link_name, "vcon.uuid": vcon_uuid}
+
     # Load vCon from Redis using JSON.GET
     vcon = redis.json().get(f"vcon:{vcon_uuid}")
     if not vcon:
@@ -180,9 +183,11 @@ def run(vcon_uuid, link_name, opts=default_options):
                             else:
                                 dialog["body"] = ""
                         else:
+                            increment_counter("conserver.link.diet.media_post_failures", attributes=attrs)
                             logger.error(f"Failed to post media: {response.status_code}")
                             dialog["body"] = ""
                     except Exception as e:
+                        increment_counter("conserver.link.diet.media_post_failures", attributes=attrs)
                         logger.error(f"Exception posting media: {e}")
                         dialog["body"] = ""
                 else:

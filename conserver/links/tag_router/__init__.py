@@ -1,5 +1,6 @@
 from lib.logging_utils import init_logger
 from lib.vcon_redis import VconRedis
+from lib.metrics import increment_counter
 from redis_mgr import redis
 
 logger = init_logger(__name__)
@@ -67,6 +68,8 @@ def run(vcon_uuid, link_name, opts=default_options):
         logger.debug(f"No tags found in vCon {vcon_uuid}")
         return vcon_uuid if opts.get("forward_original") else None
 
+    attrs = {"link.name": link_name, "vcon.uuid": vcon_uuid}
+
     # Route the vCon to the appropriate Redis lists based on tags
     routed = False
     for tag in tags:
@@ -75,11 +78,16 @@ def run(vcon_uuid, link_name, opts=default_options):
             logger.info(f"Routing vCon {vcon_uuid} to list '{target_list}' based on tag '{tag}'")
             # Push the vCon UUID to the target Redis list
             redis.rpush(target_list, str(vcon_uuid))
+            increment_counter(
+                "conserver.link.tag_router.routes_matched",
+                attributes={**attrs, "route": target_list},
+            )
             routed = True
         else:
             logger.debug(f"No route configured for tag '{tag}'")
-    
+
     if routed:
+        increment_counter("conserver.link.tag_router.routed_count", attributes=attrs)
         logger.info(f"Successfully routed vCon {vcon_uuid} based on tags")
     else:
         logger.info(f"No applicable routes found for vCon {vcon_uuid}")

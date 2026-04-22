@@ -268,13 +268,14 @@ class VConLLMProcessor:
             logger.info("No transcript found in vCon: %s", vcon_uuid)
             return vcon_uuid
 
+        attrs = {"link.name": link_name, "vcon.uuid": vcon_uuid}
         try:
             start = time.time()
             result = self.llm.analyze(transcript_text)
-            record_histogram("conserver.link.huggingface.llm_time", time.time() - start)
+            record_histogram("conserver.link.huggingface.llm_time", time.time() - start, attributes=attrs)
         except (RetryError, Exception) as e:
             logger.error("Failed to analyze vCon %s: %s", vcon_uuid, str(e))
-            increment_counter("conserver.link.huggingface.llm_failures")
+            increment_counter("conserver.link.huggingface.llm_failures", attributes=attrs)
             return vcon_uuid
 
         self._add_analysis_to_vcon(vcon, result)

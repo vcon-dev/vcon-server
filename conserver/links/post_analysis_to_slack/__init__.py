@@ -1,5 +1,6 @@
 from lib.vcon_redis import VconRedis
 from lib.logging_utils import init_logger
+from lib.metrics import increment_counter
 from slack_sdk.web import WebClient
 
 logger = init_logger(__name__)
@@ -41,7 +42,7 @@ def get_summary(vcon, index):
     return None
 
 
-def post_blocks_to_channel(token, channel_name, abstract, url, opts):
+def post_blocks_to_channel(token, channel_name, abstract, url, opts, attrs=None):
     blocks = [
         {
             "type": "section",
@@ -64,6 +65,8 @@ def post_blocks_to_channel(token, channel_name, abstract, url, opts):
     try:
         client.chat_postMessage(channel=channel_name, blocks=blocks, text=abstract)
     except Exception as e:
+        if attrs:
+            increment_counter("conserver.link.slack.fallback_channel_used", attributes=attrs)
         # Code to run if an exception is raised
         client.chat_postMessage(
             channel=opts["default_channel_name"],
@@ -83,6 +86,8 @@ def run(vcon_id, link_name, opts=default_options):
 
     vcon_redis = VconRedis()
     vcon = vcon_redis.get_vcon(vcon_id)
+
+    attrs = {"link.name": link_name, "vcon.uuid": vcon_id}
 
     for a in vcon.analysis:
         # we still need to run this check give the following scenario:
@@ -107,12 +112,20 @@ def run(vcon_id, link_name, opts=default_options):
         if team_name and team_name != "strolid":
             channel_name = f"team-{team_name}-alerts"
             abstract = abstract + f" #{dealer_name}"
-            post_blocks_to_channel(opts["token"], channel_name, abstract, url, opts)
+            try:
+                post_blocks_to_channel(opts["token"], channel_name, abstract, url, opts, attrs=attrs)
+            except Exception:
+                increment_counter("conserver.link.slack.post_failures", attributes=attrs)
+                raise
 
-        post_blocks_to_channel(opts["token"], opts["default_channel_name"], abstract, url, opts)
+        try:
+            post_blocks_to_channel(opts["token"], opts["default_channel_name"], abstract, url, opts, attrs=attrs)
+        except Exception:
+            increment_counter("conserver.link.slack.post_failures", attributes=attrs)
+            raise
         a["was_posted_to_slack"] = True
 
     vcon_redis.store_vcon(vcon)
 
     if propogate_to_next_link:
-        return vcon_id  #
+        return vcon_id
