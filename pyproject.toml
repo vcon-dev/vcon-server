@@ -49,9 +49,29 @@ api = [
 
 # Conserver service dependencies — processing links (ML/AI/audio) and storage backends.
 # Install with: uv sync --group conserver
+#
+# For a slimmer image without ML/AI packages (roughly -1.5 GB), use the
+# "conserver_slim" group instead. Pair it with --group link_ml only if you
+# configure transcribe/analyze links; otherwise the conserver still runs
+# links that touch only Redis and HTTP (tag, jq_link, webhook, sampler,
+# file/postgres/s3/mongo storage).
 conserver = [
+    {include-group = "conserver_slim"},
+    {include-group = "link_ml"},
+]
+
+# Slim conserver — storage backends + hot-reload only, no ML/AI.
+# Install with: uv sync --group conserver_slim
+conserver_slim = [
     {include-group = "storage"},
-    # Processing links
+    # Hot-reload wrapper used by docker-compose watchmedo (dev only; harmless in prod).
+    "watchdog",
+]
+
+# ML / audio packages used by specific processing links. Pull in on top of
+# `conserver_slim` when you configure links that need them.
+# Install with: uv sync --group conserver_slim --group link_ml
+link_ml = [
     "transformers>=4.48.0",
     "openai>=1.60.0",
     "groq>=0.4.0",
@@ -60,8 +80,6 @@ conserver = [
     "ffmpeg-python>=0.2.0",
     "pydub>=0.25.1",
     "jq>=1.8.0",
-    # Hot-reload wrapper used by docker-compose watchmedo
-    "watchdog",
 ]
 
 # Development / test dependencies.

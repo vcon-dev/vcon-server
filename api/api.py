@@ -44,8 +44,10 @@ from starlette.status import HTTP_403_FORBIDDEN
 
 from config import Configuration
 from dlq_utils import get_ingress_list_dlq_name
+from exceptions import VconError
 from lib.context_utils import store_context_async, extract_otel_trace_context
 from lib.logging_utils import init_logger
+from middleware.errors import vcon_error_handler
 from services import vcon_service
 import redis_mgr
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -189,6 +191,10 @@ async def on_shutdown() -> None:
 # Register startup/shutdown handlers
 app.add_event_handler("startup", on_startup)
 app.add_event_handler("shutdown", on_shutdown)
+
+# Consistent error envelope for domain exceptions — see common/exceptions.py
+# and api/middleware/errors.py. Ad-hoc HTTPException sites are not affected.
+app.add_exception_handler(VconError, vcon_error_handler)
 
 # Configure CORS middleware
 app.add_middleware(
