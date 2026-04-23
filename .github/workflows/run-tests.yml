@@ -34,8 +34,28 @@ jobs:
     - name: Run tests inside Docker container
       run: |
         docker-compose run --rm conserver bash -c "
-          pytest --maxfail=5 --disable-warnings
+          pytest \
+            --cov=api --cov=common --cov=conserver \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml \
+            --cov-report=html:htmlcov
         "
+
+    - name: Upload coverage XML artifact
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-xml
+        path: coverage.xml
+        if-no-files-found: ignore
+
+    - name: Upload coverage HTML artifact
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-html
+        path: htmlcov/
+        if-no-files-found: ignore
 
     - name: Clean up
       if: always()

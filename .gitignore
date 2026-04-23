@@ -18,6 +18,9 @@ litellm_config.yaml
 tmp
 *.pem
 .coverage
+.coverage.*
+coverage.xml
+htmlcov/
 .qodo
 
 traefik/

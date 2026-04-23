@@ -1,0 +1,20 @@
+[run]
+source =
+    api
+    common
+    conserver
+omit =
+    */tests/*
+    */test_*.py
+    */*_test.py
+    */conftest.py
+    */.venv/*
+
+[report]
+exclude_lines =
+    pragma: no cover
+    raise NotImplementedError
+    if __name__ == .__main__.:
+    if TYPE_CHECKING:
+show_missing = true
+skip_empty = true
