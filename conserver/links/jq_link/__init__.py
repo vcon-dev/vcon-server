@@ -1,77 +1,71 @@
-from lib.logging_utils import init_logger
-from lib.vcon_redis import VconRedis
-from lib.metrics import increment_counter
+"""JQ filter link — forwards or drops vCons based on a jq expression.
+
+Migrated to the BaseLink convention (Refactor #2).
+"""
+from typing import Optional
+
 import jq
 
-logger = init_logger(__name__)
+from lib.metrics import increment_counter
+from lib.vcon_redis import VconRedis  # noqa: F401 — exposed so tests may patch it
+from links.base import BaseLink, run_link
 
-default_options = {
-    # jq filter expression to evaluate
-    "filter": ".",
-    # if True, forward vCons that match the filter
-    # if False, forward vCons that don't match the filter
-    "forward_matches": True,
-}
 
-def run(vcon_uuid, link_name, opts=default_options):
-    """JQ Filter link that uses jq expressions to filter vCons.
+class JqLink(BaseLink):
+    default_options = {
+        # jq filter expression to evaluate
+        "filter": ".",
+        # if True, forward vCons that match the filter
+        # if False, forward vCons that don't match the filter
+        "forward_matches": True,
+    }
 
-    Args:
-        vcon_uuid: UUID of the vCon to process
-        link_name: Name of this link instance
-        opts: Link options containing:
-            filter: jq filter expression to evaluate
-            forward_matches: If True, forward matching vCons, if False forward non-matching ones
+    def execute(self, vcon_uuid: str) -> Optional[str]:
+        self.logger.debug("Starting jq_link::execute for %s", vcon_uuid)
 
-    Returns:
-        vcon_uuid if the vCon should be forwarded, None if it should be filtered out
-    """
-    logger.debug(f"Starting {__name__}::run")
+        vcon = self.vcon_redis.get_vcon(vcon_uuid)
+        if not vcon:
+            self.logger.error(f"Could not find vCon {vcon_uuid}")
+            return None
 
-    # Merge options
-    merged_opts = default_options.copy()
-    merged_opts.update(opts)
-    opts = merged_opts
+        vcon_dict = vcon.to_dict()
+        attrs = {"link.name": self.link_name, "vcon.uuid": vcon_uuid}
+        filter_expr = self.opts["filter"]
 
-    # Get the vCon
-    vcon_redis = VconRedis()
-    vcon = vcon_redis.get_vcon(vcon_uuid)
-    if not vcon:
-        logger.error(f"Could not find vCon {vcon_uuid}")
-        return None
+        try:
+            self.logger.debug(f"Applying jq filter '{filter_expr}' to vCon {vcon_uuid}")
+            program = jq.compile(filter_expr)
+            results = list(program.input(vcon_dict))
+            if not results:
+                self.logger.debug(f"JQ filter returned no results for vCon {vcon_uuid}")
+                matches = False
+            else:
+                matches = bool(results[0])
+            self.logger.debug(f"JQ filter results: {results}")
+        except Exception as e:
+            increment_counter("conserver.link.jq.filter_errors", attributes=attrs)
+            self.logger.error(
+                f"Error applying jq filter '{filter_expr}' to vCon {vcon_uuid}: {e}"
+            )
+            self.logger.debug(f"vCon content: {vcon_dict}")
+            return None
 
-    # Convert vCon to dict for jq
-    vcon_dict = vcon.to_dict()
-    attrs = {"link.name": link_name, "vcon.uuid": vcon_uuid}
-
-    try:
-        # Apply the jq filter
-        # Compile and run the jq program
-        logger.debug(f"Applying jq filter '{opts['filter']}' to vCon {vcon_uuid}")
-        program = jq.compile(opts["filter"])
-        results = list(program.input(vcon_dict))
-
-        # Handle empty results
-        if not results:
-            logger.debug(f"JQ filter returned no results for vCon {vcon_uuid}")
-            matches = False
-        else:
-            matches = bool(results[0])
-
-        logger.debug(f"JQ filter results: {results}")
-    except Exception as e:
-        increment_counter("conserver.link.jq.filter_errors", attributes=attrs)
-        logger.error(f"Error applying jq filter '{opts['filter']}' to vCon {vcon_uuid}: {e}")
-        logger.debug(f"vCon content: {vcon_dict}")
-        return None
-
-    # Forward based on matches and forward_matches setting
-    should_forward = matches == opts["forward_matches"]
-
-    if should_forward:
-        logger.info(f"vCon {vcon_uuid} {'' if matches else 'did not '}match filter - forwarding")
-        return vcon_uuid
-    else:
+        should_forward = matches == self.opts["forward_matches"]
+        if should_forward:
+            self.logger.info(
+                f"vCon {vcon_uuid} {'' if matches else 'did not '}match filter - forwarding"
+            )
+            return vcon_uuid
         increment_counter("conserver.link.jq.vcon_filtered_out", attributes=attrs)
-        logger.info(f"vCon {vcon_uuid} {'' if matches else 'did not '}match filter - filtering out")
+        self.logger.info(
+            f"vCon {vcon_uuid} {'' if matches else 'did not '}match filter - filtering out"
+        )
         return None
+
+
+# Backward-compat module-level alias.
+default_options = JqLink.default_options
+
+
+def run(vcon_uuid, link_name, opts=None):
+    return run_link(JqLink, vcon_uuid, link_name, opts)

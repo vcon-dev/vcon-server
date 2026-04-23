@@ -1,131 +1,86 @@
+"""Sampler link — probabilistically filters vCons before they continue a chain.
+
+Migrated to the BaseLink convention (Refactor #2). Unlike most links this one
+does not read or mutate the vCon (sampling is a pure function of the UUID and
+options), so it does not touch Redis.
+"""
+from __future__ import annotations
+
+import hashlib
 import random
 import time
-import hashlib
-from lib.logging_utils import init_logger
+from typing import Optional
+
 from lib.metrics import increment_counter
-
-logger = init_logger(__name__)
-
-default_options = {"method": "percentage", "value": 50, "seed": None}
+from links.base import BaseLink, run_link
 
 
-def run(vcon_uuid: str, link_name: str, opts: dict = default_options) -> str | None:
-    """
-    Sample incoming vCons based on the specified method and parameters.
+class SamplerLink(BaseLink):
+    default_options = {"method": "percentage", "value": 50, "seed": None}
 
-    This function decides whether to keep or filter out a vCon based on the
-    sampling method and its associated value. If the vCon passes the sampling
-    criteria, its UUID is returned. Otherwise, None is returned, effectively
-    filtering out the vCon.
+    def execute(self, vcon_uuid: str) -> Optional[str]:
+        if self.opts["seed"] is not None:
+            random.seed(self.opts["seed"])
 
-    Args:
-        vcon_uuid (str): The UUID of the incoming vCon.
-        link_name (str): The name of the link (unused in this function, but required for compatibility).
-        opts (dict): A dictionary of options for the sampling method. Defaults to default_options.
+        method = self.opts["method"]
+        value = self.opts["value"]
+        attrs = {
+            "link.name": self.link_name,
+            "vcon.uuid": vcon_uuid,
+            "method": method,
+        }
 
-    Returns:
-        str | None: The vCon UUID if it passes the sampling criteria, None otherwise.
-
-    Raises:
-        ValueError: If an unknown sampling method is specified.
-
-    Example:
-        result = run("some-vcon-uuid", "sampling-link", {"method": "percentage", "value": 30})
-        if result:
-            print("vCon passed sampling")
+        if method == "percentage":
+            result = _percentage_sampling(vcon_uuid, value)
+        elif method == "rate":
+            result = _rate_sampling(vcon_uuid, value)
+        elif method == "modulo":
+            result = _modulo_sampling(vcon_uuid, value)
+        elif method == "time_based":
+            result = _time_based_sampling(vcon_uuid, value)
         else:
-            print("vCon filtered out")
-    """
-    options = {**default_options, **opts}
+            raise ValueError(f"Unknown sampling method: {method}")
 
-    if options["seed"] is not None:
-        random.seed(options["seed"])
-
-    method = options["method"]
-    value = options["value"]
-    attrs = {"link.name": link_name, "vcon.uuid": vcon_uuid, "method": method}
-
-    if method == "percentage":
-        result = _percentage_sampling(vcon_uuid, value)
-    elif method == "rate":
-        result = _rate_sampling(vcon_uuid, value)
-    elif method == "modulo":
-        result = _modulo_sampling(vcon_uuid, value)
-    elif method == "time_based":
-        result = _time_based_sampling(vcon_uuid, value)
-    else:
-        raise ValueError(f"Unknown sampling method: {method}")
-
-    if result:
-        increment_counter("conserver.link.sampler.sampled_in", attributes=attrs)
-    else:
-        increment_counter("conserver.link.sampler.sampled_out", attributes=attrs)
-    return result
+        if result:
+            increment_counter("conserver.link.sampler.sampled_in", attributes=attrs)
+        else:
+            increment_counter("conserver.link.sampler.sampled_out", attributes=attrs)
+        return result
 
 
-def _percentage_sampling(vcon_uuid: str, percentage: float) -> str | None:
-    """
-    Perform percentage-based sampling.
+# Backward-compat module-level alias.
+default_options = SamplerLink.default_options
 
-    Args:
-        vcon_uuid (str): The UUID of the vCon.
-        percentage (float): The percentage of vCons to keep (0-100).
 
-    Returns:
-        str | None: The vCon UUID if it passes the sampling, None otherwise.
-    """
+def run(vcon_uuid, link_name, opts=None):
+    return run_link(SamplerLink, vcon_uuid, link_name, opts)
+
+
+def _percentage_sampling(vcon_uuid: str, percentage: float) -> Optional[str]:
+    """Keep `percentage`% of vCons at random."""
     if random.uniform(0, 100) <= percentage:
         return vcon_uuid
     return None
 
 
-def _rate_sampling(vcon_uuid: str, rate: float) -> str | None:
-    """
-    Perform rate-based sampling.
-
-    Args:
-        vcon_uuid (str): The UUID of the vCon.
-        rate (float): The average number of seconds between samples.
-
-    Returns:
-        str | None: The vCon UUID if it passes the sampling, None otherwise.
-    """
+def _rate_sampling(vcon_uuid: str, rate: float) -> Optional[str]:
+    """Sample using an exponential distribution with mean `rate` seconds."""
     if random.expovariate(1.0 / rate) <= 1:
         return vcon_uuid
     return None
 
 
-def _modulo_sampling(vcon_uuid: str, modulo: int) -> str | None:
-    """
-    Perform modulo-based sampling.
-
-    Args:
-        vcon_uuid (str): The UUID of the vCon.
-        modulo (int): A positive integer n, where every nth vCon is kept.
-
-    Returns:
-        str | None: The vCon UUID if it passes the sampling, None otherwise.
-    """
-    # Use SHA-256 for consistent hashing
+def _modulo_sampling(vcon_uuid: str, modulo: int) -> Optional[str]:
+    """Keep every nth vCon deterministically based on UUID hash."""
     hash_value = hashlib.sha256(vcon_uuid.encode()).hexdigest()
-    # Convert first 8 characters of hash to integer
     hash_int = int(hash_value[:8], 16)
     if hash_int % modulo == 0:
         return vcon_uuid
     return None
 
 
-def _time_based_sampling(vcon_uuid: str, interval: int) -> str | None:
-    """
-    Perform time-based sampling.
-
-    Args:
-        vcon_uuid (str): The UUID of the vCon.
-        interval (int): A positive integer n, where vCons are kept every n seconds.
-
-    Returns:
-        str | None: The vCon UUID if it passes the sampling, None otherwise.
-    """
+def _time_based_sampling(vcon_uuid: str, interval: int) -> Optional[str]:
+    """Keep vCons only when current second % interval == 0."""
     current_time = int(time.time())
     if current_time % interval == 0:
         return vcon_uuid

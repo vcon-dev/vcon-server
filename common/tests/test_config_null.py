@@ -1,7 +1,21 @@
 """Tests for get_config() handling of null/empty config files (CON-510)."""
 
 from unittest.mock import patch, mock_open
+
+import pytest
+
+import config as config_module
 from config import get_config
+
+
+@pytest.fixture(autouse=True)
+def _reset_config_cache():
+    """Reset the module-level cache so each test observes a fresh load."""
+    config_module._config = None
+    config_module._config_cache_key = None
+    yield
+    config_module._config = None
+    config_module._config_cache_key = None
 
 
 class TestGetConfigNullHandling:
