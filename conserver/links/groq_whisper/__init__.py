@@ -15,61 +15,25 @@ import sys
 from typing import Optional, Dict, Any, Union
 import importlib
 
-# -----------------------------------------------------------------------------
-# CRITICAL: Low-level monkey patching to resolve proxy issues
-# -----------------------------------------------------------------------------
-# The issue we're encountering is that httpx is picking up proxy settings from somewhere,
-# and they're being injected into the Groq client initialization.
-# We need to patch httpx before any Groq imports happen.
-
-# Setup minimal logging for startup
-startup_logger = logging.getLogger("server.links.groq_whisper.startup")
-startup_logger.setLevel(logging.INFO)
-handler = logging.StreamHandler()
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-handler.setFormatter(formatter)
-startup_logger.addHandler(handler)
-
-# Clear proxy environment variables
-proxy_env_vars = ['HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'no_proxy']
-for var in proxy_env_vars:
-    if var in os.environ:
-        startup_logger.warning(f"Unsetting proxy environment variable: {var}")
-        del os.environ[var]
-
-# Try to import and patch httpx before any Groq imports happen
-try:
-    import httpx
-    
-    # Store original Client class
-    OriginalClient = httpx.Client
-    
-    # Create a patched Client class
-    class PatchedClient(OriginalClient):
-        def __init__(self, *args, **kwargs):
-            # Remove proxy-related arguments
-            for key in ['proxies', 'proxy']:
-                if key in kwargs:
-                    startup_logger.warning(f"Removing '{key}' from httpx.Client initialization")
-                    del kwargs[key]
-            # Call original init with cleaned kwargs
-            super().__init__(*args, **kwargs)
-    
-    # Replace the httpx.Client with our patched version
-    httpx.Client = PatchedClient
-    startup_logger.info("Successfully patched httpx.Client to ignore proxy settings")
-    
-except ImportError:
-    startup_logger.warning("Could not import httpx for patching")
-except Exception as e:
-    startup_logger.error(f"Failed to patch httpx: {e}")
-
-# Now we can safely import the rest of the dependencies
+import httpx
 import requests
 from tenacity import RetryError
-
-# Import Groq client - should now be safe with patched httpx
 from groq import Groq
+
+
+def _build_groq_client(api_key: str) -> Groq:
+    """Construct a Groq client whose HTTP layer ignores process-wide proxy env vars.
+
+    The Groq service expects direct connectivity; routing through HTTP_PROXY /
+    HTTPS_PROXY env vars (which some hosts set globally) caused auth failures.
+    We solve this *surgically* by giving the Groq client its own httpx.Client
+    with trust_env=False, instead of the previous approach of monkey-patching
+    httpx.Client globally and deleting proxy env vars at import time (which
+    leaked into every other library in the process and broke on httpx/groq
+    version bumps).
+    """
+    http_client = httpx.Client(trust_env=False, timeout=httpx.Timeout(60.0))
+    return Groq(api_key=api_key, http_client=http_client)
 
 from lib.error_tracking import init_error_tracker
 from lib.logging_utils import init_logger
@@ -167,9 +131,11 @@ def transcribe_groq_whisper(dialog: dict, opts: dict) -> Union[Dict[str, Any], A
         temp_file.write(content)
         temp_file.flush()
         
-        # Initialize Groq client with API key
+        # Initialize Groq client with API key. The client uses a dedicated
+        # httpx.Client(trust_env=False) so process-wide proxy env vars don't
+        # get injected into Groq requests. See _build_groq_client().
         api_key = opts['API_KEY']
-        client = Groq(api_key=api_key)
+        client = _build_groq_client(api_key)
         
         # Log client initialization
         logger.info(f"Initialized Groq client with version: {getattr(client, '__version__', 'unknown')}")
