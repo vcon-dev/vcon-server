@@ -1,13 +1,7 @@
 import re
 from urllib.parse import unquote, urlparse
 from lib.logging_utils import init_logger
-import logging
-from tenacity import (
-    retry,
-    stop_after_attempt,
-    wait_exponential,
-    before_sleep_log,
-)  # for exponential backoff
+from lib.retry import with_backoff
 from lib.vcon_redis import VconRedis
 from lib.error_tracking import init_error_tracker
 from lib.metrics import record_histogram, increment_counter
@@ -341,13 +335,7 @@ def combine_transcription_results(results: list) -> dict:
     return combined_result
 
 
-@retry(
-    wait=wait_exponential(
-        multiplier=2, min=1, max=65
-    ),  # Exponential backoff: 1, 2, 4, ... up to 32 seconds, max total < 65s
-    stop=stop_after_attempt(6),  # Retry up to 6 times
-    before_sleep=before_sleep_log(logger, logging.INFO),
-)
+@with_backoff(max_attempts=6, multiplier=2, min_wait=1, max_wait=65, logger=logger)
 def transcribe_openai(url: str, opts: dict = None, vcon_uuid: str = None) -> dict:
     """
     Get the transcription result from the Azure OpenAI Whisper API.

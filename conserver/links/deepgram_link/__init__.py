@@ -3,19 +3,14 @@ import os
 import tempfile
 from lib.logging_utils import init_logger
 from lib.openai_client import get_openai_client
-import logging
 from deepgram import DeepgramClient, PrerecordedOptions
-from tenacity import (
-    retry,
-    stop_after_attempt,
-    wait_exponential,
-    before_sleep_log,
-)  # for exponential backoff
 from lib.vcon_redis import VconRedis
 import json
 from lib.error_tracking import init_error_tracker
 from lib.metrics import record_histogram, increment_counter
 from lib.ai_usage import send_ai_usage_data_for_tracking
+from lib.redact import redact
+from lib.retry import with_backoff
 import time
 import io
 import requests
@@ -34,11 +29,7 @@ logger = init_logger(__name__)
 default_options = {"minimum_duration": 60, "DEEPGRAM_KEY": None, "minimum_confidence": 0.5}
 
 
-@retry(
-    wait=wait_exponential(multiplier=2, min=1, max=65),
-    stop=stop_after_attempt(6),
-    before_sleep=before_sleep_log(logger, logging.INFO),
-)
+@with_backoff(max_attempts=6, multiplier=2, min_wait=1, max_wait=65, logger=logger)
 def transcribe_via_litellm(url: str, opts: dict) -> Optional[dict]:
     """
     Transcribe audio at url via LiteLLM proxy (OpenAI-compatible /audio/transcriptions).
@@ -97,13 +88,7 @@ def get_transcription(vcon, index):
     return None
 
 
-@retry(
-    wait=wait_exponential(
-        multiplier=2, min=1, max=65
-    ),  # Exponential backoff: 1, 2, 4, ... up to 32 seconds, max total < 65s
-    stop=stop_after_attempt(6),  # Retry up to 6 times
-    before_sleep=before_sleep_log(logger, logging.INFO),
-)
+@with_backoff(max_attempts=6, multiplier=2, min_wait=1, max_wait=65, logger=logger)
 def transcribe_dg(dg_client, dialog, opts, vcon_uuid=None, run_opts=None) -> Optional[dict]:
     """
     Call Deepgram API to transcribe the audio at dialog['url'] with given options.
@@ -276,15 +261,7 @@ def run(
         logger.info("Transcribed vCon: %s, dialog: %s", vCon.uuid, index)
 
         # Prepare vendor schema, omitting credentials
-        vendor_schema = {}
-        sensitive_keys = {
-            "DEEPGRAM_KEY",
-            "ai_usage_api_token",
-            "send_ai_usage_data_to_url",
-            "LITELLM_PROXY_URL",
-            "LITELLM_MASTER_KEY",
-        }
-        vendor_schema["opts"] = {k: v for k, v in opts.items() if k not in sensitive_keys}
+        vendor_schema = {"opts": redact(opts)}
 
         # Add the transcript analysis to the vCon
         vCon.add_analysis(

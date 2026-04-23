@@ -66,13 +66,7 @@ except Exception as e:
 
 # Now we can safely import the rest of the dependencies
 import requests
-from tenacity import (
-    RetryError,
-    before_sleep_log,
-    retry,
-    stop_after_attempt,
-    wait_exponential,
-)
+from tenacity import RetryError
 
 # Import Groq client - should now be safe with patched httpx
 from groq import Groq
@@ -80,6 +74,7 @@ from groq import Groq
 from lib.error_tracking import init_error_tracker
 from lib.logging_utils import init_logger
 from lib.metrics import record_histogram, increment_counter
+from lib.retry import with_backoff
 from lib.vcon_redis import VconRedis
 
 # Initialize services
@@ -149,11 +144,7 @@ def get_file_content(dialog: dict) -> bytes:
         raise Exception("Dialog contains neither inline body nor external URL")
 
 
-@retry(
-    wait=wait_exponential(multiplier=2, min=12, max=100),
-    stop=stop_after_attempt(6),
-    before_sleep=before_sleep_log(logger, logging.INFO),
-)
+@with_backoff(max_attempts=6, multiplier=2, min_wait=12, max_wait=100, logger=logger)
 def transcribe_groq_whisper(dialog: dict, opts: dict) -> Union[Dict[str, Any], Any]:
     """Send audio to Groq Whisper API for transcription using the Groq Python library.
 
