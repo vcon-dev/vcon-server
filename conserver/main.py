@@ -24,7 +24,7 @@ import redis_mgr
 
 from config import get_config, get_worker_count, is_parallel_storage_enabled, get_start_method
 from version import get_version_string, get_version_info
-from dlq_utils import get_ingress_list_dlq_name
+from dlq import move_to_dlq
 import hook
 from settings import VCON_DLQ_EXPIRY
 from lib.context_utils import retrieve_context, store_context_sync, extract_otel_trace_context
@@ -732,29 +732,7 @@ def worker_loop(worker_id: int) -> None:
                 str(e),
                 exc_info=True
             )
-            dlq_name = get_ingress_list_dlq_name(ingress_list)
-            logger.info("[%s] Moving vCon %s to DLQ: %s", worker_name, vcon_id, dlq_name)
-            logger.debug(
-                "[%s] DLQ details for vCon %s: original_queue=%s, dlq=%s, error=%s",
-                worker_name,
-                vcon_id,
-                ingress_list,
-                dlq_name,
-                str(e)
-            )
-            r.lpush(dlq_name, vcon_id)
-            
-            # Extend vCon TTL to ensure it persists while in DLQ for investigation
-            # This prevents the vCon from expiring before operators can review it
-            if VCON_DLQ_EXPIRY > 0:
-                vcon_key = f"vcon:{vcon_id}"
-                r.expire(vcon_key, VCON_DLQ_EXPIRY)
-                logger.debug(
-                    "[%s] Extended TTL on vCon %s to %ds for DLQ retention",
-                    worker_name,
-                    vcon_id,
-                    VCON_DLQ_EXPIRY
-                )
+            move_to_dlq(r, ingress_list, vcon_id, worker_name=worker_name, error=e)
         finally:
             hook.after_processing(
                 vcon_chain_request.vcon_id,
