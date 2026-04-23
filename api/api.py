@@ -46,6 +46,7 @@ from config import Configuration
 from dlq_utils import get_ingress_list_dlq_name
 from lib.context_utils import store_context_async, extract_otel_trace_context
 from lib.logging_utils import init_logger
+from services import vcon_service
 import redis_mgr
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request as StarletteRequest
@@ -750,34 +751,16 @@ async def post_vcon(
     """
     try:
         context = extract_otel_trace_context()
-        
-        dict_vcon = inbound_vcon.model_dump()
-        dict_vcon["uuid"] = str(inbound_vcon.uuid)
-        key = f"vcon:{str(dict_vcon['uuid'])}"
-        created_at = datetime.fromisoformat(str(dict_vcon["created_at"]))
-        dict_vcon["created_at"] = created_at.isoformat()
-        timestamp = int(created_at.timestamp())
-
-        logger.debug(f"Storing vCon {inbound_vcon.uuid} ({len(dict_vcon)} bytes)")
-        await redis_async.json().set(key, "$", dict_vcon)
-
-        logger.debug(f"Adding vCon {inbound_vcon.uuid} to sorted set")
-        await add_vcon_to_set(key, timestamp)
-
-        logger.debug(f"Indexing vCon {inbound_vcon.uuid}")
-        await index_vcon_parties(str(inbound_vcon.uuid), dict_vcon["parties"])
-
-        # Add to ingress lists if specified
-        if ingress_lists:
-            vcon_uuid_str = str(inbound_vcon.uuid)
-            for ingress_list in ingress_lists:
-                logger.debug(f"Adding vCon {inbound_vcon.uuid} to ingress list {ingress_list}")
-                # Store context BEFORE adding to ingress list to avoid race condition
-                # The conserver might pick up the vCon before context is stored
-                if context:
-                    await store_context_async(redis_async, ingress_list, vcon_uuid_str, context)
-                await redis_async.rpush(ingress_list, vcon_uuid_str)
-
+        logger.debug(f"Storing vCon {inbound_vcon.uuid}")
+        dict_vcon = await vcon_service.store_and_enqueue(
+            inbound_vcon=inbound_vcon,
+            redis_async=redis_async,
+            ingress_lists=ingress_lists,
+            context=context,
+            add_vcon_to_set=add_vcon_to_set,
+            index_vcon_parties=index_vcon_parties,
+            store_context_async=store_context_async,
+        )
         return JSONResponse(content=dict_vcon, status_code=201)
 
     except Exception as e:
@@ -843,38 +826,19 @@ async def external_ingress_vcon(
 
     try:
         context = extract_otel_trace_context()
-        
-        dict_vcon = inbound_vcon.model_dump()
-        dict_vcon["uuid"] = str(inbound_vcon.uuid)
-        key = f"vcon:{str(dict_vcon['uuid'])}"
-        created_at = datetime.fromisoformat(str(dict_vcon["created_at"]))
-        dict_vcon["created_at"] = created_at.isoformat()
-        timestamp = int(created_at.timestamp())
-
-        logger.debug(
-            f"Storing vCon {inbound_vcon.uuid} ({len(dict_vcon)} bytes) via external ingress"
+        logger.debug(f"Storing vCon {inbound_vcon.uuid} via external ingress")
+        await vcon_service.store_and_enqueue(
+            inbound_vcon=inbound_vcon,
+            redis_async=redis_async,
+            ingress_lists=[ingress_list],
+            context=context,
+            add_vcon_to_set=add_vcon_to_set,
+            index_vcon_parties=index_vcon_parties,
+            store_context_async=store_context_async,
         )
-        await redis_async.json().set(key, "$", dict_vcon)
-
-        logger.debug(f"Adding vCon {inbound_vcon.uuid} to sorted set")
-        await add_vcon_to_set(key, timestamp)
-
-        logger.debug(f"Indexing vCon {inbound_vcon.uuid}")
-        await index_vcon_parties(str(inbound_vcon.uuid), dict_vcon["parties"])
-
-        # Always add to the specified ingress list (required for this endpoint)
-        vcon_uuid_str = str(inbound_vcon.uuid)
-        logger.debug(f"Adding vCon {inbound_vcon.uuid} to ingress list {ingress_list}")
-        # Store context BEFORE adding to ingress list to avoid race condition
-        # The conserver might pick up the vCon before context is stored
-        if context:
-            await store_context_async(redis_async, ingress_list, vcon_uuid_str, context)
-        await redis_async.rpush(ingress_list, vcon_uuid_str)
-
         logger.info(
             f"Successfully stored vCon {inbound_vcon.uuid} and added to ingress list {ingress_list}"
         )
-
         return None
 
     except Exception as e:
