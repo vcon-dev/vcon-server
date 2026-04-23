@@ -183,7 +183,7 @@ async def on_startup() -> None:
 
 async def on_shutdown() -> None:
     """Close Redis client on application shutdown."""
-    await redis_async.close()
+    await redis_mgr.close_async_client()
 
 
 # Register startup/shutdown handlers
