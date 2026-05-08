@@ -27,6 +27,15 @@ init_error_tracker()
 # Set up a module-level logger
 logger = init_logger(__name__)
 
+AUDIT_META = {
+    "third_party_service": "OpenAI",
+    "policy_url": "https://openai.com/policies/data-processing-addendum",
+    "data_type": "audio_recording",
+    "model_key": "model",
+    "transformation": "Transcribed audio to text",
+    "safe_opts_keys": ["model"],
+}
+
 # Default options for Deepgram transcription link
 # - minimum_duration: minimum length (in seconds) for a dialog to be considered for transcription
 # - DEEPGRAM_KEY: API key for Deepgram

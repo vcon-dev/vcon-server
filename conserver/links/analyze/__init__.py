@@ -15,6 +15,15 @@ from lib.ai_usage import send_ai_usage_data_for_tracking
 
 logger = init_logger(__name__)
 
+AUDIT_META = {
+    "third_party_service": "OpenAI",
+    "policy_url": "https://openai.com/policies/data-processing-addendum",
+    "data_type": "transcript_text",
+    "model_key": "model",
+    "transformation": "Added AI analysis to transcript",
+    "safe_opts_keys": ["analysis_type", "model"],
+}
+
 default_options = {
     "prompt": "",
     "analysis_type": "summary",

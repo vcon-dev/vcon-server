@@ -1,6 +1,15 @@
 from typing import Dict, Any, Optional
 from transformers import pipeline
 
+AUDIT_META = {
+    "third_party_service": "Hugging Face",
+    "policy_url": "https://huggingface.co/privacy",
+    "data_type": "transcript_text",
+    "model_key": "model_name",
+    "transformation": "Analyzed conversation with Hugging Face LLM",
+    "safe_opts_keys": ["model_name"],
+}
+
 
 class HuggingLLMLink:
     """A vCon link for analyzing conversations using HuggingFace models."""

@@ -15,6 +15,15 @@ from lib.links.filters import is_included, randomly_execute_with_sampling
 
 logger = init_logger(__name__)
 
+AUDIT_META = {
+    "third_party_service": "OpenAI",
+    "policy_url": "https://openai.com/policies/data-processing-addendum",
+    "data_type": "transcript_text",
+    "model_key": "model",
+    "transformation": "Added AI labels to transcript",
+    "safe_opts_keys": ["analysis_type", "model"],
+}
+
 default_options = {
     "prompt": "Analyze this transcript and provide a list of relevant labels for categorization. Return your response as a JSON object with a single key 'labels' containing an array of strings.",
     "analysis_type": "labeled_analysis",
