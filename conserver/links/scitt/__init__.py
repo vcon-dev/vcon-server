@@ -15,6 +15,14 @@ from starlette.status import HTTP_404_NOT_FOUND
 
 logger = init_logger(__name__)
 
+AUDIT_META = {
+    "third_party_service": "SCITT",
+    "policy_url": None,
+    "data_type": "vcon_hash",
+    "transformation": "Anchored vCon hash to SCITT transparency log",
+    "safe_opts_keys": ["scrapi_url", "issuer"],
+}
+
 # Increment for any API/attribute changes
 link_version = "0.3.0"
 

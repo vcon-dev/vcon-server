@@ -16,6 +16,15 @@ from lib.links.filters import is_included, randomly_execute_with_sampling
 
 logger = init_logger(__name__)
 
+AUDIT_META = {
+    "third_party_service": "OpenAI",
+    "policy_url": "https://openai.com/policies/data-processing-addendum",
+    "data_type": "vcon_json",
+    "model_key": "model",
+    "transformation": "Analyzed full vCon with AI",
+    "safe_opts_keys": ["analysis_type", "model"],
+}
+
 default_options = {
     "prompt": "Analyze this vCon and return a JSON object with your analysis.",
     "analysis_type": "json_analysis",

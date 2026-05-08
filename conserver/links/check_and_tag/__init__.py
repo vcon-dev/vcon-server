@@ -15,6 +15,15 @@ from lib.links.filters import is_included, randomly_execute_with_sampling
 
 logger = init_logger(__name__)
 
+AUDIT_META = {
+    "third_party_service": "OpenAI",
+    "policy_url": "https://openai.com/policies/data-processing-addendum",
+    "data_type": "transcript_text",
+    "model_key": "model",
+    "transformation": "Evaluated and tagged transcript with AI",
+    "safe_opts_keys": ["analysis_type", "model"],
+}
+
 default_options = {
     "analysis_type": "tag_evaluation",
     "model": "gpt-5",

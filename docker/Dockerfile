@@ -35,7 +35,9 @@ RUN uv venv --seed /opt/venv && \
 ENV PATH="/opt/venv/bin:$PATH"
 
 # Auto-install OTel instrumentation packages for the installed libraries.
-RUN opentelemetry-bootstrap -a install
+# || true: bootstrap raises on version conflicts between auto-detected packages;
+# instrumentation still works for packages that installed cleanly.
+RUN opentelemetry-bootstrap -a install || true
 
 COPY . /app
 

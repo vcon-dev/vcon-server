@@ -30,6 +30,15 @@ from lib.vcon_redis import VconRedis
 init_error_tracker()
 logger = init_logger(__name__)
 
+AUDIT_META = {
+    "third_party_service": "Hugging Face",
+    "policy_url": "https://huggingface.co/privacy",
+    "data_type": "audio_recording",
+    "model_key": "api_url",
+    "transformation": "Transcribed audio to text",
+    "safe_opts_keys": ["minimum_duration"],
+}
+
 # Default configuration for the Whisper service
 default_options = {
     "minimum_duration": 30,  # Minimum duration in seconds for audio to be transcribed
