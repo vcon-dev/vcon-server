@@ -141,6 +141,55 @@ signal.signal(signal.SIGINT, signal_handler)
 init_error_tracker()
 imported_modules: Dict[str, object] = {}
 
+
+# Legacy vendor-specific transcription link modules are kept on disk for
+# back-compat but new code should use ``links.transcribe`` with a
+# ``vendor:`` option. When a chain config points at one of these legacy
+# modules we route it through ``links.transcribe`` and inject the inferred
+# vendor into the link options, then log a deprecation warning once per
+# legacy name so noisy chains don't spam the log.
+LEGACY_LINK_MODULE_ALIASES: Dict[str, str] = {
+    "links.openai_transcribe": "openai",
+    "links.groq_whisper": "groq",
+    "links.hugging_face_whisper": "hugging_face",
+    "links.deepgram_link": "deepgram",
+}
+_warned_legacy_modules: set = set()
+
+
+def _resolve_link_module_and_options(
+    module_name: str,
+    options: Optional[Dict],
+) -> tuple:
+    """Apply legacy module aliases.
+
+    Returns ``(effective_module_name, effective_options)``. The legacy
+    vendor-specific transcription modules are remapped onto
+    ``links.transcribe`` with the appropriate ``vendor`` injected. All
+    other modules pass through unchanged.
+    """
+    vendor = LEGACY_LINK_MODULE_ALIASES.get(module_name)
+    if vendor is None:
+        return module_name, options
+    if module_name not in _warned_legacy_modules:
+        logger.warning(
+            "Deprecated link module %s — use module: links.transcribe with "
+            "options.vendor: %s. Continuing with auto-redirect.",
+            module_name,
+            vendor,
+        )
+        _warned_legacy_modules.add(module_name)
+    legacy_opts = options or {}
+    # If caller already shaped the options for the new dispatcher
+    # (vendor + vendor_options), respect that. Otherwise treat the
+    # entire legacy options block as vendor_options.
+    if "vendor" in legacy_opts or "vendor_options" in legacy_opts:
+        effective_options = dict(legacy_opts)
+        effective_options.setdefault("vendor", vendor)
+    else:
+        effective_options = {"vendor": vendor, "vendor_options": legacy_opts}
+    return "links.transcribe", effective_options
+
 # Initialize Redis client (kept for context_utils which take a raw client).
 # All queue and vCon-key TTL operations should go through ``VconQueue``.
 r = redis_mgr.get_client()
@@ -505,13 +554,16 @@ class VconChainRequest:
                 "chain_name": self.chain_details["name"]
             }
         ):
-            module_name = link["module"]
+            raw_module_name = link["module"]
+            raw_options = link.get("options")
+            module_name, options = _resolve_link_module_and_options(
+                raw_module_name, raw_options
+            )
             if module_name not in imported_modules:
                 logger.debug("Importing module %s for link %s", module_name, link_name)
                 pip_name = link.get("pip_name")  # Optional pip package name from config
                 imported_modules[module_name] = import_or_install(module_name, pip_name)
             module = imported_modules[module_name]
-            options = link.get("options")
 
             try:
                 if link_index == 0:

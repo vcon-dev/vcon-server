@@ -1,7 +1,13 @@
-"""Groq Face Whisper Integration Module
+"""Groq Whisper Integration Module.
 
-This module provides integration with Groq Face's Whisper ASR service for transcribing audio content
-in vCon recordings. It handles the transcription process, error retries, and updates vCon objects with
+DEPRECATED: new chain configs should use ``links.transcribe`` with
+``options.vendor: groq``. ``conserver/main.py`` auto-reroutes any chain
+that still references ``module: links.groq_whisper`` to the dispatcher
+and emits a one-time deprecation warning.
+
+This module provides integration with Groq's Whisper ASR service for
+transcribing audio content in vCon recordings. It handles the
+transcription process, error retries, and updates vCon objects with
 transcription results.
 """
 
