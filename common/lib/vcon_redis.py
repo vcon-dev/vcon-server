@@ -23,6 +23,26 @@ class VconRedis:
     
     DEFAULT_TTL = VCON_REDIS_EXPIRY
 
+    @staticmethod
+    def _enforce_spec_on_write(vcon_dict: dict) -> dict:
+        """Ensure a vCon dict is spec-compliant before persistence.
+
+        vcon-lib 0.9.2 produces spec-correct output from ``build_new()``
+        but a ``Vcon(legacy_dict)`` round-trip can still surface empty
+        ``group``/``redacted`` defaults or a missing top-level syntax
+        param. Normalize defensively here so storage is always clean.
+        """
+        # draft-ietf-vcon-vcon-core-02 §4.1.1 — syntax param.
+        if not vcon_dict.get("vcon"):
+            vcon_dict["vcon"] = "0.4.0"
+        # speckit: ``group`` is reserved and must not be emitted empty.
+        if vcon_dict.get("group") == []:
+            vcon_dict.pop("group", None)
+        # speckit: empty ``redacted: {}`` should be omitted.
+        if vcon_dict.get("redacted") == {}:
+            vcon_dict.pop("redacted", None)
+        return vcon_dict
+
     def store_vcon(self, vCon: vcon.Vcon, ttl: Optional[int] = None) -> None:
         """Stores the vcon into redis with optional TTL.
 
@@ -32,7 +52,7 @@ class VconRedis:
                 Use DEFAULT_TTL for the configured default expiry.
         """
         key = f"vcon:{vCon.uuid}"
-        cleanvCon = vCon.to_dict()
+        cleanvCon = self._enforce_spec_on_write(vCon.to_dict())
         redis.json().set(key, Path.root_path(), cleanvCon)
         if ttl is not None:
             redis.expire(key, ttl)
@@ -69,6 +89,7 @@ class VconRedis:
                 Use DEFAULT_TTL for the configured default expiry.
         """
         key = f"vcon:{vcon_dict['uuid']}"
+        self._enforce_spec_on_write(vcon_dict)
         redis.json().set(key, Path.root_path(), vcon_dict)
         if ttl is not None:
             redis.expire(key, ttl)
@@ -150,7 +171,7 @@ class VconRedis:
                 Use DEFAULT_TTL for the configured default expiry.
         """
         key = f"vcon:{vCon.uuid}"
-        cleanvCon = vCon.to_dict()
+        cleanvCon = self._enforce_spec_on_write(vCon.to_dict())
         await redis_async.json().set(key, "$", cleanvCon)
         if ttl is not None:
             await redis_async.expire(key, ttl)
@@ -171,6 +192,7 @@ class VconRedis:
                 Use DEFAULT_TTL for the configured default expiry.
         """
         key = f"vcon:{vcon_dict['uuid']}"
+        self._enforce_spec_on_write(vcon_dict)
         await redis_async.json().set(key, "$", vcon_dict)
         if ttl is not None:
             await redis_async.expire(key, ttl)
