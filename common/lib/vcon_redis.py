@@ -1,6 +1,7 @@
 from typing import Optional
 from lib.logging_utils import init_logger
 from lib.metrics import increment_counter
+from lib.vcon_compat import normalize_legacy_fields
 from redis.commands.json.path import Path
 from redis_mgr import redis
 from settings import VCON_REDIS_EXPIRY
@@ -52,6 +53,10 @@ class VconRedis:
         if not vcon_dict:
             increment_counter("conserver.lib.vcon_redis.get_vcon_not_found")
             return None
+        # Tolerate legacy field names from older writers so links always
+        # see spec-compliant data; spec-correct writes are produced via
+        # vcon-lib 0.9.2 and the wrapper helpers.
+        normalize_legacy_fields(vcon_dict)
         _vcon = vcon.Vcon(vcon_dict)
         return _vcon
 
@@ -78,9 +83,12 @@ class VconRedis:
         Returns:
             Optional[dict]: The vCon as a dictionary, or None if not found.
         """
-        return redis.json().get(
+        vcon_dict = redis.json().get(
             f"vcon:{vcon_id}", Path.root_path()
         )
+        if vcon_dict:
+            normalize_legacy_fields(vcon_dict)
+        return vcon_dict
 
     def set_expiry(self, vcon_id: str, ttl: int) -> bool:
         """Sets or updates the TTL on an existing vCon.
