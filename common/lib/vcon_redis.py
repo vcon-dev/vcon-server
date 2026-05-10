@@ -1,4 +1,5 @@
-from typing import Optional
+import json
+from typing import Any, Optional
 from lib.logging_utils import init_logger
 from lib.metrics import increment_counter
 from lib.vcon_compat import normalize_legacy_fields
@@ -24,7 +25,24 @@ class VconRedis:
     DEFAULT_TTL = VCON_REDIS_EXPIRY
 
     @staticmethod
-    def _enforce_spec_on_write(vcon_dict: dict) -> dict:
+    def _stringify_json_body(entry: Any) -> None:
+        """Force ``body`` to be a string + correct ``encoding`` per speckit.
+
+        The speckit non-negotiable: analysis/attachment bodies are
+        strings. JSON content pairs ``body: json.dumps(...)`` with
+        ``encoding: "json"``. vcon-lib's ``add_analysis`` currently
+        emits dict/list bodies with ``encoding: "none"``, which we
+        normalize on the way out so storage is spec-correct.
+        """
+        if not isinstance(entry, dict):
+            return
+        body = entry.get("body")
+        if isinstance(body, (dict, list)):
+            entry["body"] = json.dumps(body)
+            entry["encoding"] = "json"
+
+    @classmethod
+    def _enforce_spec_on_write(cls, vcon_dict: dict) -> dict:
         """Ensure a vCon dict is spec-compliant before persistence.
 
         vcon-lib 0.9.2 produces spec-correct output from ``build_new()``
@@ -41,6 +59,11 @@ class VconRedis:
         # speckit: empty ``redacted: {}`` should be omitted.
         if vcon_dict.get("redacted") == {}:
             vcon_dict.pop("redacted", None)
+        # speckit: analysis/attachment bodies are strings.
+        for entry in vcon_dict.get("analysis", []) or []:
+            cls._stringify_json_body(entry)
+        for entry in vcon_dict.get("attachments", []) or []:
+            cls._stringify_json_body(entry)
         return vcon_dict
 
     def store_vcon(self, vCon: vcon.Vcon, ttl: Optional[int] = None) -> None:
