@@ -9,7 +9,6 @@ from botocore.exceptions import ClientError
 from typing import Dict, List, Any, Optional
 
 logger = init_logger(__name__)
-logger.info("MDO THIS SHOULD PRINT")
 
 _REDACTED = "[REDACTED]"
 

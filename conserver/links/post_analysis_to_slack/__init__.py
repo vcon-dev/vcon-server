@@ -101,7 +101,12 @@ def run(vcon_id, link_name, opts=default_options):
         if a.get("was_posted_to_slack"):
             continue
 
-        # TODO use our lib.links.filters.is_included instead of this
+        # Note: lib.links.filters.is_included can't be swapped in here
+        # without a breaking option-schema change. is_included works at
+        # the vCon level with a single ``only_if`` block of the shape
+        # ``{section, type, includes}``; this link iterates per-analysis
+        # and uses ``only_if.analysis_type`` + ``only_if.includes``.
+        # Unifying the two is its own refactor.
 
         url = f"{opts['url']}?_vcon_id=\"{vcon.uuid}\""
         team_name = get_team(vcon)
