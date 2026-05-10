@@ -28,6 +28,7 @@ from dlq_utils import get_ingress_list_dlq_name
 import hook
 from settings import VCON_DLQ_EXPIRY
 from lib.context_utils import retrieve_context, store_context_sync, extract_otel_trace_context
+from lib.queue import VconQueue
 from lib.tracing import init_tracing
 from lib.error_tracking import init_error_tracker
 from lib.metrics import record_histogram, increment_counter
@@ -140,8 +141,10 @@ signal.signal(signal.SIGINT, signal_handler)
 init_error_tracker()
 imported_modules: Dict[str, object] = {}
 
-# Initialize Redis client
+# Initialize Redis client (kept for context_utils which take a raw client).
+# All queue and vCon-key TTL operations should go through ``VconQueue``.
 r = redis_mgr.get_client()
+queue = VconQueue()
 
 
 class VconChainRequest:
@@ -331,7 +334,7 @@ class VconChainRequest:
                 # The conserver might pick up the vCon before context is stored
                 if context:
                     store_context_sync(r, egress_list, self.vcon_id, context)
-                r.lpush(egress_list, self.vcon_id)
+                queue.enqueue(egress_list, self.vcon_id)
 
         storage_backends = self.chain_details.get("storages", [])
         if storage_backends:
@@ -579,7 +582,7 @@ def log_llen(list_name: str) -> None:
     Args:
         list_name: Name of the Redis list to check
     """
-    llen = r.llen(list_name)
+    llen = queue.queue_length(list_name)
     logger.info(
         "Queue status: %s has %s pending items",
         list_name,
@@ -601,8 +604,8 @@ def worker_loop(worker_id: int) -> None:
     Args:
         worker_id: Unique identifier for this worker (1-based)
     """
-    global config, shutdown_requested, r, imported_modules
-    
+    global config, shutdown_requested, r, queue, imported_modules
+
     # Initialize error tracking in this worker process
     init_error_tracker()
 
@@ -613,8 +616,9 @@ def worker_loop(worker_id: int) -> None:
     # regardless of start method (fork or spawn).
     init_tracing()
 
-    # Re-initialize Redis client in worker process
+    # Re-initialize Redis client + queue in worker process
     r = redis_mgr.get_client()
+    queue = VconQueue(r)
     
     # Re-register signal handler in worker process
     signal.signal(signal.SIGTERM, signal_handler)
@@ -667,7 +671,7 @@ def worker_loop(worker_id: int) -> None:
             continue
 
         logger.debug("[%s] Waiting for vCon on ingress lists (timeout: 15s)", worker_name)
-        popped_item = r.blpop(all_ingress_lists, timeout=15)
+        popped_item = queue.dequeue(all_ingress_lists, timeout=15)
         if not popped_item:
             if shutdown_requested:
                 logger.info("[%s] Shutdown requested, exiting", worker_name)
@@ -685,7 +689,7 @@ def worker_loop(worker_id: int) -> None:
                 vcon_id,
                 ingress_list
             )
-            r.lpush(ingress_list, vcon_id)
+            queue.enqueue(ingress_list, vcon_id)
             break
 
         # Retrieve context data if available
@@ -742,13 +746,12 @@ def worker_loop(worker_id: int) -> None:
                 dlq_name,
                 str(e)
             )
-            r.lpush(dlq_name, vcon_id)
-            
+            queue.enqueue_dlq(ingress_list, vcon_id)
+
             # Extend vCon TTL to ensure it persists while in DLQ for investigation
             # This prevents the vCon from expiring before operators can review it
             if VCON_DLQ_EXPIRY > 0:
-                vcon_key = f"vcon:{vcon_id}"
-                r.expire(vcon_key, VCON_DLQ_EXPIRY)
+                queue.set_vcon_ttl(vcon_id, VCON_DLQ_EXPIRY)
                 logger.debug(
                     "[%s] Extended TTL on vCon %s to %ds for DLQ retention",
                     worker_name,
