@@ -78,6 +78,7 @@ nav:
       - Deepgram: reference/links/deepgram.md
       - Analyze: reference/links/analyze.md
       - Tag: reference/links/tag.md
+      - JQ: reference/links/jq.md
       - Webhook: reference/links/webhook.md
     - Storage Adapters:
       - PostgreSQL: reference/storage-adapters/postgres.md
