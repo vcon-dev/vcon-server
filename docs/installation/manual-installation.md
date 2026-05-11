@@ -191,8 +191,11 @@ poetry run pytest -v
 # Run specific test file
 poetry run pytest server/tests/test_api.py
 
+# Fast path: skip integration tests
+poetry run pytest -m "not integration"
+
 # Run with coverage
-poetry run pytest --cov=server
+poetry run pytest --cov --cov-report=html
 ```
 
 ## Installing Optional Dependencies

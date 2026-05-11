@@ -508,6 +508,7 @@ def test_run_email_format(mock_sampling, mock_is_included, mock_generate_analysi
         assert tag in mock_tags
 
 
+@pytest.mark.integration
 @pytest.mark.skipif(not RUN_API_TESTS, reason="Skipping API tests. Set RUN_OPENAI_ANALYZE_LABEL_TESTS=1 to run")
 def test_generate_analysis_with_labels_real_api():
     """Test the generate_analysis_with_labels function with the real OpenAI API"""
@@ -546,6 +547,7 @@ def test_generate_analysis_with_labels_real_api():
     assert len(json_result["labels"]) > 0
 
 
+@pytest.mark.integration
 @pytest.mark.skipif(not RUN_API_TESTS, reason="Skipping API tests. Set RUN_OPENAI_ANALYZE_LABEL_TESTS=1 to run")
 def test_generate_analysis_with_labels_real_api_with_dialog_formats():
     """Test the generate_analysis_with_labels function with the real OpenAI API using different dialog formats"""
