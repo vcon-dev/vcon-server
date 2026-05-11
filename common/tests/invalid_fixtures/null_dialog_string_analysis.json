@@ -1,0 +1,28 @@
+{
+  "uuid": "77777777-7777-7777-7777-777777777777",
+  "vcon": "0.0.1",
+  "meta": {
+    "duration": 64,
+    "direction": "out",
+    "tenant_id": "test-tenant",
+    "disposition": "Transfer: Strolid Agent",
+    "call_started_on": "2025-08-28T20:03:49.440326Z"
+  },
+  "parties": [
+    {
+      "id": "agent@test.example",
+      "tel": "+10000000001",
+      "name": "Test Agent",
+      "role": "ai"
+    },
+    {
+      "id": "+10000000002_customer@test.example_test",
+      "tel": "+10000000002",
+      "name": "Test Customer",
+      "role": "customer"
+    }
+  ],
+  "dialog": null,
+  "analysis": "This should be an array not a string",
+  "created_at": "2025-08-28T20:04:55.691933+00:00"
+}

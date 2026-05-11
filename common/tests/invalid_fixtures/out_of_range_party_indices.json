@@ -1,0 +1,38 @@
+{
+  "uuid": "99999999-9999-9999-9999-999999999999",
+  "vcon": "0.0.1",
+  "meta": {
+    "duration": 247,
+    "direction": "in",
+    "tenant_id": "test-tenant",
+    "disposition": "Appointment Declined",
+    "call_started_on": "2025-07-21T12:53:55.703746+00:00"
+  },
+  "parties": [
+    {
+      "id": "+10000000001_None_test",
+      "tel": "+10000000001",
+      "name": "Test Customer",
+      "role": "customer"
+    },
+    {
+      "id": "agent@test.example",
+      "tel": "+10000000002",
+      "name": "Test Agent",
+      "role": "agent"
+    }
+  ],
+  "dialog": [
+    {
+      "type": "recording",
+      "start": "2025-07-21T12:53:55.703746+00:00",
+      "parties": [0, 5, 9],
+      "duration": 247,
+      "mimetype": "application/wav",
+      "url": "https://example.com/recording.wav",
+      "originator": 7
+    }
+  ],
+  "analysis": [],
+  "created_at": "2025-07-21T13:00:07.342407+00:00"
+}
