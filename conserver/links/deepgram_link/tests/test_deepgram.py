@@ -117,8 +117,10 @@ def test_deepgram_integration_real_api(tmp_path):
     from vcon import Vcon
     from links.deepgram_link import VconRedis
 
-    # Use a short public domain WAV file (e.g., from Wikimedia)
-    audio_url = "https://raw.githubusercontent.com/vcon-dev/vcon-server/main/server/links/hugging_face_whisper/en_NatGen_CallCenter_BethTom_CancelPhonePlan.wav"
+    # Public WAV fixture committed to this repo. The path was ``server/links/``
+    # before the conserver/ rename; the old URL still returns 404 even though
+    # the file is still in the repo. Pointing at the current path fixes it.
+    audio_url = "https://raw.githubusercontent.com/vcon-dev/vcon-server/main/conserver/links/hugging_face_whisper/en_NatGen_CallCenter_BethTom_CancelPhonePlan.wav"
     vcon = Vcon.build_new()
     vcon.add_dialog({
         "type": "recording",
