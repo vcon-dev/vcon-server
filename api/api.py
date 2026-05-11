@@ -52,6 +52,7 @@ from starlette.requests import Request as StarletteRequest
 from starlette.responses import Response
 
 from version import get_version_info, get_version_string, get_version, get_git_commit
+import vcon_hook
 
 # OpenTelemetry trace context extraction is now in lib.context_utils
 from settings import (
@@ -778,6 +779,11 @@ async def post_vcon(
                     await store_context_async(redis_async, ingress_list, vcon_uuid_str, context)
                 await redis_async.rpush(ingress_list, vcon_uuid_str)
 
+        try:
+            vcon_hook.on_vcon_created(str(inbound_vcon.uuid), dict_vcon, ingress_lists)
+        except Exception:
+            pass
+
         return JSONResponse(content=dict_vcon, status_code=201)
 
     except Exception as e:
@@ -875,6 +881,11 @@ async def external_ingress_vcon(
             f"Successfully stored vCon {inbound_vcon.uuid} and added to ingress list {ingress_list}"
         )
 
+        try:
+            vcon_hook.on_vcon_created(str(inbound_vcon.uuid), dict_vcon, [ingress_list])
+        except Exception:
+            pass
+
         return None
 
     except Exception as e:
@@ -935,6 +946,11 @@ async def delete_vcon(vcon_uuid: UUID) -> None:
         logger.warning(f"vCon {vcon_uuid} deletion completed with some failures: {'; '.join(errors)}")
     else:
         logger.info(f"vCon {vcon_uuid} deletion completed")
+
+    try:
+        vcon_hook.on_vcon_deleted(str(vcon_uuid))
+    except Exception:
+        pass
 
 
 # Ingress and egress endpoints for vCon IDs

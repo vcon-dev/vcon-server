@@ -3,6 +3,15 @@ from lib.queue import VconQueue
 
 logger = init_logger(__name__)
 
+AUDIT_META = {
+    "third_party_service": "internal",
+    "policy_url": None,
+    "data_type": "vcon_metadata",
+    "transformation": "Scheduled vCon for expiry from cache",
+    "transformation_opts_key": "seconds",
+    "safe_opts_keys": ["seconds"],
+}
+
 default_options = {"seconds": 60 * 60 * 24}
 
 

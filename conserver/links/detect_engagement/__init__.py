@@ -14,6 +14,15 @@ from lib.links.filters import is_included, randomly_execute_with_sampling
 import os
 logger = init_logger(__name__)
 
+AUDIT_META = {
+    "third_party_service": "OpenAI",
+    "policy_url": "https://openai.com/policies/data-processing-addendum",
+    "data_type": "transcript_text",
+    "model_key": "model",
+    "transformation": "Detected agent/customer engagement from transcript",
+    "safe_opts_keys": ["model"],
+}
+
 default_options = {
     "prompt": "Did both the customer and the agent speak? Respond with 'true' if yes, 'false' if not. Respond with only 'true' or 'false'.",
     "analysis_type": "engagement_analysis",

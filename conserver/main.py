@@ -26,6 +26,8 @@ from config import get_config, get_worker_count, is_parallel_storage_enabled, ge
 from version import get_version_string, get_version_info
 from dlq_utils import get_ingress_list_dlq_name
 import hook
+import after_link_hook
+from lib.vcon_redis import VconRedis
 from settings import VCON_DLQ_EXPIRY
 from lib.context_utils import retrieve_context, store_context_sync, extract_otel_trace_context
 from lib.queue import VconQueue
@@ -423,10 +425,13 @@ class VconChainRequest:
                 "chain_name": self.chain_details["name"]
             }
         ):
+            started = time.time()
+            outcome = "success"
             try:
                 logger.debug("Saving vCon %s to storage %s", self.vcon_id, storage_name)
                 Storage(storage_name).save(self.vcon_id)
             except Exception as e:
+                outcome = "error"
                 # Record exception in the span
                 current_span = trace.get_current_span()
                 if current_span:
@@ -439,6 +444,11 @@ class VconChainRequest:
                     str(e),
                     exc_info=True
                 )
+            finally:
+                duration_ms = round((time.time() - started) * 1000, 3)
+                attrs = {"backend": storage_name, "outcome": outcome}
+                increment_counter("conserver.storage.count", attributes=attrs)
+                record_histogram("conserver.storage.duration_ms", duration_ms, attributes=attrs)
 
     def _process_storage_parallel(self, storage_backends: List[str]) -> None:
         """Save vCon to multiple storage backends concurrently.
@@ -565,11 +575,29 @@ class VconChainRequest:
                 imported_modules[module_name] = import_or_install(module_name, pip_name)
             module = imported_modules[module_name]
 
+            # Extract parties for the after_link hook (tel + mailto from vCon parties array).
+            parties = []
+            try:
+                _vcon = VconRedis().get_vcon(self.vcon_id)
+                for party in (_vcon.parties or []) if _vcon else []:
+                    tel = party.get("tel") if isinstance(party, dict) else getattr(party, "tel", None)
+                    mailto = party.get("mailto") if isinstance(party, dict) else getattr(party, "mailto", None)
+                    if tel:
+                        parties.append(tel)
+                    if mailto:
+                        parties.append(mailto)
+            except Exception:
+                pass
+
+            link_hook_config = (options or {}).get("after_link", {})
             try:
                 if link_index == 0:
                     self._process_tracers(self.vcon_id, self.vcon_id, links, -1)
                 started = time.time()
                 should_continue_chain = module.run(self.vcon_id, link_name, options)
+                after_link_hook.after_link(
+                    self.vcon_id, link_name, module, options, link_hook_config, "success", None, parties
+                )
                 link_processing_time = round(time.time() - started, 3)
                 record_histogram(
                     "conserver.link.execution_time",
@@ -579,6 +607,10 @@ class VconChainRequest:
                         "vcon.uuid": self.vcon_id,
                         "chain.name": self.chain_details["name"],
                     },
+                )
+                increment_counter(
+                    "conserver.link.count",
+                    attributes={"link_name": link_name, "outcome": "success"},
                 )
                 logger.info(
                     "Completed link %s (module: %s) for vCon: %s in %s seconds",
@@ -598,6 +630,16 @@ class VconChainRequest:
                     self._process_tracers(self.vcon_id, self.vcon_id, links, link_index)
                 return should_continue_chain
             except Exception as e:
+                increment_counter(
+                    "conserver.link.count",
+                    attributes={"link_name": link_name, "outcome": "error"},
+                )
+                try:
+                    after_link_hook.after_link(
+                        self.vcon_id, link_name, module, options, link_hook_config, "error", e, parties
+                    )
+                except Exception:
+                    pass
                 # Record exception in the span
                 current_span = trace.get_current_span()
                 if current_span:
@@ -733,6 +775,10 @@ def worker_loop(worker_id: int) -> None:
 
         ingress_list, vcon_id = popped_item
         logger.debug("[%s] Received vCon %s from ingress list %s", worker_name, vcon_id, ingress_list)
+        increment_counter(
+            "conserver.main_loop.count_vcons_received",
+            attributes={"ingress_list": ingress_list},
+        )
         
         if shutdown_requested:
             logger.info(

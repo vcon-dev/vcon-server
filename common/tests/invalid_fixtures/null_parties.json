@@ -1,0 +1,23 @@
+{
+  "uuid": "88888888-8888-8888-8888-888888888888",
+  "vcon": "0.0.1",
+  "meta": {
+    "duration": "eighteen",
+    "direction": "out",
+    "tenant_id": "test-tenant",
+    "disposition": "Bad Number",
+    "call_started_on": "NOT-A-DATE"
+  },
+  "parties": null,
+  "dialog": [
+    {
+      "type": "recording",
+      "start": "2025-10-30T06:18:03.784872+00:00",
+      "parties": [1, 0],
+      "duration": "long",
+      "mimetype": 12345
+    }
+  ],
+  "analysis": [],
+  "created_at": "2025-10-30T06:20:43.653260+00:00"
+}
