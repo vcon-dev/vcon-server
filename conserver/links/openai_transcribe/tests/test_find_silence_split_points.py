@@ -9,6 +9,8 @@ import pytest
 # Import the function to test
 from .. import find_silence_split_points
 
+pytestmark = pytest.mark.integration
+
 
 class TestFindSilenceSplitPoints:
     """Test cases for the find_silence_split_points function using real MP3 files."""

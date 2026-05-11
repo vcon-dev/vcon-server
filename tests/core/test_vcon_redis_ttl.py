@@ -316,10 +316,18 @@ class TestIntegrationWithRealRedis:
 
     @pytest.fixture(autouse=True)
     def check_redis_and_cleanup(self, vcon_redis, sample_vcon_obj):
-        """Skip integration tests if Redis is not available, and clean up test keys."""
+        """Skip integration tests if RedisJSON is unavailable, and clean up test keys."""
         try:
             from redis_mgr import redis
             redis.ping()
+            probe_key = f"vcon:test-json-probe:{sample_vcon_obj.uuid}"
+            try:
+                redis.json().set(probe_key, ".", {"probe": True})
+                redis.delete(probe_key)
+            except Exception as exc:
+                if "unknown command" in str(exc).lower() and "json.set" in str(exc).lower():
+                    pytest.skip("RedisJSON not available for integration tests")
+                raise
             # Clean up any existing test key before each test
             redis.delete(f"vcon:{sample_vcon_obj.uuid}")
         except Exception:

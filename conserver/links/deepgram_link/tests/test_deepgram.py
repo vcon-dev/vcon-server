@@ -106,8 +106,8 @@ def test_run_transcribe_error(mock_transcribe, mock_dg, vcon_with_one_valid_dial
 # ------------------- Integration Test Section -------------------
 
 DEEPGRAM_KEY = os.environ.get("DEEPGRAM_KEY")
-pytestmark = pytest.mark.skipif(not DEEPGRAM_KEY, reason="DEEPGRAM_KEY not set in environment")
 
+@pytest.mark.skipif(not DEEPGRAM_KEY, reason="DEEPGRAM_KEY not set in environment")
 @pytest.mark.integration
 def test_deepgram_integration_real_api(tmp_path):
     """

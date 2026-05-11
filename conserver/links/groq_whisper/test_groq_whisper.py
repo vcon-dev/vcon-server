@@ -88,6 +88,7 @@ def create_test_audio_file(filename, duration=2):
         return f.read()
 
 # Integration tests that actually call the Groq API
+@pytest.mark.integration
 @pytest.mark.skipif(SKIP_INTEGRATION_TESTS, reason="Groq API key not configured")
 class TestGroqWhisperIntegration:
     """Integration tests for Groq Whisper transcription service.
