@@ -93,12 +93,12 @@ def test_get_transcription_returns_existing_transcript():
 
 
 def test_get_audio_duration_success():
-    with patch(f"{MODULE}.ffmpeg.probe", return_value={"streams": [{"duration": "12.5"}]}):
+    with patch(f"{MODULE}.ffmpeg", new=SimpleNamespace(probe=Mock(return_value={"streams": [{"duration": "12.5"}]}))):
         assert get_audio_duration("/tmp/audio.wav") == 12.5
 
 
 def test_get_audio_duration_reraises_probe_error():
-    with patch(f"{MODULE}.ffmpeg.probe", side_effect=RuntimeError("bad probe")):
+    with patch(f"{MODULE}.ffmpeg", new=SimpleNamespace(probe=Mock(side_effect=RuntimeError("bad probe")))):
         with pytest.raises(RuntimeError, match="bad probe"):
             get_audio_duration("/tmp/audio.wav")
 

@@ -1,8 +1,10 @@
 import json
+from copy import deepcopy
 from unittest.mock import MagicMock, patch
 
 import vcon
 
+from lib.vcon_compat import normalize_legacy_fields
 from lib.vcon_redis import VconRedis
 
 
@@ -30,14 +32,17 @@ def test_store_vcon(mock_redis):
 def test_get_vcon(mock_redis):
     vcon_redis = VconRedis()
     vcon_dict = _load_sample_vcon_dict()
-    vcon_obj = vcon.Vcon(vcon_dict)
     mock_json = MagicMock()
     mock_json.get.return_value = vcon_dict
     mock_redis.json.return_value = mock_json
 
-    loaded_vcon = vcon_redis.get_vcon(vcon_obj.uuid)
+    loaded_vcon = vcon_redis.get_vcon(vcon_dict["uuid"])
 
-    assert vcon_obj.to_dict() == loaded_vcon.to_dict()
+    expected_vcon_dict = deepcopy(vcon_dict)
+    normalize_legacy_fields(expected_vcon_dict)
+    expected_vcon = vcon.Vcon(expected_vcon_dict)
+
+    assert expected_vcon.to_dict() == loaded_vcon.to_dict()
 
 
 @patch("lib.vcon_redis.redis")
