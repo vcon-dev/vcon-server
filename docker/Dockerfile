@@ -14,7 +14,7 @@ ENV VCON_SERVER_BUILD_TIME=${VCON_SERVER_BUILD_TIME}
 RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources
 
 RUN apt-get update && \
-    apt-get install -y libavdevice-dev ffmpeg
+    apt-get install -y libavdevice-dev ffmpeg libchromaprint1
 
 # Install SoX dependency
 # https://pysox.readthedocs.io/en/latest/#installation
