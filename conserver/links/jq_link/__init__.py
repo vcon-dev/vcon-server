@@ -13,6 +13,34 @@ default_options = {
     "forward_matches": True,
 }
 
+
+def _filter_body_arrays_to_strings(value):
+    """Drop non-string items from ``body`` arrays for string-based jq filters.
+
+    Legacy vCons can still carry mixed-type attachment/analysis bodies. jq
+    string functions like ``startswith()`` raise when they hit an int/dict in
+    ``.body[]``. For those cases, retrying with string-only body arrays preserves
+    the common "scan tags in body" use case without changing the first-pass
+    semantics for valid filters.
+    """
+    if isinstance(value, dict):
+        sanitized = {}
+        for key, child in value.items():
+            if key == "body" and isinstance(child, list):
+                sanitized[key] = [item for item in child if isinstance(item, str)]
+            else:
+                sanitized[key] = _filter_body_arrays_to_strings(child)
+        return sanitized
+
+    if isinstance(value, list):
+        return [_filter_body_arrays_to_strings(item) for item in value]
+
+    return value
+
+
+def _is_string_input_type_error(error):
+    return "requires string inputs" in str(error)
+
 def run(vcon_uuid, link_name, opts=default_options):
     """JQ Filter link that uses jq expressions to filter vCons.
 
@@ -49,7 +77,18 @@ def run(vcon_uuid, link_name, opts=default_options):
         # Compile and run the jq program
         logger.debug(f"Applying jq filter '{opts['filter']}' to vCon {vcon_uuid}")
         program = jq.compile(opts["filter"])
-        results = list(program.input(vcon_dict))
+        try:
+            results = list(program.input(vcon_dict))
+        except Exception as runtime_error:
+            if not _is_string_input_type_error(runtime_error):
+                raise
+
+            increment_counter("conserver.link.jq.string_body_array_retries", attributes=attrs)
+            logger.warning(
+                f"Retrying jq filter '{opts['filter']}' for vCon {vcon_uuid} "
+                f"with string-only body arrays after type error: {runtime_error}"
+            )
+            results = list(program.input(_filter_body_arrays_to_strings(vcon_dict)))
 
         # Handle empty results
         if not results:

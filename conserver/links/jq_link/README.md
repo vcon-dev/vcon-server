@@ -98,21 +98,46 @@ cp jq_filter.py /path/to/links/directory/
 
 The link accepts two configuration options:
 
-- `filter` (string): A jq expression that evaluates to a boolean
+- `filter` (string): A jq expression whose first result is used to determine a match; the result does not need to be a literal boolean, only truthy or falsey
 - `forward_matches` (boolean): If true, forwards vCons that match the filter. If false, forwards vCons that don't match.
+
+## Mixed-Type `body` Arrays
+
+Some legacy vCons contain attachment or analysis `body` arrays with mixed value
+types, such as strings, numbers, or objects in the same array. jq string
+functions like `startswith()` will raise when they are evaluated against a
+non-string item.
+
+`jq_link` now retries once with string-only `body` arrays when jq raises a
+string-input type error. This keeps common tag-scanning filters working without
+changing normal jq behavior for valid inputs.
+
+For new filters, prefer defensive jq patterns that explicitly keep strings:
+
+```jq
+.attachments[0]
+| select(.body[] | strings | startswith("call_type:") and . != "call_type:2")
+```
+
+or:
+
+```jq
+.attachments[0]
+| select(any(.body[]; type == "string" and startswith("call_type:") and . != "call_type:2"))
+```
 
 ### Example Chain Configuration
 
 ```yaml
 links:
   filter_cats:
-    module: "links.jq_filter"
+    module: "links.jq_link"
     options:
-      filter: '.attributes.arc_display_type == "Cat"'
+      filter: '.meta.arc_display_type == "Cat"'
       forward_matches: true
 
   filter_no_analysis:
-    module: "links.jq_filter"
+    module: "links.jq_link"
     options:
       filter: '.analysis | length == 0'
       forward_matches: false
@@ -220,7 +245,7 @@ To debug filter behavior:
 ```yaml
 links:
   filter_unredacted:
-    module: "links.jq_filter"
+    module: "links.jq_link"
     options:
       filter: ".redacted == {}"
       forward_matches: true
@@ -231,7 +256,7 @@ links:
 ```yaml
 links:
   filter_with_analysis:
-    module: "links.jq_filter"
+    module: "links.jq_link"
     options:
       filter: ".analysis | length == 0"
       forward_matches: false
@@ -242,7 +267,7 @@ links:
 ```yaml
 links:
   filter_pattern:
-    module: "links.jq_filter"
+    module: "links.jq_link"
     options:
       filter: '.meta.serial_number | test("^ABC\\d{5}$")'
       forward_matches: true
@@ -253,7 +278,7 @@ links:
 ### Running Tests
 
 ```bash
-python -m pytest tests/links/test_jq_filter.py -v
+uv run --group conserver --group dev pytest conserver/links/jq_link/test_jq_link.py -v
 ```
 
 ### Contributing
