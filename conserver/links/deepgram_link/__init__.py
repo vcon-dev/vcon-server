@@ -1,3 +1,10 @@
+"""DEPRECATED: use ``links.transcribe`` with ``options.vendor: deepgram``.
+
+This module is retained for back-compat. ``conserver/main.py``
+auto-reroutes ``module: links.deepgram_link`` to the unified
+``links.transcribe`` dispatcher and emits a one-time deprecation warning.
+"""
+
 from typing import Optional
 import os
 import tempfile

@@ -1,6 +1,7 @@
 import redis_mgr
 from lib.logging_utils import init_logger
 from lib.error_tracking import init_error_tracker
+from lib.queue import VconQueue
 from config import Configuration
 import requests
 import threading
@@ -13,7 +14,7 @@ init_error_tracker()
 logger = init_logger(__name__)
 imported_modules = {}
 
-r = redis_mgr.get_client()
+queue = VconQueue()
 
 
 def follower_function(follower):
@@ -46,7 +47,7 @@ def follower_function(follower):
         # logger.info("VCON ID: %s", vcon_id)
         # logger.info("VCON: %s", vcon)
         redis_mgr.set_key(f"vcon:{vcon_id}", vcon)
-        r.lpush(follower["follower_ingress_list"], vcon_id)
+        queue.enqueue(follower["follower_ingress_list"], vcon_id)
 
 
 def repeat_function(interval, function, follower):

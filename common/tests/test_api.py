@@ -4,6 +4,7 @@ import os
 from fastapi.testclient import TestClient
 from vcon_fixture import generate_mock_vcon
 import pytest
+from unittest.mock import patch
 import api
 from datetime import datetime
 from settings import CONSERVER_API_TOKEN, CONSERVER_HEADER_NAME
@@ -13,6 +14,14 @@ CONSERVER_API_TOKEN = CONSERVER_API_TOKEN or "default_token"
 CONSERVER_HEADER_NAME = CONSERVER_HEADER_NAME or "X-API-Token"
 
 since_str = datetime.now().isoformat()
+
+
+@pytest.fixture(autouse=True)
+def disable_storage_fallbacks():
+    # These tests exercise the API's Redis-backed lifecycle. Disabling external
+    # storage backends keeps them fast and avoids unrelated network noise.
+    with patch.object(api.Configuration, "get_storages", return_value={}):
+        yield
 
 
 def post_vcon(vcon):

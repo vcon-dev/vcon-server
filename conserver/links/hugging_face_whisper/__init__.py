@@ -1,4 +1,9 @@
-"""Hugging Face Whisper Integration Module
+"""Hugging Face Whisper Integration Module.
+
+DEPRECATED: new chain configs should use ``links.transcribe`` with
+``options.vendor: hugging_face``. ``conserver/main.py`` auto-reroutes
+any chain referencing ``module: links.hugging_face_whisper`` to the
+dispatcher and emits a one-time deprecation warning.
 
 This module provides integration with Hugging Face's Whisper ASR service for transcribing audio content
 in vCon recordings. It handles the transcription process, error retries, and updates vCon objects with

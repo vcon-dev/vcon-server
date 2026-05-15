@@ -1,3 +1,11 @@
+"""DEPRECATED: use ``links.transcribe`` with ``options.vendor: openai``.
+
+This module is retained for back-compat with existing chain configs.
+The ``conserver/main.py`` link resolver automatically reroutes
+``module: links.openai_transcribe`` to ``module: links.transcribe`` and
+emits a one-time deprecation warning.
+"""
+
 import re
 from urllib.parse import unquote, urlparse
 from lib.logging_utils import init_logger

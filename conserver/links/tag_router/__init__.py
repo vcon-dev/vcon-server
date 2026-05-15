@@ -1,7 +1,7 @@
 from lib.logging_utils import init_logger
 from lib.vcon_redis import VconRedis
 from lib.metrics import increment_counter
-from redis_mgr import redis
+from lib.queue import VconQueue
 
 logger = init_logger(__name__)
 
@@ -71,13 +71,14 @@ def run(vcon_uuid, link_name, opts=default_options):
     attrs = {"link.name": link_name, "vcon.uuid": vcon_uuid}
 
     # Route the vCon to the appropriate Redis lists based on tags
+    queue = VconQueue()
     routed = False
     for tag in tags:
         if tag in opts["tag_routes"]:
             target_list = opts["tag_routes"][tag]
             logger.info(f"Routing vCon {vcon_uuid} to list '{target_list}' based on tag '{tag}'")
             # Push the vCon UUID to the target Redis list
-            redis.rpush(target_list, str(vcon_uuid))
+            queue.route_to(target_list, vcon_uuid)
             increment_counter(
                 "conserver.link.tag_router.routes_matched",
                 attributes={**attrs, "route": target_list},

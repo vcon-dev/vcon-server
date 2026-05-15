@@ -11,9 +11,23 @@ def mock_vcon_redis():
 
 @pytest.fixture
 def mock_redis():
-    """Mock the redis module"""
-    with patch('links.tag_router.redis') as mock:
-        yield mock
+    """Mock the VconQueue used by tag_router.
+
+    The fixture name is kept as ``mock_redis`` for historical reasons, but
+    it now yields a MagicMock whose ``rpush`` attribute mirrors calls made
+    to ``VconQueue().route_to(...)``. This lets the existing assertions in
+    this file continue to work unchanged while the production code uses
+    the higher-level queue abstraction.
+    """
+    with patch('links.tag_router.VconQueue') as mock_queue_cls:
+        instance = MagicMock()
+        # tag_router calls queue.route_to(target_list, vcon_uuid).
+        # Mirror that onto an ``rpush`` attribute so legacy assertions
+        # like ``mock_redis.rpush.assert_any_call(list, uuid)`` keep
+        # working against the same underlying MagicMock.
+        instance.route_to = instance.rpush
+        mock_queue_cls.return_value = instance
+        yield instance
 
 @pytest.fixture
 def sample_vcon_with_tags():

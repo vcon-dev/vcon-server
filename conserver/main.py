@@ -30,12 +30,12 @@ from config import (
     get_vcon_concurrency,
 )
 from version import get_version_string, get_version_info
-from dlq_utils import get_ingress_list_dlq_name
 import hook
 import after_link_hook
 from lib.vcon_redis import VconRedis
 from settings import VCON_DLQ_EXPIRY
 from lib.context_utils import retrieve_context, store_context_sync, extract_otel_trace_context
+from lib.queue import VconQueue
 from lib.tracing import init_tracing
 from lib.error_tracking import init_error_tracker
 from lib.metrics import record_histogram, increment_counter
@@ -148,8 +148,59 @@ signal.signal(signal.SIGINT, signal_handler)
 init_error_tracker()
 imported_modules: Dict[str, object] = {}
 
-# Initialize Redis client
+
+# Legacy vendor-specific transcription link modules are kept on disk for
+# back-compat but new code should use ``links.transcribe`` with a
+# ``vendor:`` option. When a chain config points at one of these legacy
+# modules we route it through ``links.transcribe`` and inject the inferred
+# vendor into the link options, then log a deprecation warning once per
+# legacy name so noisy chains don't spam the log.
+LEGACY_LINK_MODULE_ALIASES: Dict[str, str] = {
+    "links.openai_transcribe": "openai",
+    "links.groq_whisper": "groq",
+    "links.hugging_face_whisper": "hugging_face",
+    "links.deepgram_link": "deepgram",
+}
+_warned_legacy_modules: set = set()
+
+
+def _resolve_link_module_and_options(
+    module_name: str,
+    options: Optional[Dict],
+) -> tuple:
+    """Apply legacy module aliases.
+
+    Returns ``(effective_module_name, effective_options)``. The legacy
+    vendor-specific transcription modules are remapped onto
+    ``links.transcribe`` with the appropriate ``vendor`` injected. All
+    other modules pass through unchanged.
+    """
+    vendor = LEGACY_LINK_MODULE_ALIASES.get(module_name)
+    if vendor is None:
+        return module_name, options
+    if module_name not in _warned_legacy_modules:
+        logger.warning(
+            "Deprecated link module %s — use module: links.transcribe with "
+            "options.vendor: %s. Continuing with auto-redirect.",
+            module_name,
+            vendor,
+        )
+        _warned_legacy_modules.add(module_name)
+    legacy_opts = options or {}
+    # If caller already shaped the options for the new dispatcher
+    # (vendor + vendor_options), respect that. Otherwise treat the
+    # entire legacy options block as vendor_options.
+    if "vendor" in legacy_opts or "vendor_options" in legacy_opts:
+        effective_options = dict(legacy_opts)
+        effective_options.setdefault("vendor", vendor)
+    else:
+        effective_options = {"vendor": vendor, "vendor_options": legacy_opts}
+    return "links.transcribe", effective_options
+
+# Initialize Redis client (kept for context_utils which take a raw client).
+# All queue and vCon-key TTL operations should go through ``VconQueue``.
 r = redis_mgr.get_client()
+queue = VconQueue()
 
 
 class VconChainRequest:
@@ -339,7 +390,7 @@ class VconChainRequest:
                 # The conserver might pick up the vCon before context is stored
                 if context:
                     store_context_sync(r, egress_list, self.vcon_id, context)
-                r.lpush(egress_list, self.vcon_id)
+                queue.enqueue(egress_list, self.vcon_id)
 
         storage_backends = self.chain_details.get("storages", [])
         if storage_backends:
@@ -518,13 +569,16 @@ class VconChainRequest:
                 "chain_name": self.chain_details["name"]
             }
         ):
-            module_name = link["module"]
+            raw_module_name = link["module"]
+            raw_options = link.get("options")
+            module_name, options = _resolve_link_module_and_options(
+                raw_module_name, raw_options
+            )
             if module_name not in imported_modules:
                 logger.debug("Importing module %s for link %s", module_name, link_name)
                 pip_name = link.get("pip_name")  # Optional pip package name from config
                 imported_modules[module_name] = import_or_install(module_name, pip_name)
             module = imported_modules[module_name]
-            options = link.get("options")
 
             # Extract parties for the after_link hook (tel + mailto from vCon parties array).
             parties = []
@@ -627,7 +681,7 @@ def log_llen(list_name: str) -> None:
     Args:
         list_name: Name of the Redis list to check
     """
-    llen = r.llen(list_name)
+    llen = queue.queue_length(list_name)
     logger.info(
         "Queue status: %s has %s pending items",
         list_name,
@@ -683,11 +737,10 @@ def _handle_vcon(
             "[%s] Critical error processing vCon %s: %s - Moving to DLQ",
             worker_name, vcon_id, str(e), exc_info=True,
         )
-        dlq_name = get_ingress_list_dlq_name(ingress_list)
-        logger.info("[%s] Moving vCon %s to DLQ: %s", worker_name, vcon_id, dlq_name)
-        r.lpush(dlq_name, vcon_id)
+        logger.info("[%s] Moving vCon %s to DLQ (ingress=%s)", worker_name, vcon_id, ingress_list)
+        queue.enqueue_dlq(ingress_list, vcon_id)
         if VCON_DLQ_EXPIRY > 0:
-            r.expire(f"vcon:{vcon_id}", VCON_DLQ_EXPIRY)
+            queue.set_vcon_ttl(vcon_id, VCON_DLQ_EXPIRY)
     finally:
         hook.after_processing(
             vcon_chain_request.vcon_id,
@@ -710,8 +763,8 @@ def worker_loop(worker_id: int) -> None:
     Args:
         worker_id: Unique identifier for this worker (1-based)
     """
-    global config, shutdown_requested, r, imported_modules
-    
+    global config, shutdown_requested, r, queue, imported_modules
+
     # Initialize error tracking in this worker process
     init_error_tracker()
 
@@ -722,8 +775,9 @@ def worker_loop(worker_id: int) -> None:
     # regardless of start method (fork or spawn).
     init_tracing()
 
-    # Re-initialize Redis client in worker process
+    # Re-initialize Redis client + queue in worker process
     r = redis_mgr.get_client()
+    queue = VconQueue(r)
     
     # Re-register signal handler in worker process
     signal.signal(signal.SIGTERM, signal_handler)
@@ -789,7 +843,7 @@ def worker_loop(worker_id: int) -> None:
             continue
 
         logger.debug("[%s] Waiting for vCon on ingress lists (timeout: 15s)", worker_name)
-        popped_item = r.blpop(all_ingress_lists, timeout=15)
+        popped_item = queue.dequeue(all_ingress_lists, timeout=15)
         if not popped_item:
             if shutdown_requested:
                 logger.info("[%s] Shutdown requested, exiting", worker_name)
@@ -811,7 +865,7 @@ def worker_loop(worker_id: int) -> None:
                 vcon_id,
                 ingress_list
             )
-            r.lpush(ingress_list, vcon_id)
+            queue.enqueue(ingress_list, vcon_id)
             break
 
         chain_details = ingress_chain_map[ingress_list]

@@ -1,72 +1,73 @@
-from lib.vcon_redis import VconRedis
-import vcon
 import json
+from copy import deepcopy
+from unittest.mock import MagicMock, patch
+
+import vcon
+
+from lib.vcon_compat import normalize_legacy_fields
+from lib.vcon_redis import VconRedis
 
 
-def test_store_vcon():
-    # Create an instance of VconRedis
-    vcon_redis = VconRedis()
-
-    # Load tests/dataset/1ba06c0c-97ea-439f-8691-717ef86e4f3e.vcon.json to use
-    # as the vCon object
+def _load_sample_vcon_dict():
     with open("tests/dataset/1ba06c0c-97ea-439f-8691-717ef86e4f3e.vcon.json") as f:
-        vcon_json = json.load(f)
-    vcon_obj = vcon.Vcon(vcon_json)
+        return json.load(f)
 
-    # Call the store_vcon method
+
+@patch("lib.vcon_redis.redis")
+def test_store_vcon(mock_redis):
+    vcon_redis = VconRedis()
+    vcon_obj = vcon.Vcon(_load_sample_vcon_dict())
+    mock_json = MagicMock()
+    mock_redis.json.return_value = mock_json
+
     vcon_redis.store_vcon(vcon_obj)
 
+    expected_key = f"vcon:{vcon_obj.uuid}"
+    mock_json.set.assert_called_once()
+    mock_redis.expire.assert_not_called()
+    assert mock_json.set.call_args.args[0] == expected_key
 
-def test_get_vcon():
-    # Create an instance of VconRedis
+
+@patch("lib.vcon_redis.redis")
+def test_get_vcon(mock_redis):
     vcon_redis = VconRedis()
+    vcon_dict = _load_sample_vcon_dict()
+    mock_json = MagicMock()
+    mock_json.get.return_value = vcon_dict
+    mock_redis.json.return_value = mock_json
 
-    # Load tests/dataset/1ba06c0c-97ea-439f-8691-717ef86e4f3e.vcon.json to use
-    # as the vCon object
-    with open("tests/dataset/1ba06c0c-97ea-439f-8691-717ef86e4f3e.vcon.json") as f:
-        vcon_json = json.load(f)
-    vcon_obj = vcon.Vcon(vcon_json)
+    loaded_vcon = vcon_redis.get_vcon(vcon_dict["uuid"])
 
-    # Call the store_vcon method
-    vcon_redis.store_vcon(vcon_obj)
+    expected_vcon_dict = deepcopy(vcon_dict)
+    normalize_legacy_fields(expected_vcon_dict)
+    expected_vcon = vcon.Vcon(expected_vcon_dict)
 
-    # Call the get_vcon method
-    loaded_vcon = vcon_redis.get_vcon(vcon_obj.uuid)
-
-    # Assert that the contents of the loaded vCon object is the same as the
-    # original vCon object
-    # Convert the vCon object to a dictionary to compare
-    assert vcon_obj.to_dict() == loaded_vcon.to_dict()
+    assert expected_vcon.to_dict() == loaded_vcon.to_dict()
 
 
-def test_store_vcon_dict():
-    # Create an instance of VconRedis
+@patch("lib.vcon_redis.redis")
+def test_store_vcon_dict(mock_redis):
     vcon_redis = VconRedis()
+    vcon_dict = _load_sample_vcon_dict()
+    mock_json = MagicMock()
+    mock_redis.json.return_value = mock_json
 
-    # Load tests/dataset/1ba06c0c-97ea-439f-8691-717ef86e4f3e.vcon.json to use
-    # as the vCon dictionary
-    with open("tests/dataset/1ba06c0c-97ea-439f-8691-717ef86e4f3e.vcon.json") as f:
-        vcon_dict = json.load(f)
-
-    # Call the store_vcon_dict method
     vcon_redis.store_vcon_dict(vcon_dict)
 
+    expected_key = f"vcon:{vcon_dict['uuid']}"
+    mock_json.set.assert_called_once()
+    mock_redis.expire.assert_not_called()
+    assert mock_json.set.call_args.args[0] == expected_key
 
-def test_get_vcon_dict():
-    # Create an instance of VconRedis
+
+@patch("lib.vcon_redis.redis")
+def test_get_vcon_dict(mock_redis):
     vcon_redis = VconRedis()
+    vcon_dict = _load_sample_vcon_dict()
+    mock_json = MagicMock()
+    mock_json.get.return_value = vcon_dict
+    mock_redis.json.return_value = mock_json
 
-    # Load tests/dataset/1ba06c0c-97ea-439f-8691-717ef86e4f3e.vcon.json to use
-    # as the vCon dictionary
-    with open("tests/dataset/1ba06c0c-97ea-439f-8691-717ef86e4f3e.vcon.json") as f:
-        vcon_dict = json.load(f)
-
-    # Call the store_vcon_dict method
-    vcon_redis.store_vcon_dict(vcon_dict)
-
-    # Call the get_vcon_dict method
     loaded_vcon_dict = vcon_redis.get_vcon_dict(vcon_dict["uuid"])
 
-    # Assert that the contents of the loaded vCon dictionary is the same as the
-    # original vCon dictionary
     assert vcon_dict == loaded_vcon_dict
