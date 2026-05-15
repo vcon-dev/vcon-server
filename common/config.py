@@ -23,11 +23,21 @@ def get_worker_count() -> int:
 
 def is_parallel_storage_enabled() -> bool:
     """Check if parallel storage writes are enabled.
-    
+
     Returns:
         bool: True if parallel storage is enabled
     """
     return settings.CONSERVER_PARALLEL_STORAGE
+
+
+def get_vcon_concurrency() -> int:
+    """Get the per-worker in-flight vCon concurrency.
+
+    1 preserves the original strict-serial behaviour. Values > 1 dispatch each
+    popped vCon to a ThreadPoolExecutor sized N, back-pressuring before BLPOP
+    so at most N chains run in parallel inside a single worker process.
+    """
+    return max(1, settings.CONSERVER_VCON_CONCURRENCY)
 
 
 def get_start_method() -> str | None:
