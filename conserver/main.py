@@ -16,15 +16,20 @@ import signal
 import subprocess
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, as_completed, wait
 from typing import Dict, List, Optional, TypedDict
 
 import follower
 import redis_mgr
 
-from config import get_config, get_worker_count, is_parallel_storage_enabled, get_start_method
+from config import (
+    get_config,
+    get_worker_count,
+    is_parallel_storage_enabled,
+    get_start_method,
+    get_vcon_concurrency,
+)
 from version import get_version_string, get_version_info
-from dlq_utils import get_ingress_list_dlq_name
 import hook
 import after_link_hook
 from lib.vcon_redis import VconRedis
@@ -685,13 +690,73 @@ def log_llen(list_name: str) -> None:
     )
 
 
+def _handle_vcon(
+    worker_name: str,
+    ingress_list: str,
+    vcon_id: str,
+    chain_details: ChainConfig,
+) -> None:
+    """Run the full chain for one vCon: retrieve context, process, DLQ on error.
+
+    Extracted from worker_loop so the same code path runs both serially and
+    inside ThreadPoolExecutor workers when CONSERVER_VCON_CONCURRENCY > 1.
+    """
+    context = retrieve_context(r, ingress_list, vcon_id)
+    if context:
+        logger.debug(
+            "[%s] Retrieved context for vCon %s from ingress list %s: %s",
+            worker_name, vcon_id, ingress_list, context,
+        )
+    else:
+        logger.debug("[%s] No context found for vCon %s from ingress list %s", worker_name, vcon_id, ingress_list)
+
+    log_llen(ingress_list)
+    logger.debug(
+        "[%s] Processing vCon %s with chain configuration: %s",
+        worker_name,
+        vcon_id,
+        {
+            "chain_name": chain_details["name"],
+            "links": chain_details.get("links", []),
+            "storages": chain_details.get("storages", []),
+            "egress_lists": chain_details.get("egress_lists", []),
+            "timeout": chain_details.get("timeout"),
+        },
+    )
+
+    vcon_chain_request = VconChainRequest(chain_details, vcon_id, context)
+    processing_error = None
+    try:
+        context = context or {}
+        context["ingress_list"] = ingress_list
+        hook.before_processing(vcon_id, chain_details, context)
+        vcon_chain_request.process()
+    except Exception as e:
+        processing_error = e
+        logger.error(
+            "[%s] Critical error processing vCon %s: %s - Moving to DLQ",
+            worker_name, vcon_id, str(e), exc_info=True,
+        )
+        logger.info("[%s] Moving vCon %s to DLQ (ingress=%s)", worker_name, vcon_id, ingress_list)
+        queue.enqueue_dlq(ingress_list, vcon_id)
+        if VCON_DLQ_EXPIRY > 0:
+            queue.set_vcon_ttl(vcon_id, VCON_DLQ_EXPIRY)
+    finally:
+        hook.after_processing(
+            vcon_chain_request.vcon_id,
+            chain_details,
+            context,
+            error=processing_error,
+        )
+
+
 def worker_loop(worker_id: int) -> None:
     """Worker process main loop for vCon processing.
-    
+
     Each worker independently polls Redis queues and processes vCons.
     Multiple workers can run concurrently, with Redis BLPOP providing
     atomic distribution of work items.
-    
+
     Module imports are done here (rather than in main()) to reduce memory
     when using 'spawn' start method, as each worker only loads what it needs.
 
@@ -749,7 +814,20 @@ def worker_loop(worker_id: int) -> None:
                     exc_info=True
                 )
                 raise
-    
+
+    vcon_concurrency = get_vcon_concurrency()
+    executor: Optional[ThreadPoolExecutor] = None
+    in_flight: Dict[object, str] = {}
+    if vcon_concurrency > 1:
+        executor = ThreadPoolExecutor(
+            max_workers=vcon_concurrency,
+            thread_name_prefix=f"{worker_name}-vcon",
+        )
+        logger.info(
+            "[%s] Per-worker vCon concurrency enabled (max in-flight=%d)",
+            worker_name, vcon_concurrency,
+        )
+
     while not shutdown_requested:
         # Refresh configuration on each iteration
         config = get_config()
@@ -779,7 +857,7 @@ def worker_loop(worker_id: int) -> None:
             "conserver.main_loop.count_vcons_received",
             attributes={"ingress_list": ingress_list},
         )
-        
+
         if shutdown_requested:
             logger.info(
                 "[%s] Shutdown requested, returning vCon %s to queue %s",
@@ -790,80 +868,27 @@ def worker_loop(worker_id: int) -> None:
             queue.enqueue(ingress_list, vcon_id)
             break
 
-        # Retrieve context data if available
-        context = retrieve_context(r, ingress_list, vcon_id)
-        if context:
-            logger.debug(
-                "[%s] Retrieved context for vCon %s from ingress list %s: %s",
-                worker_name,
-                vcon_id,
-                ingress_list,
-                context
-            )
-        else:
-            logger.debug("[%s] No context found for vCon %s from ingress list %s", worker_name, vcon_id, ingress_list)
-
-        log_llen(ingress_list)
         chain_details = ingress_chain_map[ingress_list]
-        logger.debug(
-            "[%s] Processing vCon %s with chain configuration: %s",
-            worker_name,
-            vcon_id,
-            {
-                "chain_name": chain_details["name"],
-                "links": chain_details.get("links", []),
-                "storages": chain_details.get("storages", []),
-                "egress_lists": chain_details.get("egress_lists", []),
-                "timeout": chain_details.get("timeout")
-            }
-        )
-        
-        vcon_chain_request = VconChainRequest(chain_details, vcon_id, context)
-        processing_error = None
-        try:
-            context = context or {}
-            context["ingress_list"] = ingress_list
-            hook.before_processing(vcon_id, chain_details, context)
-            vcon_chain_request.process()
-        except Exception as e:
-            processing_error = e
-            logger.error(
-                "[%s] Critical error processing vCon %s: %s - Moving to DLQ",
-                worker_name,
-                vcon_id,
-                str(e),
-                exc_info=True
-            )
-            dlq_name = get_ingress_list_dlq_name(ingress_list)
-            logger.info("[%s] Moving vCon %s to DLQ: %s", worker_name, vcon_id, dlq_name)
-            logger.debug(
-                "[%s] DLQ details for vCon %s: original_queue=%s, dlq=%s, error=%s",
-                worker_name,
-                vcon_id,
-                ingress_list,
-                dlq_name,
-                str(e)
-            )
-            queue.enqueue_dlq(ingress_list, vcon_id)
 
-            # Extend vCon TTL to ensure it persists while in DLQ for investigation
-            # This prevents the vCon from expiring before operators can review it
-            if VCON_DLQ_EXPIRY > 0:
-                queue.set_vcon_ttl(vcon_id, VCON_DLQ_EXPIRY)
-                logger.debug(
-                    "[%s] Extended TTL on vCon %s to %ds for DLQ retention",
-                    worker_name,
-                    vcon_id,
-                    VCON_DLQ_EXPIRY
-                )
-        finally:
-            hook.after_processing(
-                vcon_chain_request.vcon_id,
-                chain_details,
-                context,
-                error=processing_error,
+        if executor is None:
+            # Serial path (CONSERVER_VCON_CONCURRENCY=1): preserves original behaviour
+            _handle_vcon(worker_name, ingress_list, vcon_id, chain_details)
+        else:
+            # Concurrent path: dispatch to thread pool, back-pressure on next iteration
+            future = executor.submit(
+                _handle_vcon, worker_name, ingress_list, vcon_id, chain_details
             )
-    
+            in_flight[future] = vcon_id
+            future.add_done_callback(lambda f: in_flight.pop(f, None))
+            # Block submitting more work until we drop below the concurrency limit
+            while len(in_flight) >= vcon_concurrency and not shutdown_requested:
+                wait(list(in_flight.keys()), return_when=FIRST_COMPLETED, timeout=1)
+                # done callback pops finished futures; loop until in_flight shrinks
+
+    if executor is not None:
+        logger.info("[%s] Draining in-flight vCons before exit (%d remaining)", worker_name, len(in_flight))
+        executor.shutdown(wait=True)
+
     logger.info("%s exiting", worker_name)
 
 
@@ -916,10 +941,11 @@ def main() -> None:
     
     current_start_method = multiprocessing.get_start_method()
     logger.info(
-        "Worker configuration: workers=%d, parallel_storage=%s, start_method=%s",
+        "Worker configuration: workers=%d, vcon_concurrency=%d, parallel_storage=%s, start_method=%s",
         worker_count,
+        get_vcon_concurrency(),
         parallel_storage,
-        current_start_method
+        current_start_method,
     )
     
     logger.info("Initializing vCon server")

@@ -119,6 +119,18 @@ def test_filter_by_attachments(mock_redis_with_vcon, sample_vcon):
     result = run("test-uuid", "test-link", opts)
     assert result == "test-uuid"
 
+
+def test_filter_by_attachments_with_mixed_body_types(mock_redis_with_vcon, sample_vcon):
+    """String-based filters should tolerate mixed-type body arrays."""
+    sample_vcon.vcon_dict["attachments"][0]["body"] = ["call_type:1", 2, "call_type:2", {"k": "v"}]
+
+    opts = {
+        "filter": '.attachments[0] | select(.body[] | startswith("call_type:") and . != "call_type:2")',
+        "forward_matches": True,
+    }
+    result = run("test-uuid", "test-link", opts)
+    assert result == "test-uuid"
+
     # Test specific attachment type
     opts = {
         "filter": '.attachments[] | select(.type == "report") | any',
