@@ -98,7 +98,7 @@ cp jq_filter.py /path/to/links/directory/
 
 The link accepts two configuration options:
 
-- `filter` (string): A jq expression that evaluates to a boolean
+- `filter` (string): A jq expression whose first result is used to determine a match; the result does not need to be a literal boolean, only truthy or falsey
 - `forward_matches` (boolean): If true, forwards vCons that match the filter. If false, forwards vCons that don't match.
 
 ## Mixed-Type `body` Arrays
@@ -133,7 +133,7 @@ links:
   filter_cats:
     module: "links.jq_link"
     options:
-      filter: '.attributes.arc_display_type == "Cat"'
+      filter: '.meta.arc_display_type == "Cat"'
       forward_matches: true
 
   filter_no_analysis:
