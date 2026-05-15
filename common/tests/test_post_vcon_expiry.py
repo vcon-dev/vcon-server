@@ -1,15 +1,12 @@
 """Unit tests for POST vCon expiry behavior.
 
 These tests verify that vCons created via POST endpoints are stored and
-indexed. As of the optimize-ingest-indexing change, default VCON_REDIS_EXPIRY
-TTL is no longer set on newly stored vCons; retention is controlled by
-storage backends or explicit TTL. Indexing (index_vcon_parties) still uses
-Redis sadd/expire for party index keys.
+indexed with the default `VCON_REDIS_EXPIRY` TTL applied to the vCon key.
+Indexing (index_vcon_parties) still uses Redis sadd/expire for party index keys.
 """
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 import api
 from fastapi.testclient import TestClient
 from settings import CONSERVER_API_TOKEN, CONSERVER_HEADER_NAME, VCON_REDIS_EXPIRY
@@ -29,11 +26,10 @@ class TestPostVconExpiry:
 
     @patch("api.add_vcon_to_set")
     @patch("api.index_vcon_parties")
-    def test_post_vcon_stores_without_default_expiry(
+    def test_post_vcon_stores_with_default_expiry(
         self, mock_index_vcon_parties, mock_add_vcon_to_set
     ):
-        """Test that POST /vcon stores vCon and indexes parties; no default vcon TTL."""
-        # Mock Redis client (sadd/expire used by index_vcon_parties when not patched)
+        """Test that POST /vcon stores the vCon with the default cache TTL."""
         mock_redis = MagicMock()
         mock_json = MagicMock()
         mock_json.set = AsyncMock()
@@ -56,13 +52,8 @@ class TestPostVconExpiry:
 
             assert response.status_code == 201
             mock_json.set.assert_called_once()
-            # No default TTL on vcon key: expire is only used for index keys by index_vcon_parties
             vcon_key = f"vcon:{self.test_vcon['uuid']}"
-            vcon_expire_calls = [
-                c for c in mock_redis.expire.call_args_list
-                if c[0][0] == vcon_key and c[0][1] == VCON_REDIS_EXPIRY
-            ]
-            assert len(vcon_expire_calls) == 0, "vCon key should not get default VCON_REDIS_EXPIRY TTL"
+            mock_redis.expire.assert_awaited_once_with(vcon_key, VCON_REDIS_EXPIRY)
 
         finally:
             api.redis_async = None
@@ -74,10 +65,10 @@ class TestPostVconExpiry:
 
     @patch("api.add_vcon_to_set")
     @patch("api.index_vcon_parties")
-    def test_post_vcon_with_ingress_list_stores_without_default_expiry(
+    def test_post_vcon_with_ingress_list_stores_with_default_expiry(
         self, mock_index_vcon_parties, mock_add_vcon_to_set
     ):
-        """Test that POST /vcon with ingress_lists stores and adds to list; no default vcon TTL."""
+        """Test that POST /vcon with ingress_lists applies default TTL and queues it."""
         mock_redis = MagicMock()
         mock_json = MagicMock()
         mock_json.set = AsyncMock()
@@ -95,13 +86,8 @@ class TestPostVconExpiry:
             )
 
             assert response.status_code == 201
-            # No default TTL on vcon key
             vcon_key = f"vcon:{self.test_vcon['uuid']}"
-            vcon_expire_calls = [
-                c for c in mock_redis.expire.call_args_list
-                if c[0][0] == vcon_key and c[0][1] == VCON_REDIS_EXPIRY
-            ]
-            assert len(vcon_expire_calls) == 0
+            mock_redis.expire.assert_awaited_once_with(vcon_key, VCON_REDIS_EXPIRY)
             mock_redis.rpush.assert_called_once_with("test_ingress", self.test_vcon["uuid"])
 
         finally:
@@ -121,10 +107,10 @@ class TestExternalIngressExpiry:
     @patch("config.Configuration.get_ingress_auth")
     @patch("api.add_vcon_to_set")
     @patch("api.index_vcon_parties")
-    def test_external_ingress_stores_without_default_expiry(
+    def test_external_ingress_stores_with_default_expiry(
         self, mock_index_vcon_parties, mock_add_vcon_to_set, mock_get_ingress_auth
     ):
-        """Test that POST /vcon/external-ingress stores vCon; no default VCON_REDIS_EXPIRY on vcon key."""
+        """Test that POST /vcon/external-ingress applies default TTL to the vCon."""
         mock_get_ingress_auth.return_value = {self.ingress_list: self.valid_api_key}
 
         mock_redis = MagicMock()
@@ -150,11 +136,7 @@ class TestExternalIngressExpiry:
 
             assert response.status_code == 204
             vcon_key = f"vcon:{self.test_vcon['uuid']}"
-            vcon_expire_calls = [
-                c for c in mock_redis.expire.call_args_list
-                if c[0][0] == vcon_key and c[0][1] == VCON_REDIS_EXPIRY
-            ]
-            assert len(vcon_expire_calls) == 0, "vCon key should not get default VCON_REDIS_EXPIRY TTL"
+            mock_redis.expire.assert_awaited_once_with(vcon_key, VCON_REDIS_EXPIRY)
 
         finally:
             api.redis_async = None

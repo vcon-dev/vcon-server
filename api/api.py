@@ -435,6 +435,12 @@ async def add_vcon_to_set(vcon_uuid: str, timestamp: int) -> None:
     await redis_async.zadd(VCON_SORTED_SET_NAME, {vcon_uuid: timestamp})
 
 
+async def cache_vcon_in_redis(vcon_key: str, vcon: dict) -> None:
+    """Store a vCon in Redis and apply the default cache expiry."""
+    await redis_async.json().set(vcon_key, "$", vcon)
+    await redis_async.expire(vcon_key, VCON_REDIS_EXPIRY)
+
+
 async def ensure_vcon_in_redis(vcon_uuid: UUID) -> Optional[dict]:
     """Ensure a vCon exists in Redis, syncing from storage if necessary.
     
@@ -475,8 +481,7 @@ async def sync_vcon_from_storage(vcon_uuid: UUID) -> Optional[dict]:
         vcon = Storage(storage_name=storage_name).get(str(vcon_uuid))
         if vcon:
             # Store the vCon back in Redis with expiration
-            await redis_async.json().set(f"vcon:{str(vcon_uuid)}", "$", vcon)
-            await redis_async.expire(f"vcon:{str(vcon_uuid)}", VCON_REDIS_EXPIRY)
+            await cache_vcon_in_redis(f"vcon:{str(vcon_uuid)}", vcon)
             # Add to sorted set for timestamp-based retrieval
             created_at = datetime.fromisoformat(vcon["created_at"])
             timestamp = int(created_at.timestamp())
@@ -760,7 +765,7 @@ async def post_vcon(
         timestamp = int(created_at.timestamp())
 
         logger.debug(f"Storing vCon {inbound_vcon.uuid} ({len(dict_vcon)} bytes)")
-        await redis_async.json().set(key, "$", dict_vcon)
+        await cache_vcon_in_redis(key, dict_vcon)
 
         logger.debug(f"Adding vCon {inbound_vcon.uuid} to sorted set")
         await add_vcon_to_set(key, timestamp)
@@ -860,7 +865,7 @@ async def external_ingress_vcon(
         logger.debug(
             f"Storing vCon {inbound_vcon.uuid} ({len(dict_vcon)} bytes) via external ingress"
         )
-        await redis_async.json().set(key, "$", dict_vcon)
+        await cache_vcon_in_redis(key, dict_vcon)
 
         logger.debug(f"Adding vCon {inbound_vcon.uuid} to sorted set")
         await add_vcon_to_set(key, timestamp)
