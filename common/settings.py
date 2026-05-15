@@ -58,6 +58,13 @@ CONSERVER_WORKERS = int(os.getenv("CONSERVER_WORKERS", 1))
 # Enable parallel storage writes using ThreadPoolExecutor (default True)
 CONSERVER_PARALLEL_STORAGE = os.getenv("CONSERVER_PARALLEL_STORAGE", "true").lower() in ("true", "1", "yes")
 
+# Per-worker in-flight vCon concurrency (default 1 = strict serial, current behaviour).
+# When > 1, each worker process dispatches up to N vCons to a ThreadPoolExecutor,
+# back-pressuring before BLPOP so at most N chains run in parallel per worker.
+# Trades CPU/GIL contention for I/O parallelism on chains that are network-bound
+# (LLM, transcription, webhook, storage writes).
+CONSERVER_VCON_CONCURRENCY = max(1, int(os.getenv("CONSERVER_VCON_CONCURRENCY", 1)))
+
 # Multiprocessing start method: "fork", "spawn", or "forkserver"
 # - "fork" (default on Unix): Copy-on-write memory, fastest startup, but can cause
 #   issues with threads and some libraries (OpenSSL, CUDA, etc.)
