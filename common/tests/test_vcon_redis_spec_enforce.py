@@ -109,3 +109,23 @@ def test_stringifies_dict_attachment_body():
     att = d["attachments"][0]
     assert isinstance(att["body"], str)
     assert att["encoding"] == "json"
+
+
+def test_renames_legacy_attachment_type_to_purpose():
+    d = {
+        "uuid": "u",
+        "attachments": [
+            {"type": "tags", "party": 0, "dialog": 0, "body": "x"}
+        ],
+    }
+    VconRedis._enforce_spec_on_write(d)
+    att = d["attachments"][0]
+    assert "type" not in att
+    assert att["purpose"] == "tags"
+
+
+def test_renames_top_level_appended_to_amended():
+    d = {"uuid": "u", "appended": [{"uuid": "prev"}]}
+    VconRedis._enforce_spec_on_write(d)
+    assert "appended" not in d
+    assert d["amended"] == [{"uuid": "prev"}]

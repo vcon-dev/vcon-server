@@ -48,8 +48,15 @@ class VconRedis:
         vcon-lib 0.9.2 produces spec-correct output from ``build_new()``
         but a ``Vcon(legacy_dict)`` round-trip can still surface empty
         ``group``/``redacted`` defaults or a missing top-level syntax
-        param. Normalize defensively here so storage is always clean.
+        param. Normalize defensively here so storage is always clean —
+        including legacy field renames (e.g. attachment ``type`` →
+        ``purpose``, top-level ``appended`` → ``amended``,
+        ``must_support`` → ``critical``) that mirror what
+        :func:`normalize_legacy_fields` applies on the read path.
         """
+        # Rename legacy field names before the rest of the enforcement
+        # so subsequent loops operate on spec-named entries.
+        normalize_legacy_fields(vcon_dict)
         # draft-ietf-vcon-vcon-core-02 §4.1.1 — syntax param.
         if not vcon_dict.get("vcon"):
             vcon_dict["vcon"] = "0.4.0"
