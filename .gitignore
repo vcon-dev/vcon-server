@@ -1,4 +1,8 @@
 *.env
+.env
+.env.*
+!.env.example
+!.env.test.example
 venv
 **/__pycache__
 .DS_Store
