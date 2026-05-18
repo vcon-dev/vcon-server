@@ -1,6 +1,6 @@
-from redis_mgr import redis
 from lib.logging_utils import init_logger
 from lib.metrics import increment_counter
+from lib.vcon_redis import VconRedis
 import json
 import requests
 import uuid
@@ -9,7 +9,6 @@ from botocore.exceptions import ClientError
 from typing import Dict, List, Any, Optional
 
 logger = init_logger(__name__)
-logger.info("MDO THIS SHOULD PRINT")
 
 _REDACTED = "[REDACTED]"
 
@@ -137,13 +136,15 @@ def run(vcon_uuid, link_name, opts=default_options):
 
     attrs = {"link.name": link_name, "vcon.uuid": vcon_uuid}
 
-    # Load vCon from Redis using JSON.GET
-    vcon = redis.json().get(f"vcon:{vcon_uuid}")
+    # Load vCon as a raw dict so we can do diet's in-place redactions.
+    # Going through VconRedis ensures the read-side legacy-field
+    # normalization runs and the write-side spec-enforce step is
+    # applied when we save back.
+    vcon_redis = VconRedis()
+    vcon = vcon_redis.get_vcon_dict(vcon_uuid)
     if not vcon:
         logger.error(f"vCon {vcon_uuid} not found in Redis")
         return vcon_uuid
-
-    # No need for json.loads since JSON.GET returns Python objects directly
 
     # Process dialogs
     if "dialog" in vcon:
@@ -210,8 +211,10 @@ def run(vcon_uuid, link_name, opts=default_options):
     if options["remove_system_prompts"]:
         remove_system_prompts_recursive(vcon)
 
-    # Save the modified vCon back to Redis using JSON.SET
-    redis.json().set(f"vcon:{vcon_uuid}", "$", vcon)
+    # Save the modified vCon back through the wrapper so spec-enforcement
+    # (vcon syntax param, body stringification, empty group/redacted
+    # cleanup) runs on every diet write.
+    vcon_redis.store_vcon_dict(vcon)
     logger.info(f"Successfully applied diet to vCon {vcon_uuid}")
 
     return vcon_uuid

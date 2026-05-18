@@ -114,6 +114,7 @@ def skip_if_no_openai_key():
     if not os.getenv("OPENAI_API_KEY"):
         pytest.skip("OPENAI_API_KEY not set in environment, skipping test.")
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_check_engagement_engaged():
     """
@@ -130,6 +131,7 @@ async def test_check_engagement_engaged():
     )
     assert result is True
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_check_engagement_not_engaged():
     """

@@ -1,4 +1,9 @@
 *.env
+# Test env file: tracked historically, but holds real API keys when
+# developers run integration tests locally. Untrack and ignore so
+# credentials can't be committed by accident. A sanitized template
+# lives at .env.test.example.
+.env.test
 venv
 **/__pycache__
 .DS_Store

@@ -235,8 +235,11 @@ poetry run pytest server/tests/test_api.py::test_health
 # Run by marker
 poetry run pytest -m integration
 
+# Fast path: skip integration tests
+poetry run pytest -m "not integration"
+
 # With coverage
-poetry run pytest --cov=server --cov-report=html
+poetry run pytest --cov --cov-report=html
 ```
 
 ### Test Configuration

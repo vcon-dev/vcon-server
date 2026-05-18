@@ -488,6 +488,7 @@ class TestRunFunction:
             run("test-uuid", "analyze", {"OPENAI_API_KEY": API_KEY})
 
 
+@pytest.mark.integration
 @pytest.mark.skipif(not RUN_API_TESTS, reason="Skipping API tests. Set RUN_OPENAI_ANALYZE_TESTS=1 to run")
 class TestRealAPIIntegration:
     """Test with real OpenAI API (optional)"""

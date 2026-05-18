@@ -46,6 +46,7 @@ from config import Configuration
 from dlq_utils import get_ingress_list_dlq_name
 from lib.context_utils import store_context_async, extract_otel_trace_context
 from lib.logging_utils import init_logger
+from lib.queue import VconQueue
 import redis_mgr
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request as StarletteRequest
@@ -70,6 +71,10 @@ from storage.base import Storage
 # Initialize logging
 logger = init_logger(__name__)
 logger.info("API starting up")
+
+# Shared queue helper. Async methods take the async Redis client as an
+# argument, so a single module-level instance is enough.
+queue = VconQueue()
 
 # Initialize FastAPI app with CORS middleware
 app = FastAPI(root_path=API_ROOT_PATH)
@@ -273,7 +278,7 @@ async def get_queue_depth(
 ) -> JSONResponse:
     """Get the current depth of a Redis list. Public endpoint (no auth) for monitoring and backpressure."""
     try:
-        depth = await redis_async.llen(list_name)
+        depth = await queue.queue_length_async(redis_async, list_name)
         return JSONResponse(content={"list_name": list_name, "depth": depth})
     except Exception as e:
         logger.error(f"Error getting queue depth for '{list_name}': {str(e)}")
@@ -435,6 +440,12 @@ async def add_vcon_to_set(vcon_uuid: str, timestamp: int) -> None:
     await redis_async.zadd(VCON_SORTED_SET_NAME, {vcon_uuid: timestamp})
 
 
+async def cache_vcon_in_redis(vcon_key: str, vcon: dict) -> None:
+    """Store a vCon in Redis and apply the default cache expiry."""
+    await redis_async.json().set(vcon_key, "$", vcon)
+    await redis_async.expire(vcon_key, VCON_REDIS_EXPIRY)
+
+
 async def ensure_vcon_in_redis(vcon_uuid: UUID) -> Optional[dict]:
     """Ensure a vCon exists in Redis, syncing from storage if necessary.
     
@@ -475,8 +486,7 @@ async def sync_vcon_from_storage(vcon_uuid: UUID) -> Optional[dict]:
         vcon = Storage(storage_name=storage_name).get(str(vcon_uuid))
         if vcon:
             # Store the vCon back in Redis with expiration
-            await redis_async.json().set(f"vcon:{str(vcon_uuid)}", "$", vcon)
-            await redis_async.expire(f"vcon:{str(vcon_uuid)}", VCON_REDIS_EXPIRY)
+            await cache_vcon_in_redis(f"vcon:{str(vcon_uuid)}", vcon)
             # Add to sorted set for timestamp-based retrieval
             created_at = datetime.fromisoformat(vcon["created_at"])
             timestamp = int(created_at.timestamp())
@@ -760,7 +770,7 @@ async def post_vcon(
         timestamp = int(created_at.timestamp())
 
         logger.debug(f"Storing vCon {inbound_vcon.uuid} ({len(dict_vcon)} bytes)")
-        await redis_async.json().set(key, "$", dict_vcon)
+        await cache_vcon_in_redis(key, dict_vcon)
 
         logger.debug(f"Adding vCon {inbound_vcon.uuid} to sorted set")
         await add_vcon_to_set(key, timestamp)
@@ -777,7 +787,7 @@ async def post_vcon(
                 # The conserver might pick up the vCon before context is stored
                 if context:
                     await store_context_async(redis_async, ingress_list, vcon_uuid_str, context)
-                await redis_async.rpush(ingress_list, vcon_uuid_str)
+                await queue.enqueue_async(redis_async, ingress_list, vcon_uuid_str)
 
         try:
             vcon_hook.on_vcon_created(str(inbound_vcon.uuid), dict_vcon, ingress_lists)
@@ -860,7 +870,7 @@ async def external_ingress_vcon(
         logger.debug(
             f"Storing vCon {inbound_vcon.uuid} ({len(dict_vcon)} bytes) via external ingress"
         )
-        await redis_async.json().set(key, "$", dict_vcon)
+        await cache_vcon_in_redis(key, dict_vcon)
 
         logger.debug(f"Adding vCon {inbound_vcon.uuid} to sorted set")
         await add_vcon_to_set(key, timestamp)
@@ -875,7 +885,7 @@ async def external_ingress_vcon(
         # The conserver might pick up the vCon before context is stored
         if context:
             await store_context_async(redis_async, ingress_list, vcon_uuid_str, context)
-        await redis_async.rpush(ingress_list, vcon_uuid_str)
+        await queue.enqueue_async(redis_async, ingress_list, vcon_uuid_str)
 
         logger.info(
             f"Successfully stored vCon {inbound_vcon.uuid} and added to ingress list {ingress_list}"
@@ -1009,7 +1019,7 @@ async def post_vcon_ingress(
             if context:
                 for vcon_uuid_str in valid_vcon_uuids:
                     await store_context_async(redis_async, ingress_list, vcon_uuid_str, context)
-            await redis_async.rpush(ingress_list, *valid_vcon_uuids)
+            await queue.enqueue_async(redis_async, ingress_list, *valid_vcon_uuids)
             logger.info(f"Added {len(valid_vcon_uuids)} vCon UUIDs to ingress list {ingress_list}")
         else:
             logger.warning(f"No valid vCons found to add to ingress list {ingress_list}")
@@ -1041,7 +1051,7 @@ async def get_vcon_count(
         HTTPException: If there is an error accessing the list
     """
     try:
-        count = await redis_async.llen(egress_list)
+        count = await queue.queue_length_async(redis_async, egress_list)
         return JSONResponse(content=count)
     except Exception as e:
         logger.error(f"Error counting egress list: {str(e)}")
@@ -1122,10 +1132,9 @@ async def post_dlq_reprocess(
         HTTPException: If there is an error reprocessing the DLQ
     """
     try:
-        dlq_name = get_ingress_list_dlq_name(ingress_list)
         counter = 0
-        while item := await redis_async.rpop(dlq_name):
-            await redis_async.rpush(ingress_list, item)
+        while item := await queue.dequeue_dlq_async(redis_async, ingress_list):
+            await queue.enqueue_async(redis_async, ingress_list, item)
             counter += 1
         return JSONResponse(content=counter)
     except Exception as e:
