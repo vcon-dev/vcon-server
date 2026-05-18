@@ -15,17 +15,17 @@ def mock_redis():
 
     The fixture name is kept as ``mock_redis`` for historical reasons, but
     it now yields a MagicMock whose ``rpush`` attribute mirrors calls made
-    to ``VconQueue().route_to(...)``. This lets the existing assertions in
+    to ``VconQueue().enqueue(...)``. This lets the existing assertions in
     this file continue to work unchanged while the production code uses
     the higher-level queue abstraction.
     """
     with patch('links.tag_router.VconQueue') as mock_queue_cls:
         instance = MagicMock()
-        # tag_router calls queue.route_to(target_list, vcon_uuid).
+        # tag_router calls queue.enqueue(target_list, vcon_uuid).
         # Mirror that onto an ``rpush`` attribute so legacy assertions
         # like ``mock_redis.rpush.assert_any_call(list, uuid)`` keep
         # working against the same underlying MagicMock.
-        instance.route_to = instance.rpush
+        instance.enqueue = instance.rpush
         mock_queue_cls.return_value = instance
         yield instance
 

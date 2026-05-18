@@ -78,7 +78,7 @@ def run(vcon_uuid, link_name, opts=default_options):
             target_list = opts["tag_routes"][tag]
             logger.info(f"Routing vCon {vcon_uuid} to list '{target_list}' based on tag '{tag}'")
             # Push the vCon UUID to the target Redis list
-            queue.route_to(target_list, vcon_uuid)
+            queue.enqueue(target_list, vcon_uuid)
             increment_counter(
                 "conserver.link.tag_router.routes_matched",
                 attributes={**attrs, "route": target_list},

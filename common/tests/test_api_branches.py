@@ -20,6 +20,7 @@ def redis_async(monkeypatch):
     redis.expire = AsyncMock()
     redis.zrevrangebyscore = AsyncMock()
     redis.rpop = AsyncMock()
+    redis.lpop = AsyncMock()
     redis.rpush = AsyncMock()
     redis.llen = AsyncMock()
     redis.smembers = AsyncMock()
@@ -208,13 +209,13 @@ async def test_get_vcon_count_get_config_and_dlq_endpoints_cover_success_and_err
         with pytest.raises(api.HTTPException, match="Failed to read configuration"):
             await api.get_config()
 
-    redis_async.rpop.side_effect = ["a", "b", None]
+    redis_async.lpop.side_effect = ["a", "b", None]
     with patch.object(api, "get_ingress_list_dlq_name", return_value="ingress-a:dlq"):
         dlq_response = await api.post_dlq_reprocess("ingress-a")
     assert json.loads(dlq_response.body) == 2
     redis_async.rpush.assert_awaited_with("ingress-a", "b")
 
-    redis_async.rpop.side_effect = RuntimeError("dlq failed")
+    redis_async.lpop.side_effect = RuntimeError("dlq failed")
     with patch.object(api, "get_ingress_list_dlq_name", return_value="ingress-a:dlq"):
         with pytest.raises(api.HTTPException, match="Failed to reprocess DLQ"):
             await api.post_dlq_reprocess("ingress-a")

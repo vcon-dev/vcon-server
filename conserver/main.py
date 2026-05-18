@@ -865,7 +865,8 @@ def worker_loop(worker_id: int) -> None:
                 vcon_id,
                 ingress_list
             )
-            queue.enqueue(ingress_list, vcon_id)
+            # enqueue at the head so the next worker picks this vCon up first.
+            queue.enqueue_front(ingress_list, vcon_id)
             break
 
         chain_details = ingress_chain_map[ingress_list]
