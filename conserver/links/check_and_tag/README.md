@@ -112,3 +112,16 @@ The link integrates with the vCon structure in two ways:
 2. It conditionally adds the specified tag to the vCon if the evaluation is positive
 
 This allows for both structured access to the full evaluation analysis and quick filtering/categorization using the applied tags.
+
+## Agent Session Recording
+
+When enabled, this link emits a `type: agent_trace` analysis entry alongside the
+`tag_evaluation` analysis and any applied tag, conforming to
+[draft-howe-vcon-agent-session](https://datatracker.ietf.org/doc/draft-howe-vcon-agent-session/),
+plus an `agent` party identifying the model. The trace records the evaluation
+question, the text evaluated, and the boolean answer the model returned.
+**Off by default.**
+
+- Set environment variable `CONSERVER_RECORD_AGENT_SESSION=true` to enable globally.
+- Once the global switch is on, set `record_agent_session: false` in the link's options
+  to opt this link out.

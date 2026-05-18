@@ -70,7 +70,7 @@ def sample_vcon():
     
     vcon.analysis = [transcript_analysis]
     vcon.add_analysis = Mock()
-    
+
     return vcon
 
 
@@ -331,7 +331,8 @@ class TestRunFunction:
         # Verify vCon was updated and stored
         mock_redis_with_vcon.store_vcon.assert_called_once()
         
-        # Check the vCon has an analysis
+        # Check the vCon has an analysis (agent_trace recording is off by default,
+        # so only the summary call happens).
         sample_vcon.add_analysis.assert_called_once()
     
     @patch('links.analyze.get_openai_client')
@@ -486,6 +487,65 @@ class TestRunFunction:
         
         with pytest.raises(Exception, match="API Error"):
             run("test-uuid", "analyze", {"OPENAI_API_KEY": API_KEY})
+
+
+class TestEmitsAgentTrace:
+    """Verify the analyze link emits an agent_trace analysis entry per draft-howe-vcon-agent-session."""
+
+    @patch('links.analyze.get_openai_client')
+    @patch('links.analyze.generate_analysis')
+    @patch('links.analyze.is_included', return_value=True)
+    @patch('links.analyze.randomly_execute_with_sampling', return_value=True)
+    @patch('links.analyze.VconRedis', autospec=True)
+    def test_emits_agent_trace(
+        self, mock_redis_cls, mock_sampling, mock_is_included, mock_generate_analysis, mock_get_client, monkeypatch
+    ):
+        import json as _json
+        # Recording is off by default — opt in for this test.
+        monkeypatch.setenv("CONSERVER_RECORD_AGENT_SESSION", "true")
+        mock_get_client.return_value = Mock()
+        mock_generate_analysis.return_value = "Customer wanted a refund and got one."
+
+        real_vcon = Vcon.build_new()
+        real_vcon.vcon_dict["dialog"].append(
+            {"type": "text", "parties": [0], "start": "2026-05-18T10:00:00Z"}
+        )
+        real_vcon.vcon_dict["analysis"].append({
+            "dialog": 0,
+            "type": "transcript",
+            "vendor": "openai-whisper",
+            "body": {"paragraphs": {"transcript": "Customer: refund please."}},
+            "encoding": "none",
+        })
+
+        mock_instance = Mock()
+        mock_instance.get_vcon.return_value = real_vcon
+        mock_instance.store_vcon = Mock()
+        mock_redis_cls.return_value = mock_instance
+
+        run("test-uuid", "analyze", {"OPENAI_API_KEY": API_KEY, "model": "gpt-3.5-turbo-16k"})
+
+        agent_traces = [a for a in real_vcon.analysis if a["type"] == "agent_trace"]
+        assert len(agent_traces) == 1
+        entry = agent_traces[0]
+        assert entry["product"] == "gpt-3.5-turbo-16k"
+        assert entry["vendor"] == "openai"
+        assert entry["encoding"] == "json"
+
+        body = _json.loads(entry["body"])
+        entries = body["session-trace"]["entries"]
+        assert entries[0]["type"] == "user"
+        assert entries[-1]["type"] == "assistant"
+        assert entries[-1]["content"] == "Customer wanted a refund and got one."
+
+        original = [a for a in real_vcon.analysis if a["type"] == "summary"]
+        assert len(original) == 1
+
+        agent_parties = [p for p in real_vcon.parties if p.get("role") == "agent"]
+        assert len(agent_parties) == 1
+        assert agent_parties[0]["meta"]["agent_session"]["model_id"] == "gpt-3.5-turbo-16k"
+
+        assert "agent_session" in real_vcon.vcon_dict.get("extensions", [])
 
 
 @pytest.mark.skipif(not RUN_API_TESTS, reason="Skipping API tests. Set RUN_OPENAI_ANALYZE_TESTS=1 to run")

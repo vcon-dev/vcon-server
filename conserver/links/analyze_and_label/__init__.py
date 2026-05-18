@@ -12,8 +12,12 @@ from tenacity import (
 from lib.metrics import record_histogram, increment_counter
 import time
 from lib.links.filters import is_included, randomly_execute_with_sampling
+from lib.agent_session_recorder import record_agent_trace
+from lib.openai_client import get_vendor_from_opts
 
 logger = init_logger(__name__)
+
+_SYSTEM_PROMPT = "You are a helpful assistant that analyzes text and provides relevant labels."
 
 default_options = {
     "prompt": "Analyze this transcript and provide a list of relevant labels for categorization. Return your response as a JSON object with a single key 'labels' containing an array of strings.",
@@ -43,7 +47,7 @@ def get_analysis_for_type(vcon, index, analysis_type):
 )
 def generate_analysis_with_labels(transcript, prompt, model, temperature, client, response_format) -> dict:
     messages = [
-        {"role": "system", "content": "You are a helpful assistant that analyzes text and provides relevant labels."},
+        {"role": "system", "content": _SYSTEM_PROMPT},
         {"role": "user", "content": prompt + "\n\n" + transcript},
     ]
 
@@ -145,6 +149,18 @@ def run(
                 for label in labels:
                     vCon.add_tag(tag_name=label, tag_value=label)
                     logger.info(f"Applied label as tag: {label}")
+
+                record_agent_trace(
+                    vCon,
+                    dialog_indices=index,
+                    model_id=opts["model"],
+                    provider=get_vendor_from_opts(opts),
+                    system_prompt=_SYSTEM_PROMPT,
+                    user_prompt=opts["prompt"] + "\n\n" + source_text,
+                    assistant_response=analysis_json_str,
+                    link_name="analyze_and_label",
+                    opts=opts,
+                )
                 
                 increment_counter(
                     "conserver.link.openai.labels_added",
@@ -172,6 +188,17 @@ def run(
                             "parse_error": str(e)
                         },
                     },
+                )
+                record_agent_trace(
+                    vCon,
+                    dialog_indices=index,
+                    model_id=opts["model"],
+                    provider=get_vendor_from_opts(opts),
+                    system_prompt=_SYSTEM_PROMPT,
+                    user_prompt=opts["prompt"] + "\n\n" + source_text,
+                    assistant_response=analysis_json_str,
+                    link_name="analyze_and_label",
+                    opts=opts,
                 )
                 
         except Exception as e:

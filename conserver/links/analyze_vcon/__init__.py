@@ -1,6 +1,7 @@
 from lib.vcon_redis import VconRedis
 from lib.logging_utils import init_logger
-from lib.openai_client import get_openai_client
+from lib.openai_client import get_openai_client, get_vendor_from_opts
+from lib.agent_session_recorder import record_agent_trace
 import logging
 from tenacity import (
     retry,
@@ -185,7 +186,19 @@ def run(
             "vendor_schema": vendor_schema,
         },
     )
-    
+
+    record_agent_trace(
+        vCon,
+        dialog_indices=0,
+        model_id=opts["model"],
+        provider=get_vendor_from_opts(opts),
+        system_prompt=opts["system_prompt"],
+        user_prompt=opts["prompt"] + "\n\n" + json.dumps(vcon_data),
+        assistant_response=analysis_result,
+        link_name="analyze_vcon",
+        opts=opts,
+    )
+
     vcon_redis.store_vcon(vCon)
     logger.info(f"Finished analyze - {module_name}:{link_name} plugin for: {vcon_uuid}")
 

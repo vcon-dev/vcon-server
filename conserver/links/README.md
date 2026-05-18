@@ -2,6 +2,26 @@
 
 This directory contains various link implementations for the vCon server. Each link provides specific functionality for processing and analyzing vCon data.
 
+## Agent Session Recording
+
+Chat-LLM links (`analyze`, `analyze_and_label`, `analyze_vcon`, `check_and_tag`,
+`detect_engagement`, `hugging_llm_link`) can emit a `type: agent_trace` analysis
+entry alongside their existing output, conforming to
+[draft-howe-vcon-agent-session](https://datatracker.ietf.org/doc/draft-howe-vcon-agent-session/).
+When enabled, each vCon they touch gains an `agent` party identifying the model
+and a verifiable record of the prompt sent and response received. The
+`agent_session` extension is added to the vCon's `extensions[]` list.
+
+**Off by default** — operators must opt in:
+- **Globally**: set environment variable `CONSERVER_RECORD_AGENT_SESSION=true`
+- **Per-link**: opt out by setting `record_agent_session: false` under that link's
+  options once the global switch is on. The global switch wins when off — a per-link
+  `record_agent_session: true` does not override it.
+
+The construction helper lives in `common/lib/agent_session_recorder.py`. ASR/transcription
+links (deepgram, groq_whisper, openai_transcribe, etc.) are intentionally out of scope —
+speech-to-text is not an "agent session" in the draft's sense.
+
 ## Available Links
 
 ### analyze

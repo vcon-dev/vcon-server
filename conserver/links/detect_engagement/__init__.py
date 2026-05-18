@@ -1,6 +1,7 @@
 from lib.vcon_redis import VconRedis
 from lib.logging_utils import init_logger
-from lib.openai_client import get_openai_client
+from lib.openai_client import get_openai_client, get_vendor_from_opts
+from lib.agent_session_recorder import record_agent_trace
 import logging
 from tenacity import (
     retry,
@@ -136,6 +137,18 @@ def run(
                 extra={
                     "vendor_schema": vendor_schema,
                 },
+            )
+
+            record_agent_trace(
+                vCon,
+                dialog_indices=index,
+                model_id=opts["model"],
+                provider=get_vendor_from_opts(opts),
+                system_prompt=None,
+                user_prompt=f"{opts['prompt']}\n\nTranscript: {source_text}",
+                assistant_response=is_engaged_str,
+                link_name="detect_engagement",
+                opts=opts,
             )
 
             vCon.add_tag(tag_name="engagement", tag_value=is_engaged_str)

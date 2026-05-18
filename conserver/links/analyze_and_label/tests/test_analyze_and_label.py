@@ -226,6 +226,36 @@ def test_navigate_dict():
 @patch('links.analyze_and_label.generate_analysis_with_labels')
 @patch('links.analyze_and_label.is_included', return_value=True)
 @patch('links.analyze_and_label.randomly_execute_with_sampling', return_value=True)
+def test_emits_agent_trace(mock_sampling, mock_is_included, mock_generate_analysis, mock_get_client, mock_redis_with_vcon, sample_vcon, monkeypatch):
+    """Verify the link emits an agent_trace analysis per draft-howe-vcon-agent-session."""
+    # Recording is off by default — opt in for this test.
+    monkeypatch.setenv("CONSERVER_RECORD_AGENT_SESSION", "true")
+    mock_get_client.return_value = Mock()
+    mock_generate_analysis.return_value = json.dumps({"labels": ["billing"]})
+
+    mock_instance = mock_redis_with_vcon.return_value
+    mock_instance.get_vcon.return_value = sample_vcon
+
+    run("test-uuid", "analyze_and_label", {"OPENAI_API_KEY": API_KEY, "model": "gpt-4-turbo"})
+
+    agent_traces = [a for a in sample_vcon.analysis if a["type"] == "agent_trace"]
+    assert len(agent_traces) == 1
+    entry = agent_traces[0]
+    assert entry["product"] == "gpt-4-turbo"
+    assert entry["encoding"] == "json"
+
+    body = json.loads(entry["body"])
+    assert body["session-trace"]["entries"][-1]["type"] == "assistant"
+
+    agent_parties = [p for p in sample_vcon.parties if p.get("role") == "agent"]
+    assert len(agent_parties) == 1
+    assert "agent_session" in sample_vcon.vcon_dict.get("extensions", [])
+
+
+@patch('links.analyze_and_label.get_openai_client')
+@patch('links.analyze_and_label.generate_analysis_with_labels')
+@patch('links.analyze_and_label.is_included', return_value=True)
+@patch('links.analyze_and_label.randomly_execute_with_sampling', return_value=True)
 def test_run_basic(mock_sampling, mock_is_included, mock_generate_analysis, mock_get_client, mock_redis_with_vcon, sample_vcon):
     """Test the basic run functionality with mocked analysis generation"""
     mock_get_client.return_value = Mock()

@@ -59,4 +59,16 @@ The link implements error handling for:
 - Token length exceeded
 - Network connectivity issues
 
-Errors are logged using the application's logging system. 
+Errors are logged using the application's logging system.
+
+## Agent Session Recording
+
+When enabled, this link emits a `type: agent_trace` analysis entry alongside
+the `llm_analysis` entry, conforming to
+[draft-howe-vcon-agent-session](https://datatracker.ietf.org/doc/draft-howe-vcon-agent-session/),
+plus an `agent` party identifying the model (with `provider: "hugging_face"`).
+**Off by default.**
+
+- Set environment variable `CONSERVER_RECORD_AGENT_SESSION=true` to enable globally.
+- Once the global switch is on, set `record_agent_session: false` in the link's options
+  to opt this link out.

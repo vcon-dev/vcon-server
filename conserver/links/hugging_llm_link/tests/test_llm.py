@@ -195,3 +195,58 @@
 #     # Check if local model was used
 #     assert any("Using local model" in record.message for record in caplog.records)
 #     assert any("gpt2" in record.message for record in caplog.records)
+
+
+import json
+from unittest.mock import Mock, patch
+from vcon import Vcon
+
+from links.hugging_llm_link import VConLLMProcessor, LLMConfig
+
+
+def test_emits_agent_trace(monkeypatch):
+    """Verify the link emits an agent_trace analysis per draft-howe-vcon-agent-session."""
+    # Recording is off by default — opt in for this test.
+    monkeypatch.setenv("CONSERVER_RECORD_AGENT_SESSION", "true")
+    real_vcon = Vcon.build_new()
+    real_vcon.vcon_dict["dialog"].append(
+        {"type": "text", "parties": [0], "start": "2026-05-18T10:00:00Z"}
+    )
+    real_vcon.vcon_dict["analysis"].append({
+        "dialog": 0,
+        "type": "transcript",
+        "vendor": "openai-whisper",
+        "body": {"transcript": "Customer: hello.\nAgent: hi."},
+        "encoding": "none",
+    })
+
+    config = LLMConfig(model="meta-llama/Llama-2-70b-chat-hf")
+
+    with patch("links.hugging_llm_link.HuggingFaceLLM") as mock_llm_cls:
+        mock_llm = Mock()
+        mock_llm.analyze.return_value = {
+            "analysis": "Summary: a brief exchange.",
+            "model": config.model,
+            "parameters": {"max_length": 1000, "temperature": 0.7},
+        }
+        mock_llm_cls.return_value = mock_llm
+
+        processor = VConLLMProcessor(config)
+        processor.vcon_redis = Mock()
+        processor.vcon_redis.get_vcon.return_value = real_vcon
+        processor.vcon_redis.store_vcon = Mock()
+
+        processor.process_vcon("test-uuid", "hugging_llm_link")
+
+    agent_traces = [a for a in real_vcon.analysis if a["type"] == "agent_trace"]
+    assert len(agent_traces) == 1
+    entry = agent_traces[0]
+    assert entry["product"] == "meta-llama/Llama-2-70b-chat-hf"
+    assert entry["vendor"] == "hugging_face"
+
+    body = json.loads(entry["body"])
+    assert body["session-trace"]["entries"][-1]["content"] == "Summary: a brief exchange."
+
+    agent_parties = [p for p in real_vcon.parties if p.get("role") == "agent"]
+    assert len(agent_parties) == 1
+    assert "agent_session" in real_vcon.vcon_dict.get("extensions", [])

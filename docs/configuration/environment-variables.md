@@ -287,6 +287,36 @@ Groq API key for Whisper transcription.
 GROQ_API_KEY=gsk-your-groq-api-key
 ```
 
+## Feature Flags
+
+### CONSERVER_RECORD_AGENT_SESSION
+
+Global enable switch for the `agent_session` vCon extension
+([draft-howe-vcon-agent-session](https://datatracker.ietf.org/doc/draft-howe-vcon-agent-session/)).
+When enabled, every chat-LLM link emits a `type: agent_trace` analysis entry and
+an `agent` party alongside its existing output, recording which model was called
+with which prompt and what it returned. This is **off by default** — operators
+must opt in.
+
+Set to a truthy value (`true`, `1`, `yes`, `on`, case-insensitive) to enable
+recording across all eligible links. Any other value (including unset, `false`,
+`0`) leaves recording off.
+
+| Property | Value |
+|----------|-------|
+| **Required** | No |
+| **Default** | unset → recording off |
+
+```bash
+# Enable agent_session recording fleet-wide
+CONSERVER_RECORD_AGENT_SESSION=true
+```
+
+When the global switch is on, individual links can still opt out by setting
+`record_agent_session: false` under that link's options in `config.yml`. The
+global switch wins when off — per-link `record_agent_session: true` does not
+override it.
+
 ## Cache Settings
 
 ### VCON_REDIS_EXPIRY

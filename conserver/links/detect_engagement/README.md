@@ -109,4 +109,15 @@ Start your server as usual. The engagement detection link will automatically ana
 ### 6. Viewing Results
 
 - Engagement analysis results will be added to each vCon as an analysis object and as an "engagement" tag.
-- Metrics are exposed for monitoring as described above. 
+- Metrics are exposed for monitoring as described above.
+
+## Agent Session Recording
+
+When enabled, this link emits a `type: agent_trace` analysis entry alongside
+the `engagement_analysis` entry and the `engagement` tag, conforming to
+[draft-howe-vcon-agent-session](https://datatracker.ietf.org/doc/draft-howe-vcon-agent-session/),
+plus an `agent` party identifying the model. **Off by default.**
+
+- Set environment variable `CONSERVER_RECORD_AGENT_SESSION=true` to enable globally.
+- Once the global switch is on, set `record_agent_session: false` in the link's options
+  to opt this link out.

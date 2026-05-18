@@ -1,8 +1,14 @@
 from lib.vcon_redis import VconRedis
 from lib.logging_utils import init_logger
-from lib.openai_client import get_openai_client
+from lib.openai_client import get_openai_client, get_vendor_from_opts
+from lib.agent_session_recorder import record_agent_trace
 import logging
 import json
+
+_SYSTEM_PROMPT = (
+    "You are a helpful assistant that evaluates text against specific questions "
+    "and provides yes/no answers."
+)
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -45,12 +51,9 @@ def get_analysis_for_type(vcon, index, analysis_type):
 )
 def generate_tag_evaluation(transcript, evaluation_question, model,  client, response_format) -> str:
     messages = [
+        {"role": "system", "content": _SYSTEM_PROMPT},
         {
-            "role": "system", 
-            "content": "You are a helpful assistant that evaluates text against specific questions and provides yes/no answers."
-        },
-        {
-            "role": "user", 
+            "role": "user",
             "content": (
                 f"Question: {evaluation_question}\n\nText to evaluate:\n{transcript}\n\n"
                 "Please answer with a JSON object containing a single key 'applies' with a boolean value "
@@ -175,7 +178,24 @@ def run(
                     "vendor_schema": vendor_schema,
                 },
             )
-            
+
+            user_prompt = (
+                f"Question: {opts['evaluation_question']}\n\nText to evaluate:\n{source_text}\n\n"
+                "Please answer with a JSON object containing a single key 'applies' with a boolean value "
+                "(true if the tag applies, false if it doesn't)."
+            )
+            record_agent_trace(
+                vCon,
+                dialog_indices=index,
+                model_id=opts["model"],
+                provider=get_vendor_from_opts(opts),
+                system_prompt=_SYSTEM_PROMPT,
+                user_prompt=user_prompt,
+                assistant_response=analysis_json_str,
+                link_name="check_and_tag",
+                opts=opts,
+            )
+
             # Apply tag if evaluation is positive
             if applies:
                 vCon.add_tag(tag_name=opts["tag_name"], tag_value=opts["tag_value"])

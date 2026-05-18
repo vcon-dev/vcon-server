@@ -256,4 +256,47 @@ def test_run_skips_existing_analysis(mock_get_client, mock_redis, mock_vcon):
     result = run("test-uuid", "test-link", {"OPENAI_API_KEY": os.getenv("OPENAI_API_KEY")})
     assert result == "test-uuid"
     mock_vcon.add_analysis.assert_not_called()
-    mock_vcon.add_tag.assert_not_called() 
+    mock_vcon.add_tag.assert_not_called()
+
+
+@patch("links.detect_engagement.check_engagement")
+@patch("links.detect_engagement.get_openai_client")
+def test_emits_agent_trace(mock_get_client, mock_check_engagement, monkeypatch):
+    """Verify the link emits an agent_trace analysis per draft-howe-vcon-agent-session."""
+    from vcon import Vcon
+    # Recording is off by default — opt in for this test.
+    monkeypatch.setenv("CONSERVER_RECORD_AGENT_SESSION", "true")
+    mock_get_client.return_value = Mock()
+    mock_check_engagement.return_value = True
+
+    real_vcon = Vcon.build_new()
+    real_vcon.vcon_dict["dialog"].append(
+        {"type": "text", "parties": [0], "start": "2026-05-18T10:00:00Z"}
+    )
+    real_vcon.vcon_dict["analysis"].append({
+        "dialog": 0,
+        "type": "transcript",
+        "vendor": "openai-whisper",
+        "body": {"paragraphs": {"transcript": MOCK_TRANSCRIPT}},
+        "encoding": "none",
+    })
+
+    with patch("links.detect_engagement.VconRedis") as mock_redis_cls:
+        instance = Mock()
+        instance.get_vcon.return_value = real_vcon
+        instance.store_vcon = Mock()
+        mock_redis_cls.return_value = instance
+        run("test-uuid", "detect_engagement", {"OPENAI_API_KEY": "x", "model": "gpt-4.1"})
+
+    agent_traces = [a for a in real_vcon.analysis if a["type"] == "agent_trace"]
+    assert len(agent_traces) == 1
+    entry = agent_traces[0]
+    assert entry["product"] == "gpt-4.1"
+    assert entry["vendor"] == "openai"
+
+    body = json.loads(entry["body"])
+    assert body["session-trace"]["entries"][-1]["content"] == "true"
+
+    agent_parties = [p for p in real_vcon.parties if p.get("role") == "agent"]
+    assert len(agent_parties) == 1
+    assert "agent_session" in real_vcon.vcon_dict.get("extensions", [])

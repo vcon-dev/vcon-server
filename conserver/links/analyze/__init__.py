@@ -12,6 +12,7 @@ from lib.metrics import record_histogram, increment_counter
 import time
 from lib.links.filters import is_included, randomly_execute_with_sampling
 from lib.ai_usage import send_ai_usage_data_for_tracking
+from lib.agent_session_recorder import record_agent_trace
 
 logger = init_logger(__name__)
 
@@ -175,6 +176,18 @@ def run(
             extra={
                 "vendor_schema": vendor_schema,
             },
+        )
+
+        record_agent_trace(
+            vCon,
+            dialog_indices=index,
+            model_id=opts["model"],
+            provider=get_vendor_from_opts(opts),
+            system_prompt=opts.get("system_prompt"),
+            user_prompt=opts.get("prompt", "") + "\n\n" + source_text,
+            assistant_response=analysis,
+            link_name="analyze",
+            opts=opts,
         )
     vcon_redis.store_vcon(vCon)
     logger.info(f"Finished analyze - {module_name}:{link_name} plugin for: {vcon_uuid}")

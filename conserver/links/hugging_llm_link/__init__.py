@@ -33,17 +33,28 @@ from tenacity import (
     before_sleep_log,
 )
 import transformers
-import anyio
 
 # Local imports
 from lib.logging_utils import init_logger
 from lib.error_tracking import init_error_tracker
 from lib.metrics import record_histogram, increment_counter
 from lib.vcon_redis import VconRedis
+from lib.agent_session_recorder import record_agent_trace
 
 # Initialize services
 init_error_tracker()
 logger = init_logger(__name__)
+
+
+def _build_prompt(text: str) -> str:
+    return (
+        "Analyze the following conversation and provide:\n"
+        "1. A brief summary\n"
+        "2. The overall sentiment\n"
+        "3. Key discussion points\n\n"
+        f"Conversation:\n{text}\n\n"
+        "Provide the response in JSON format with keys: summary, sentiment, key_points"
+    )
 
 
 @dataclass
@@ -90,7 +101,7 @@ class HuggingFaceLLM(BaseLLM):
         stop=stop_after_attempt(6),
         before_sleep=before_sleep_log(logger, logging.INFO),
     )
-    async def analyze(self, text: str) -> Optional[Dict[str, Any]]:
+    def analyze(self, text: str) -> Optional[Dict[str, Any]]:
         """Process text using HuggingFace's API.
 
         Args:
@@ -109,28 +120,18 @@ class HuggingFaceLLM(BaseLLM):
         headers = {"Authorization": f"Bearer {self.config.huggingface_api_key}"}
         api_url = f"https://api-inference.huggingface.co/models/{self.config.model}"
 
-        prompt = f"""Analyze the following conversation and provide:
-1. A brief summary
-2. The overall sentiment
-3. Key discussion points
+        prompt = _build_prompt(text)
 
-Conversation:
-{text}
-
-Provide the response in JSON format with keys: summary, sentiment, key_points"""
-
-        response = await anyio.to_thread.run_sync(
-            lambda: requests.post(
-                api_url,
-                headers=headers,
-                json={
-                    "inputs": prompt,
-                    "parameters": {
-                        "max_length": self.config.max_length,
-                        "temperature": self.config.temperature,
-                    },
+        response = requests.post(
+            api_url,
+            headers=headers,
+            json={
+                "inputs": prompt,
+                "parameters": {
+                    "max_length": self.config.max_length,
+                    "temperature": self.config.temperature,
                 },
-            )
+            },
         )
 
         if response.status_code != 200:
@@ -173,15 +174,7 @@ class LocalHuggingFaceLLM(BaseLLM):
         """Process text using local HuggingFace model."""
         try:
             logger.info(f"Starting local model analysis with {self.config.model}")
-            prompt = f"""Analyze the following conversation and provide:
-1. A brief summary
-2. The overall sentiment
-3. Key discussion points
-
-Conversation:
-{text}
-
-Provide the response in JSON format with keys: summary, sentiment, key_points"""
+            prompt = _build_prompt(text)
 
             logger.debug(f"Input text length: {len(text)} characters")
             result = self.pipeline(
@@ -280,6 +273,18 @@ class VConLLMProcessor:
 
         self._add_analysis_to_vcon(vcon, result)
 
+        record_agent_trace(
+            vcon,
+            dialog_indices=0,
+            model_id=self.config.model,
+            provider="hugging_face",
+            system_prompt=None,
+            user_prompt=_build_prompt(transcript_text),
+            assistant_response=result.get("analysis", "") if isinstance(result, dict) else result,
+            link_name="hugging_llm_link",
+            opts=None,
+        )
+
         self.vcon_redis.store_vcon(vcon)
         logger.info("Finished huggingface LLM analysis for vCon: %s", vcon_uuid)
         return vcon_uuid
@@ -296,6 +301,7 @@ class VConLLMProcessor:
 
         vcon.add_analysis(
             type="llm_analysis",
+            dialog=0,
             vendor="huggingface",
             body=result,
             extra={"vendor_schema": vendor_schema},
