@@ -37,6 +37,13 @@ VCON_INDEX_EXPIRY = int(os.getenv("VCON_INDEX_EXPIRY", 86400))
 # This improves performance for subsequent requests for the same vCon.
 VCON_REDIS_EXPIRY = int(os.getenv("VCON_REDIS_EXPIRY", 3600))
 
+# When VconRedis.get_vcon misses Redis, try configured storage backends in turn
+# and re-cache the first hit back into Redis. Set to "false" to keep the legacy
+# Redis-only behavior (callers receive None on Redis miss).
+VCON_STORAGE_FALLBACK_ENABLED = os.getenv(
+    "VCON_STORAGE_FALLBACK_ENABLED", "true"
+).lower() in ("true", "1", "yes")
+
 # Context expiration time in seconds (default 1 day)
 # Context data stored for ingress operations will expire after this time
 # to prevent memory leaks when the same vCon UUID is added multiple times.

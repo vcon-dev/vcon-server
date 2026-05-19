@@ -1,23 +1,35 @@
 import json
+from datetime import datetime
 from typing import Any, Optional
+from config import Configuration
 from lib.logging_utils import init_logger
 from lib.metrics import increment_counter
 from lib.vcon_compat import normalize_legacy_fields
 from redis.commands.json.path import Path
 from redis_mgr import redis
-from settings import VCON_REDIS_EXPIRY
+from settings import (
+    VCON_REDIS_EXPIRY,
+    VCON_SORTED_SET_NAME,
+    VCON_STORAGE_FALLBACK_ENABLED,
+)
+from storage.base import Storage
 import vcon
 
 logger = init_logger(__name__)
 
 
 class VconRedis:
-    """Encapsulate vcon redis operations with optional TTL support.
-    
-    This class provides both synchronous and asynchronous methods for storing
-    and retrieving vCon objects from Redis. TTL (Time-To-Live) can be set
-    on stored vCons to enable automatic expiration.
-    
+    """vCon access layer backed by Redis with optional storage fallback.
+
+    Reads go through Redis first (hot cache). On a miss, ``get_vcon`` /
+    ``get_vcon_dict`` fall back to the configured storage backends (see
+    ``Configuration.get_storages()``) and re-cache the first hit back into
+    Redis with TTL ``VCON_REDIS_EXPIRY``. The fallback is on by default and
+    can be disabled with ``VCON_STORAGE_FALLBACK_ENABLED=false``.
+
+    Writes go to Redis only; persistence to the storage backends is the
+    responsibility of the storage chain (e.g. via the ``Storage`` link).
+
     Attributes:
         DEFAULT_TTL: Default TTL in seconds from VCON_REDIS_EXPIRY setting (3600s).
     """
@@ -88,27 +100,76 @@ class VconRedis:
             redis.expire(key, ttl)
             logger.debug(f"Set TTL of {ttl}s on vCon {vCon.uuid}")
 
-    def get_vcon(self, vcon_id: str) -> Optional[vcon.Vcon]:
-        """Retrieves the vcon from redis for given vcon_id.
+    @staticmethod
+    def _load_from_storage(vcon_id: str) -> Optional[dict]:
+        """Try each configured storage backend in turn; return the first hit.
 
-        Args:
-            vcon_id (str): vcon id
+        Returns None if the fallback is disabled by setting, no storages are
+        configured, or none of them have the vCon. Per-backend errors are
+        logged but do not abort the loop — a later backend may succeed.
+        """
+        if not VCON_STORAGE_FALLBACK_ENABLED:
+            return None
+        storages = Configuration.get_storages()
+        if not storages:
+            return None
+        for storage_name in storages:
+            try:
+                vcon_dict = Storage(storage_name=storage_name).get(vcon_id)
+            except Exception as e:
+                logger.warning(
+                    "Storage fallback %s raised while loading vCon %s: %s",
+                    storage_name, vcon_id, e,
+                )
+                continue
+            if vcon_dict:
+                logger.info(
+                    "vCon %s missed Redis but recovered from storage %s",
+                    vcon_id, storage_name,
+                )
+                return vcon_dict
+        return None
+
+    def _cache_back_to_redis(self, vcon_id: str, vcon_dict: dict) -> None:
+        """Re-cache a storage-loaded vCon into Redis with the standard TTL and
+        re-add it to the sorted set so subsequent listings see it.
+
+        Reuses ``store_vcon_dict`` for the set+expire combo (which also runs
+        the spec-enforcement pass), then mirrors ``api.api.add_vcon_to_set``
+        synchronously. Any error is swallowed — the caller still gets the
+        vCon back.
+        """
+        try:
+            self.store_vcon_dict(vcon_dict, ttl=VCON_REDIS_EXPIRY)
+        except Exception as e:
+            logger.warning("Failed to re-cache vCon %s into Redis: %s", vcon_id, e)
+            return
+        created_at = vcon_dict.get("created_at")
+        if not created_at:
+            return
+        try:
+            timestamp = int(datetime.fromisoformat(str(created_at)).timestamp())
+            redis.zadd(VCON_SORTED_SET_NAME, {vcon_id: timestamp})
+        except (ValueError, TypeError) as e:
+            logger.debug(
+                "Skipping sorted-set add for vCon %s (created_at=%r): %s",
+                vcon_id, created_at, e,
+            )
+
+    def get_vcon(self, vcon_id: str) -> Optional[vcon.Vcon]:
+        """Retrieve a vCon by id, falling back to storage on a Redis miss.
+
+        Thin wrapper around :meth:`get_vcon_dict` that wraps the result in a
+        ``vcon.Vcon`` object. See :meth:`get_vcon_dict` for lookup semantics.
 
         Returns:
-            Optional[vcon.Vcon]: Returns vcon for given vcon id or None if vcon is not present.
+            The vCon if found in Redis or any storage, otherwise ``None``.
+            ``None`` is the contract for "halt the chain" in conserver links.
         """
-        vcon_dict = redis.json().get(
-            f"vcon:{vcon_id}", Path.root_path()
-        )
-        if not vcon_dict:
-            increment_counter("conserver.lib.vcon_redis.get_vcon_not_found")
+        vcon_dict = self.get_vcon_dict(vcon_id)
+        if vcon_dict is None:
             return None
-        # Tolerate legacy field names from older writers so links always
-        # see spec-compliant data; spec-correct writes are produced via
-        # vcon-lib 0.9.2 and the wrapper helpers.
-        normalize_legacy_fields(vcon_dict)
-        _vcon = vcon.Vcon(vcon_dict)
-        return _vcon
+        return vcon.Vcon(vcon_dict)
 
     def store_vcon_dict(self, vcon_dict: dict, ttl: Optional[int] = None) -> None:
         """Stores a vcon dictionary into redis with optional TTL.
@@ -126,19 +187,34 @@ class VconRedis:
             logger.debug(f"Set TTL of {ttl}s on vCon {vcon_dict['uuid']}")
 
     def get_vcon_dict(self, vcon_id: str) -> Optional[dict]:
-        """Retrieves a vcon dictionary from redis.
-        
+        """Retrieve a vCon dict by id, falling back to storage on a Redis miss.
+
+        Lookup order:
+          1. Redis (hot cache) — fast path.
+          2. Configured storage backends, in iteration order; on first hit
+             the vCon is re-cached into Redis with ``VCON_REDIS_EXPIRY``.
+
+        Legacy field names from older writers are normalized so callers
+        always see spec-compliant data.
+
         Args:
-            vcon_id (str): The vCon UUID.
-            
+            vcon_id: The vCon UUID.
+
         Returns:
-            Optional[dict]: The vCon as a dictionary, or None if not found.
+            The vCon as a dictionary if found, otherwise ``None``.
         """
         vcon_dict = redis.json().get(
             f"vcon:{vcon_id}", Path.root_path()
         )
-        if vcon_dict:
-            normalize_legacy_fields(vcon_dict)
+        if not vcon_dict:
+            increment_counter("conserver.lib.vcon_redis.get_vcon_redis_miss")
+            vcon_dict = self._load_from_storage(vcon_id)
+            if not vcon_dict:
+                increment_counter("conserver.lib.vcon_redis.get_vcon_not_found")
+                return None
+            increment_counter("conserver.lib.vcon_redis.get_vcon_storage_hit")
+            self._cache_back_to_redis(vcon_id, vcon_dict)
+        normalize_legacy_fields(vcon_dict)
         return vcon_dict
 
     def set_expiry(self, vcon_id: str, ttl: int) -> bool:
