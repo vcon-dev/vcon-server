@@ -2,6 +2,17 @@
 
 vCon Server supports multi-worker processing for improved throughput and parallel storage writes for faster persistence.
 
+Two environment variables together determine how many vCons can be processed in parallel:
+
+```
+max parallel vCons = CONSERVER_WORKERS × CONSERVER_VCON_CONCURRENCY
+```
+
+- **`CONSERVER_WORKERS`** — number of worker **processes** (separate OS processes, each polling Redis independently). Scales CPU-bound work.
+- **`CONSERVER_VCON_CONCURRENCY`** — number of in-flight vCons **per worker** (a `ThreadPoolExecutor` inside each worker). Scales I/O-bound work (LLM, transcription, webhooks, storage writes) without paying the per-process memory cost.
+
+A third variable, **`CONSERVER_PARALLEL_STORAGE`**, controls a separate thread pool used only for writing to multiple storage backends concurrently — it is independent of the two above.
+
 ## Architecture Overview
 
 ```mermaid
@@ -87,6 +98,48 @@ CONSERVER_WORKERS=$(($(nproc) - 1))
 # For 8GB system with other services:
 CONSERVER_WORKERS=4
 ```
+
+### CONSERVER_VCON_CONCURRENCY
+
+Controls how many vCons each worker process keeps in flight at once. When set above `1`, the worker dispatches each popped vCon to an internal `ThreadPoolExecutor` and back-pressures (waits before the next BLPOP) when the pool is full.
+
+```bash
+# Strict serial — one vCon at a time per worker (default)
+CONSERVER_VCON_CONCURRENCY=1
+
+# Up to 8 vCons running in parallel inside each worker
+CONSERVER_VCON_CONCURRENCY=8
+```
+
+| Value | Behaviour | Best For |
+|-------|-----------|----------|
+| `1` | Strict serial — original behaviour | CPU-bound chains, debugging |
+| `2-4` | Light in-process parallelism | Mixed workloads |
+| `4-16` | High in-process parallelism | I/O-bound chains (LLM, transcription, webhooks) |
+
+#### How it combines with CONSERVER_WORKERS
+
+The two settings multiply:
+
+```
+max parallel vCons = CONSERVER_WORKERS × CONSERVER_VCON_CONCURRENCY
+```
+
+| Workers | Concurrency | Max parallel vCons | Notes |
+|---------|-------------|--------------------|----|
+| `1` | `1` | 1 | Original single-threaded behaviour |
+| `4` | `1` | 4 | Multi-process only — good for CPU-bound work |
+| `1` | `8` | 8 | Single-process, threaded — good for I/O-bound chains |
+| `4` | `8` | 32 | Combined — high-throughput I/O-bound workloads |
+
+#### When to raise concurrency vs. workers
+
+- **Raise `CONSERVER_WORKERS`** when chains are CPU-bound (heavy local compute, audio processing without GPU offload) — more processes sidestep the Python GIL.
+- **Raise `CONSERVER_VCON_CONCURRENCY`** when chains are I/O-bound (waiting on LLM/transcription APIs, external webhooks, S3/Postgres writes) — threads share memory and avoid the cost of extra processes.
+- **Combine both** for mixed workloads. Start by saturating concurrency within a single worker, then add workers if CPU is still underused.
+
+!!! warning "GIL & thread safety"
+    Concurrency > 1 runs chain links in threads. Chain link code must be thread-safe and should release the GIL during I/O (most HTTP/DB clients do). Modules that hold the GIL across long CPU work will block other in-flight vCons in the same worker.
 
 ## Parallel Storage
 
@@ -273,8 +326,9 @@ docker compose logs conserver | grep -i "worker"
 ### Development
 
 ```bash
-# Single worker, verbose logging
+# Single worker, single in-flight vCon, verbose logging
 CONSERVER_WORKERS=1
+CONSERVER_VCON_CONCURRENCY=1
 CONSERVER_PARALLEL_STORAGE=true
 LOG_LEVEL=DEBUG
 ```
@@ -283,7 +337,9 @@ LOG_LEVEL=DEBUG
 
 ```bash
 # Multi-worker, memory-efficient
+# 8 workers × 4 in-flight = up to 32 vCons in parallel
 CONSERVER_WORKERS=8
+CONSERVER_VCON_CONCURRENCY=4
 CONSERVER_PARALLEL_STORAGE=true
 CONSERVER_START_METHOD=fork
 LOG_LEVEL=INFO
@@ -293,27 +349,42 @@ LOG_LEVEL=INFO
 
 ```bash
 # Multi-worker, safer start method
+# 4 workers × 4 in-flight = up to 16 vCons in parallel
 CONSERVER_WORKERS=4
+CONSERVER_VCON_CONCURRENCY=4
 CONSERVER_PARALLEL_STORAGE=true
 CONSERVER_START_METHOD=spawn
 LOG_LEVEL=INFO
 ```
 
-### High-Throughput
+### High-Throughput (I/O-Bound)
 
 ```bash
-# Maximum parallelism
-CONSERVER_WORKERS=16
+# Saturate I/O without exploding process count
+# 4 workers × 16 in-flight = up to 64 vCons in parallel
+CONSERVER_WORKERS=4
+CONSERVER_VCON_CONCURRENCY=16
 CONSERVER_PARALLEL_STORAGE=true
 CONSERVER_START_METHOD=fork
 TICK_INTERVAL=1000  # Check queues more frequently
 ```
 
+### High-Throughput (CPU-Bound)
+
+```bash
+# Maximise process count, keep per-worker concurrency low
+CONSERVER_WORKERS=16
+CONSERVER_VCON_CONCURRENCY=1
+CONSERVER_PARALLEL_STORAGE=true
+CONSERVER_START_METHOD=fork
+```
+
 ### Memory-Constrained
 
 ```bash
-# Balance workers with available memory
+# Few processes, lean on in-process threading for parallelism
 CONSERVER_WORKERS=2
+CONSERVER_VCON_CONCURRENCY=8
 CONSERVER_PARALLEL_STORAGE=true
 CONSERVER_START_METHOD=fork  # Use COW memory
 ```

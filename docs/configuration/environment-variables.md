@@ -181,7 +181,7 @@ CONSERVER_HEADER_NAME=Authorization
 
 ### CONSERVER_WORKERS
 
-Number of worker processes to spawn.
+Number of worker **processes** to spawn. Each worker is a separate OS process that polls Redis with BLPOP and processes vCons independently.
 
 | Property | Value |
 |----------|-------|
@@ -198,8 +198,39 @@ CONSERVER_WORKERS=4
 ```
 
 !!! tip "Sizing Workers"
-    For I/O-bound workloads (transcription, API calls), set to CPU core count.
-    For CPU-bound workloads, set to CPU core count minus 1.
+    Scale `CONSERVER_WORKERS` based on CPU cores for CPU-bound workloads.
+    For I/O-bound workloads, prefer raising `CONSERVER_VCON_CONCURRENCY` first —
+    it gives you parallelism without the per-process memory cost.
+
+### CONSERVER_VCON_CONCURRENCY
+
+Maximum number of in-flight vCons **per worker process**. When > 1, each worker dispatches popped vCons to an internal `ThreadPoolExecutor` of this size, so multiple chains run in parallel inside a single worker.
+
+| Property | Value |
+|----------|-------|
+| **Required** | No |
+| **Default** | `1` (strict serial — original behaviour) |
+| **Minimum** | `1` |
+
+```bash
+# Strict serial (default)
+CONSERVER_VCON_CONCURRENCY=1
+
+# Up to 8 vCons running in parallel inside each worker
+CONSERVER_VCON_CONCURRENCY=8
+```
+
+!!! info "Total parallelism"
+    `CONSERVER_WORKERS` and `CONSERVER_VCON_CONCURRENCY` multiply:
+
+    ```
+    max parallel vCons = CONSERVER_WORKERS × CONSERVER_VCON_CONCURRENCY
+    ```
+
+    For example, `CONSERVER_WORKERS=4` with `CONSERVER_VCON_CONCURRENCY=8` allows up to **32 vCons** in flight simultaneously. See [Worker Configuration](workers.md) for sizing guidance.
+
+!!! warning "Thread safety"
+    Concurrency > 1 runs chain links in threads. Link code must be thread-safe and should release the GIL during I/O (standard HTTP/DB clients do). Modules that hold the GIL across long CPU work will block other in-flight vCons in the same worker.
 
 ### CONSERVER_PARALLEL_STORAGE
 

@@ -108,7 +108,8 @@ chains:
 | `REDIS_URL` | `redis://localhost` | Redis connection |
 | `CONSERVER_API_TOKEN` | - | API authentication |
 | `CONSERVER_CONFIG_FILE` | `./example_config.yml` | Config file path |
-| `CONSERVER_WORKERS` | `1` | Worker processes |
+| `CONSERVER_WORKERS` | `1` | Worker processes (multiplies with `CONSERVER_VCON_CONCURRENCY`) |
+| `CONSERVER_VCON_CONCURRENCY` | `1` | In-flight vCons per worker (thread pool size) |
 | `CONSERVER_PARALLEL_STORAGE` | `true` | Parallel storage writes |
 | `CONSERVER_START_METHOD` | Platform default | Multiprocessing method |
 | `LOG_LEVEL` | `DEBUG` | Logging level |
