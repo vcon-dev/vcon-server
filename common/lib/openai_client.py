@@ -18,12 +18,15 @@ logger = init_logger(__name__)
 DEFAULT_AZURE_OPENAI_API_VERSION = "2024-10-21"
 
 
-def get_openai_client(opts=None):
+def get_openai_client(opts=None, max_retries=0):
     """
     Return an OpenAI-compatible client (OpenAI or AzureOpenAI).
     Same client is used for chat and embeddings; LiteLLM proxy supports both.
 
     opts: dict of options. All values are read from opts only.
+    max_retries: SDK-level retry count for transient 5xx/429 from the
+      provider/proxy. Defaults to 0 to preserve existing behavior; callers
+      making idempotent requests (e.g. embeddings) should pass a small value.
 
     Supported keys in opts:
       - LITELLM_PROXY_URL, LITELLM_MASTER_KEY  -> use LiteLLM proxy (chat + embeddings)
@@ -46,7 +49,7 @@ def get_openai_client(opts=None):
             organization=organization if organization else None,
             project=project if project else None,
             timeout=120.0,
-            max_retries=0,
+            max_retries=max_retries,
         )
 
     azure_endpoint = (opts.get("AZURE_OPENAI_ENDPOINT") or "").strip()
@@ -60,7 +63,7 @@ def get_openai_client(opts=None):
             azure_endpoint=azure_endpoint,
             api_version=azure_api_version,
             timeout=120.0,
-            max_retries=0,
+            max_retries=max_retries,
         )
 
     openai_api_key = (
@@ -77,7 +80,7 @@ def get_openai_client(opts=None):
             organization=organization if organization else None,
             project=project if project else None,
             timeout=120.0,
-            max_retries=0,
+            max_retries=max_retries,
         )
 
     raise ValueError(
