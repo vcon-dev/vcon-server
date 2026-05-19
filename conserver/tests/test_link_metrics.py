@@ -599,3 +599,35 @@ class TestMainLoopMetrics:
                                  {"chain.name": self.CHAIN_NAME})
         assert_metric_has_attrs(metrics, "conserver.main_loop.count_vcons_processed",
                                  {"chain.name": self.CHAIN_NAME})
+        # Link succeeded (returned uuid) — outcome="success".
+        assert_metric_has_attrs(metrics, "conserver.link.count",
+                                 {"link_name": "mock_link", "outcome": "success"})
+
+    def test_link_halt_records_halt_outcome(self, metric_reader):
+        """When a link returns None (halts the chain), the link.count counter
+        is incremented with outcome=halt rather than outcome=success."""
+        from main import VconChainRequest
+        import main as main_module
+
+        chain_details = {
+            "name": self.CHAIN_NAME,
+            "links": ["mock_link"],
+            "storages": [],
+            "egress_lists": [],
+        }
+        main_module.config = {
+            "links": {
+                "mock_link": {"module": "mock_module", "options": {}},
+            }
+        }
+
+        mock_module = MagicMock()
+        mock_module.run.return_value = None  # halt chain
+
+        with patch.dict("main.imported_modules", {"mock_module": mock_module}):
+            req = VconChainRequest(chain_details, self.UUID, context=None)
+            req.process()
+
+        metrics = extract_metrics(metric_reader)
+        assert_metric_has_attrs(metrics, "conserver.link.count",
+                                 {"link_name": "mock_link", "outcome": "halt"})

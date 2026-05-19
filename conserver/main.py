@@ -615,7 +615,10 @@ class VconChainRequest:
                 )
                 increment_counter(
                     "conserver.link.count",
-                    attributes={"link_name": link_name, "outcome": "success"},
+                    attributes={
+                        "link_name": link_name,
+                        "outcome": "success" if should_continue_chain else "halt",
+                    },
                 )
                 logger.info(
                     "Completed link %s (module: %s) for vCon: %s in %s seconds",
