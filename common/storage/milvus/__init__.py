@@ -446,8 +446,9 @@ def save(vcon_uuid: str, opts=default_options) -> None:
                 logger.info(f"vCon {vcon_uuid} already exists in Milvus collection {collection_name}, skipping")
                 return
         
-        # Initialize OpenAI client (supports LiteLLM proxy via LITELLM_PROXY_URL + LITELLM_MASTER_KEY provided in opts)
-        openai_client = get_openai_client(opts)
+        # Initialize OpenAI client (supports LiteLLM proxy via LITELLM_PROXY_URL + LITELLM_MASTER_KEY provided in opts).
+        # Embeddings are idempotent, so retry transient 5xx/429 from the proxy (Sentry CONSERVER-9G).
+        openai_client = get_openai_client(opts, max_retries=3)
 
         # Extract text content from vCon
         text = extract_text_from_vcon(vcon_dict)
