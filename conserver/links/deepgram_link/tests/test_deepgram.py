@@ -41,6 +41,20 @@ def test_run_skips_non_recording_and_short_and_no_url(mock_transcribe, mock_dg, 
         assert instance.store_vcon.called
         assert result == vcon_uuid
 
+def test_run_halts_chain_when_vcon_not_found():
+    """If VconRedis returns None (vCon missing from Redis and every
+    storage backend), run() must return None — the chain-halt contract —
+    rather than dereferencing the None and crashing (CONSERVER-B7)."""
+    with patch('links.deepgram_link.VconRedis', autospec=True) as mock:
+        instance = MagicMock()
+        instance.get_vcon.return_value = None
+        mock.return_value = instance
+        opts = {"DEEPGRAM_KEY": "test", "minimum_duration": 60, "api": {}}
+        result = run("missing-uuid", "deepgram", opts)
+        assert result is None
+        assert not instance.store_vcon.called
+
+
 @patch('links.deepgram_link.DeepgramClient')
 @patch('links.deepgram_link.transcribe_dg')
 def test_run_skips_already_transcribed(mock_transcribe, mock_dg, vcon_with_transcript):

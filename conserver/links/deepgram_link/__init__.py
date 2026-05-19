@@ -212,6 +212,9 @@ def run(
 
     vcon_redis = VconRedis()
     vCon = vcon_redis.get_vcon(vcon_uuid)
+    if vCon is None:
+        logger.error(f"deepgram: vCon {vcon_uuid} not found in Redis or storage; halting chain")
+        return None
     logger.debug(f"Loaded vCon {vcon_uuid} with {len(vCon.dialog)} dialogs.")
 
     for index, dialog in enumerate(vCon.dialog):
