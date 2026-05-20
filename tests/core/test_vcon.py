@@ -1,4 +1,5 @@
 import pytest
+import warnings
 from vcon import Vcon
 import json
 
@@ -42,7 +43,7 @@ def test_tags():
 def test_add_attachment():
     vcon = Vcon.build_new()
     vcon.add_attachment(body={"key": "value"}, type="test_type")
-    attachment = vcon.find_attachment_by_type("test_type")
+    attachment = vcon.find_attachment_by_purpose("test_type")
     assert attachment["body"] == {"key": "value"}
 
 
@@ -86,10 +87,57 @@ def test_get_tag():
 
 
 def test_find_attachment_by_type():
+    # Deprecated alias — still works for callers written against pre-0.4.0
+    # vCon shape, finding attachments stored with the legacy `type` key.
     vcon = Vcon.build_new()
     vcon.add_attachment(body={"key": "value"}, type="test_type")
-    assert vcon.find_attachment_by_type("test_type") == {"type": "test_type", "body": {"key": "value"}, "encoding": "none"}
-    assert vcon.find_attachment_by_type("nonexistent_type") is None
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        assert vcon.find_attachment_by_type("test_type") == {
+            "type": "test_type",
+            "body": {"key": "value"},
+            "encoding": "none",
+        }
+        assert vcon.find_attachment_by_type("nonexistent_type") is None
+
+
+def test_find_attachment_by_type_emits_deprecation_warning():
+    vcon = Vcon.build_new()
+    vcon.add_attachment(body={"k": "v"}, type="x")
+    with pytest.warns(DeprecationWarning, match="find_attachment_by_purpose"):
+        vcon.find_attachment_by_type("x")
+
+
+def test_find_attachment_by_purpose_matches_purpose_key():
+    # IETF vCon spec 0.4.0 renamed `type` → `purpose` on attachments. The
+    # canonical lookup must find attachments authored by spec-current writers.
+    vcon = Vcon.build_new()
+    vcon.vcon_dict["attachments"].append(
+        {"purpose": "spec_current", "body": {"k": "v"}, "encoding": "none"}
+    )
+    found = vcon.find_attachment_by_purpose("spec_current")
+    assert found is not None
+    assert found.get("purpose") == "spec_current"
+
+
+def test_find_attachment_by_purpose_matches_legacy_type_key():
+    # Back-compat: an attachment stored under the old `type` key must still be
+    # discoverable via the new canonical lookup name. Mirrors how the Redis
+    # storage layer tolerates both shapes.
+    vcon = Vcon.build_new()
+    vcon.add_attachment(body={"k": "v"}, type="legacy")
+    assert vcon.find_attachment_by_purpose("legacy") is not None
+
+
+def test_find_attachment_by_purpose_tolerates_missing_keys():
+    # Some attachments in the wild are missing both `type` and `purpose`
+    # (e.g. encoding-only payloads from older link versions). Lookup must not
+    # raise KeyError — previously it did `a["type"]` and crashed the chain.
+    vcon = Vcon.build_new()
+    vcon.vcon_dict["attachments"].append({"body": "no key", "encoding": "none"})
+    vcon.add_attachment(body={"k": "v"}, type="findable")
+    assert vcon.find_attachment_by_purpose("findable") is not None
+    assert vcon.find_attachment_by_purpose("nonexistent") is None
 
 
 def test_find_analysis_by_type():

@@ -1,5 +1,6 @@
 import copy
 import json
+import warnings
 from typing import Optional, Union
 import hashlib
 import time
@@ -39,10 +40,10 @@ class Vcon:
 
     @property
     def tags(self):
-        return self.find_attachment_by_type("tags")
+        return self.find_attachment_by_purpose("tags")
 
     def get_tag(self, tag_name):
-        tags_attachment = self.find_attachment_by_type("tags")
+        tags_attachment = self.find_attachment_by_purpose("tags")
         if not tags_attachment:
             return None
         tag = next(
@@ -54,7 +55,7 @@ class Vcon:
         return tag_value
 
     def add_tag(self, tag_name, tag_value):
-        tags_attachment = self.find_attachment_by_type("tags")
+        tags_attachment = self.find_attachment_by_purpose("tags")
         if not tags_attachment:
             tags_attachment = {
                 "type": "tags",
@@ -64,10 +65,34 @@ class Vcon:
             self.vcon_dict["attachments"].append(tags_attachment)
         tags_attachment["body"].append(f"{tag_name}:{tag_value}")
 
-    def find_attachment_by_type(self, type):
+    def find_attachment_by_purpose(self, purpose):
+        # IETF vCon spec 0.4.0 attachment lookup. Matches `purpose` first
+        # (spec-current key) and falls back to legacy `type` so attachments
+        # written by older producers still resolve. `.get` tolerates missing
+        # keys so a mixed-shape attachment list never raises KeyError.
         return next(
-            (a for a in self.vcon_dict["attachments"] if a["type"] == type), None
+            (
+                a
+                for a in self.vcon_dict["attachments"]
+                if a.get("purpose") == purpose or a.get("type") == purpose
+            ),
+            None,
         )
+
+    def find_attachment_by_type(self, type):
+        """Deprecated: use :meth:`find_attachment_by_purpose` instead.
+
+        Kept for callers written against the pre-spec-0.4.0 shape. Delegates
+        to ``find_attachment_by_purpose``, which already matches both `type`
+        and `purpose` keys for back-compat.
+        """
+        warnings.warn(
+            "Vcon.find_attachment_by_type is deprecated; use "
+            "Vcon.find_attachment_by_purpose (spec 0.4.0 renamed the field).",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.find_attachment_by_purpose(type)
 
     def add_attachment(self, *, body: Union[dict, list, str], type: str, encoding="none"):
         if encoding not in ['json', 'none', 'base64url']:
