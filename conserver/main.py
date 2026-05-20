@@ -38,7 +38,7 @@ from lib.context_utils import retrieve_context, store_context_sync, extract_otel
 from lib.queue import VconQueue
 from lib.tracing import init_tracing
 from lib.error_tracking import init_error_tracker
-from lib.metrics import record_histogram, increment_counter
+from lib.metrics import record_histogram, increment_counter, add_updown_counter
 from storage.base import Storage
 
 # OpenTelemetry trace context propagation
@@ -729,6 +729,12 @@ def _handle_vcon(
 
     vcon_chain_request = VconChainRequest(chain_details, vcon_id, context)
     processing_error = None
+    # Track in-flight count via OTel UpDownCounter. +1 on entry, -1 in finally.
+    # Attribute by chain.name so the gauge groups load by chain. Per-vCon
+    # uuid is NOT included — it would explode cardinality (cf. CON-561
+    # follow-up on the link histogram).
+    inflight_attrs = {"chain.name": chain_details["name"]}
+    add_updown_counter("conserver.vcons.inflight", 1, attributes=inflight_attrs)
     try:
         context = context or {}
         context["ingress_list"] = ingress_list
@@ -750,6 +756,7 @@ def _handle_vcon(
         if VCON_DLQ_EXPIRY > 0:
             queue.set_vcon_ttl(vcon_id, VCON_DLQ_EXPIRY)
     finally:
+        add_updown_counter("conserver.vcons.inflight", -1, attributes=inflight_attrs)
         hook.after_processing(
             vcon_chain_request.vcon_id,
             chain_details,
