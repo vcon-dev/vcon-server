@@ -7,6 +7,7 @@ routed to DLQ) and when ``before_processing`` returns falsy (early
 return).
 """
 
+import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -27,7 +28,7 @@ class TestUpDownCounterHelper:
         fake_meter.create_up_down_counter.return_value = fake_instr
 
         with patch.object(metrics, "OTEL_EXPORTER_OTLP_ENDPOINT", "http://fake:4317"), \
-             patch.object(metrics, "_otel_initialized", True), \
+             patch.object(metrics, "_otel_initialized_pid", os.getpid()), \
              patch.object(metrics, "meter", fake_meter):
             metrics.add_updown_counter("conserver.vcons.inflight", 1,
                                        attributes={"chain.name": "main"})
@@ -47,7 +48,7 @@ class TestUpDownCounterHelper:
         fake_meter.create_up_down_counter.return_value = fake_instr
 
         with patch.object(metrics, "OTEL_EXPORTER_OTLP_ENDPOINT", "http://fake:4317"), \
-             patch.object(metrics, "_otel_initialized", True), \
+             patch.object(metrics, "_otel_initialized_pid", os.getpid()), \
              patch.object(metrics, "meter", fake_meter):
             metrics.add_updown_counter("conserver.vcons.inflight", 1)
             metrics.add_updown_counter("conserver.vcons.inflight", -1)
