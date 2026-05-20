@@ -1,3 +1,4 @@
+import atexit
 import logging
 import os
 import socket
@@ -94,12 +95,40 @@ def _init_otel_metrics():
             metric_readers=[reader],
         )
 
-        # OTel Python's metrics.set_meter_provider may have already been
-        # called by the parent process. Calling it again in this child
-        # process replaces the global with our fork-local provider,
-        # which is what we want here.
-        metrics.set_meter_provider(provider)
-        meter = metrics.get_meter(__name__)
+        # Bind ``meter`` to OUR provider directly, NOT via the global
+        # ``metrics.get_meter(...)`` API.
+        #
+        # Why: OTel Python's ``set_meter_provider()`` is single-call. If
+        # auto-instrumentation (``opentelemetry-instrumentation``) is also
+        # active in this process, it has typically registered its own
+        # MeterProvider before our lazy init runs. Subsequent
+        # ``set_meter_provider`` calls are silently ignored, and
+        # ``metrics.get_meter(__name__)`` returns the global proxy bound
+        # to the auto-instrumentation's provider — whose resource we don't
+        # control. The visible symptom: our user-provided resource
+        # attributes (``host.name``, ``service.instance.id``) never reach
+        # the metrics backend, so per-process series collapse onto one
+        # fingerprint at the storage layer.
+        #
+        # Binding directly via ``provider.get_meter(__name__)`` sidesteps
+        # the global entirely. Our ``meter`` exports through OUR provider's
+        # pipeline (with the correct resource); auto-instrumentation
+        # metrics continue to flow through their own pipeline. Both end up
+        # at the OTel collector independently.
+        meter = provider.get_meter(__name__)
+
+        # Flush our provider's metric reader on process exit. The
+        # auto-instrumentation MeterProvider registers its own atexit
+        # hook against the global; ours doesn't (we never set it
+        # globally), so without this, ~5s of in-buffer metrics get
+        # dropped each time a worker exits cleanly (e.g. during a
+        # rolling deploy). Worker forks inherit the parent's atexit
+        # registrations; each child's own ``_init_otel_metrics`` then
+        # adds its OWN hook for its OWN provider. The inherited
+        # parent-provider hook is harmless in the child — the gRPC
+        # state it holds was copied at fork time and shutdown() on it
+        # is a no-op against a duplicated state.
+        atexit.register(provider.shutdown)
 
         # Clear cached instrument handles inherited from the parent —
         # they point at the parent's MeterProvider and exporter, neither
