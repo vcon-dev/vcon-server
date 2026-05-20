@@ -16,6 +16,7 @@ meter = None
 counter_metrics = {}
 histogram_metrics = {}
 observable_gauges = {}
+updown_counter_metrics = {}
 _otel_initialized = False
 
 logger = logging.getLogger(__name__)
@@ -120,6 +121,43 @@ def increment_counter(metric_name, value=1, attributes=None):
         counter_metrics[metric_name].add(value, attributes=attributes)
     except Exception as e:
         logger.warning(f"Failed to publish counter metric to OpenTelemetry: {e}")
+
+
+def add_updown_counter(metric_name, value=1, attributes=None):
+    """Add (positive or negative) to an OpenTelemetry UpDownCounter.
+
+    Unlike ``increment_counter`` (monotonic), an UpDownCounter can go down.
+    Use for "currently active" or "in-flight" gauges where increment on
+    entry and decrement on exit is paired in a try/finally.
+
+    Only publishes if OpenTelemetry endpoint is configured. Initializes
+    OpenTelemetry automatically on first call.
+
+    Args:
+        metric_name: Name of the metric (e.g. ``"conserver.vcons.inflight"``)
+        value: Amount to add (positive or negative). Default: 1.
+        attributes: Dictionary of attributes/labels (default: None)
+    """
+    _init_otel_metrics()
+
+    if not OTEL_EXPORTER_OTLP_ENDPOINT or not meter:
+        return
+
+    try:
+        if attributes is None:
+            attributes = {}
+        else:
+            attributes = attributes.copy()
+
+        if metric_name not in updown_counter_metrics:
+            updown_counter_metrics[metric_name] = meter.create_up_down_counter(
+                name=metric_name,
+                description=f"UpDownCounter metric for {metric_name}",
+            )
+
+        updown_counter_metrics[metric_name].add(value, attributes=attributes)
+    except Exception as e:
+        logger.warning(f"Failed to publish up_down_counter metric to OpenTelemetry: {e}")
 
 
 def register_observable_gauge(metric_name, callback, description=None):
