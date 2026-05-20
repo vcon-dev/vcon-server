@@ -33,6 +33,7 @@ async API.
 from typing import List, Optional, Tuple
 
 from lib.logging_utils import init_logger
+from lib.metrics import increment_counter
 
 logger = init_logger(__name__)
 
@@ -95,12 +96,17 @@ class VconQueue:
         convention stays in one place. Pairs with
         :meth:`dequeue_dlq_async` (LPOP) for FIFO (oldest-failure-first)
         ordering when draining the DLQ back to its ingress queue.
+
+        Emits ``conserver.dlq.count{queue_name}`` so observability stacks
+        can alert on any DLQ entry.
         """
         # Lazy import: dlq_utils lives under conserver/, not common/.
         from dlq_utils import get_ingress_list_dlq_name
 
         dlq_name = get_ingress_list_dlq_name(ingress_list)
-        return self._client.rpush(dlq_name, vcon_id)
+        result = self._client.rpush(dlq_name, vcon_id)
+        increment_counter("conserver.dlq.count", attributes={"queue_name": dlq_name})
+        return result
 
     def queue_length(self, list_name: str) -> int:
         return self._client.llen(list_name)
