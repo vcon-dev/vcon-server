@@ -17,7 +17,12 @@ counter_metrics = {}
 histogram_metrics = {}
 observable_gauges = {}
 updown_counter_metrics = {}
-_otel_initialized = False
+# Track init by pid (not a bare bool) so multiprocessing-fork children that
+# inherit module state from the parent reinitialize their own MeterProvider.
+# Without this, every forked worker shares the parent's resource fingerprint
+# and SignOz collapses their independent UpDownCounter/Counter writes into
+# one series — making cluster-wide aggregates impossible to compute.
+_otel_initialized_pid = None
 
 logger = logging.getLogger(__name__)
 
@@ -38,52 +43,82 @@ def stats_count(metric_name, value=1, tags=[]):
 
 
 def _init_otel_metrics():
-    """Lazy initialization of OpenTelemetry metrics.
-    
-    This function is called automatically when OpenTelemetry metric methods
-    are first used. It only initializes if the endpoint is configured.
+    """Lazy + fork-safe initialization of OpenTelemetry metrics.
+
+    Tracks the pid that last initialized. If the current process's pid
+    differs from that (i.e. we're in a forked child that inherited the
+    parent's module state), re-initialize so the child gets its own
+    MeterProvider with a unique ``service.instance.id``.
+
+    Without this fork-safe init, every forked worker process shares the
+    parent's resource fingerprint, and the metrics backend collapses
+    their independent writes to a single series. With WORKERS=2 and
+    CONSERVER_VCON_CONCURRENCY=128, peak in-flight should reach ~256 per
+    pod, but the collapsed series only shows one worker's count (≤128).
     """
-    global meter, _otel_initialized
-    
-    # Return early if already initialized or endpoint not configured
-    if _otel_initialized or not OTEL_EXPORTER_OTLP_ENDPOINT:
+    global meter, _otel_initialized_pid
+    current_pid = os.getpid()
+
+    # Already initialized in this process — bail.
+    if _otel_initialized_pid == current_pid:
         return
-    
+
+    if not OTEL_EXPORTER_OTLP_ENDPOINT:
+        # Remember we no-opped for this pid, so we don't keep re-checking.
+        _otel_initialized_pid = current_pid
+        return
+
     try:
-        # Create resource with service name and host
+        # service.instance.id makes each process's series fingerprint
+        # distinct. Format: <hostname>-pid-<pid> — host alone collapses
+        # multiple processes in the same pod into one fingerprint.
+        instance_id = f"{host_name}-pid-{current_pid}"
+
         resource = Resource.create({
             "service.name": OTEL_SERVICE_NAME,
             "host.name": host_name,
+            "service.instance.id": instance_id,
         })
-        
-        # Create OTLP gRPC exporter
+
         otlp_exporter = OTLPMetricExporter(
             endpoint=OTEL_EXPORTER_OTLP_ENDPOINT,
         )
-        
-        # Create metric reader with exporter
+
         reader = PeriodicExportingMetricReader(
             exporter=otlp_exporter,
             export_interval_millis=OTEL_METRIC_EXPORT_INTERVAL,
         )
-        
-        # Create meter provider
+
         provider = MeterProvider(
             resource=resource,
             metric_readers=[reader],
         )
-        
-        # Set global meter provider
+
+        # OTel Python's metrics.set_meter_provider may have already been
+        # called by the parent process. Calling it again in this child
+        # process replaces the global with our fork-local provider,
+        # which is what we want here.
         metrics.set_meter_provider(provider)
-        
-        # Get meter
         meter = metrics.get_meter(__name__)
-        _otel_initialized = True
+
+        # Clear cached instrument handles inherited from the parent —
+        # they point at the parent's MeterProvider and exporter, neither
+        # of which run in this child. Recreate them lazily on next use
+        # against the new ``meter``.
+        counter_metrics.clear()
+        histogram_metrics.clear()
+        updown_counter_metrics.clear()
+        observable_gauges.clear()
+
+        _otel_initialized_pid = current_pid
+        logger.info(
+            "OpenTelemetry metrics initialized: pid=%d, instance_id=%s",
+            current_pid, instance_id,
+        )
     except Exception as e:
-        # Log error but don't fail initialization
-        logger = logging.getLogger(__name__)
-        logger.warning(f"Failed to initialize OpenTelemetry metrics: {e}")
-        _otel_initialized = True  # Mark as initialized to avoid repeated attempts
+        logger.warning("Failed to initialize OpenTelemetry metrics: %s", e)
+        # Remember we tried for this pid; avoid retrying every call.
+        _otel_initialized_pid = current_pid
 
 
 def increment_counter(metric_name, value=1, attributes=None):
