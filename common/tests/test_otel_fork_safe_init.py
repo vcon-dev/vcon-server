@@ -32,15 +32,26 @@ class TestInitOtelMetricsForkSafe:
         with patch("lib.metrics.OTLPMetricExporter") as mock_exp, \
              patch("lib.metrics.MeterProvider") as mock_mp, \
              patch("lib.metrics.metrics.set_meter_provider") as mock_set, \
-             patch("lib.metrics.metrics.get_meter", return_value=MagicMock()), \
+             patch("lib.metrics.atexit.register") as mock_atexit, \
              patch.object(metrics, "OTEL_EXPORTER_OTLP_ENDPOINT", "http://fake:4317"):
 
             metrics._init_otel_metrics()
 
-        # MeterProvider was built, set globally, and we recorded the pid.
+        # MeterProvider was built and we recorded the pid.
         assert mock_mp.called
-        assert mock_set.called
+        # We must NOT touch the global meter provider — auto-instrumentation
+        # may have already set it, and ``set_meter_provider`` is single-call.
+        # See the comment in ``_init_otel_metrics`` for the rationale.
+        assert not mock_set.called
+        # Meter must come from OUR provider, not the global proxy.
+        provider_instance = mock_mp.return_value
+        assert provider_instance.get_meter.called
+        assert metrics.meter is provider_instance.get_meter.return_value
         assert metrics._otel_initialized_pid == os.getpid()
+        # Provider's shutdown is registered as an atexit hook so the
+        # PeriodicExportingMetricReader flushes its buffer on process
+        # exit — otherwise rolling deploys drop the last ~5s of metrics.
+        mock_atexit.assert_called_once_with(provider_instance.shutdown)
 
     def test_second_call_in_same_pid_is_a_no_op(self):
         from lib import metrics
@@ -72,13 +83,14 @@ class TestInitOtelMetricsForkSafe:
         with patch("lib.metrics.OTLPMetricExporter") as mock_exp, \
              patch("lib.metrics.MeterProvider") as mock_mp, \
              patch("lib.metrics.metrics.set_meter_provider") as mock_set, \
-             patch("lib.metrics.metrics.get_meter", return_value=MagicMock()), \
              patch.object(metrics, "OTEL_EXPORTER_OTLP_ENDPOINT", "http://fake:4317"):
 
             metrics._init_otel_metrics()
 
         # Fresh provider built in this process.
         assert mock_mp.called
+        # Same single-call discipline — never touch the global.
+        assert not mock_set.called
         # Resource passed to MeterProvider contains a service.instance.id
         # built from host + this pid.
         kwargs = mock_mp.call_args.kwargs
@@ -86,6 +98,10 @@ class TestInitOtelMetricsForkSafe:
         attrs = dict(resource.attributes)
         assert attrs["service.instance.id"] == f"{metrics.host_name}-pid-{os.getpid()}"
         assert attrs["host.name"] == metrics.host_name
+
+        # Meter is bound to the new provider, not the global.
+        provider_instance = mock_mp.return_value
+        assert metrics.meter is provider_instance.get_meter.return_value
 
         # Instrument caches inherited from the "parent" were cleared so
         # they get rebuilt against the new MeterProvider.
