@@ -732,7 +732,12 @@ def _handle_vcon(
     try:
         context = context or {}
         context["ingress_list"] = ingress_list
-        hook.before_processing(vcon_id, chain_details, context)
+        if not hook.before_processing(vcon_id, chain_details, context):
+            logger.info(
+                "[%s] before_processing skipped vCon %s on ingress %s",
+                worker_name, vcon_id, ingress_list,
+            )
+            return
         vcon_chain_request.process()
     except Exception as e:
         processing_error = e
