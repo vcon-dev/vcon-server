@@ -29,7 +29,7 @@ def test_encoding():
             body= "String value",
             encoding= "none",
     )
-    assert test_vcon.find_attachment_by_type("test_encoding_str") == {
+    assert test_vcon.find_attachment_by_purpose("test_encoding_str") == {
         "type": "test_encoding_str",
         "body": "String value",
         "encoding": "none",
@@ -41,7 +41,7 @@ def test_encoding():
             encoding= "json",
         
     )
-    assert test_vcon.find_attachment_by_type("test_encoding_json") == {
+    assert test_vcon.find_attachment_by_purpose("test_encoding_json") == {
         "type": "test_encoding_json",
         "body": json.dumps({"key": "value"}),
         "encoding": "json",

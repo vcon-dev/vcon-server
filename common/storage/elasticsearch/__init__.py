@@ -75,7 +75,7 @@ def save(
             "started_at": started_at,
         }
 
-        tenant_attachment = vcon.find_attachment_by_type("tenant")
+        tenant_attachment = vcon.find_attachment_by_purpose("tenant")
         if tenant_attachment:
             if tenant_attachment["encoding"] == "json" and isinstance(tenant_attachment["body"], str):
                 tenant = json.loads(tenant_attachment["body"])
