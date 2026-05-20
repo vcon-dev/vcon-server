@@ -1,19 +1,18 @@
-"""Observable gauge emitting current ingress-list and DLQ depths.
+"""Observable gauges emitting Redis-derived conserver health metrics.
 
-The gauge ``conserver.ingress_list.length`` is sampled on every metric-export
-tick. Each observation carries:
+Two gauges are exported on every metric-export tick:
 
-  - ``ingress_list`` — the configured ingress list name as it appears in the
-    chain config (e.g. ``"transcribe"``)
-  - ``kind`` — ``"ingress"`` for the live queue, ``"dlq"`` for the derived
-    dead-letter queue
+  ``conserver.ingress_list.length`` — one observation per
+    ``(ingress_list, kind)`` combination, sampled via ``LLEN``. The
+    ``ingress_list`` attribute carries the configured name (e.g.
+    ``"transcribe"``); ``kind`` is ``"ingress"`` for the live queue and
+    ``"dlq"`` for the derived dead-letter queue. The ingress-list set is
+    re-read from configuration on every tick, so chain config changes
+    propagate without a conserver restart.
 
-Splitting ``kind`` into its own attribute (rather than baking ``DLQ:`` into
-the value) lets monitoring queries select live vs DLQ depth without regex
-parsing the metric label.
-
-The ingress-list set is re-read from configuration on every tick, so chain
-config changes propagate without a conserver restart.
+  ``conserver.redis.memory_used_bytes`` — current ``used_memory`` from
+    ``INFO memory``. Single series per pod (no per-key attributes); the
+    pod identity already lives on the resource attributes.
 """
 
 from opentelemetry.metrics import Observation
@@ -103,5 +102,56 @@ def register_ingress_list_length_gauge(client):
             "Current Redis LLEN for each configured ingress list and its "
             "derived DLQ. Attributes: ingress_list (configured name), "
             "kind (ingress|dlq)."
+        ),
+    )
+
+
+def _build_redis_memory_callback(client):
+    """Return a zero-arg callback that yields one Observation for
+    ``conserver.redis.memory_used_bytes`` per export tick.
+
+    Reads ``used_memory`` from ``INFO memory``. One round-trip per tick;
+    negligible cost. Returns an empty list on any failure so the export
+    tick still publishes everything else cleanly.
+    """
+
+    def _callback():
+        try:
+            info = client.info(section="memory")
+        except Exception as e:
+            logger.warning("Redis INFO memory failed: %s", e)
+            return []
+
+        used = info.get("used_memory") if isinstance(info, dict) else None
+        if used is None:
+            return []
+
+        try:
+            value = int(used)
+        except (TypeError, ValueError):
+            logger.warning("Redis INFO memory used_memory not int-coercible: %r", used)
+            return []
+
+        return [Observation(value=value, attributes={})]
+
+    return _callback
+
+
+def register_redis_memory_gauge(client):
+    """Register the ``conserver.redis.memory_used_bytes`` observable gauge.
+
+    Idempotent — safe to call multiple times per process. Restores the
+    Redis memory signal that monitoring stacks previously got from a
+    separately-deployed Redis exporter.
+
+    Args:
+        client: A Redis client with an ``info(section=...)`` method.
+    """
+    register_observable_gauge(
+        metric_name="conserver.redis.memory_used_bytes",
+        callback=_build_redis_memory_callback(client),
+        description=(
+            "Current Redis memory usage in bytes (used_memory from INFO memory). "
+            "One series per conserver pod."
         ),
     )
