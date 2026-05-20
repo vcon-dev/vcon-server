@@ -604,12 +604,17 @@ class VconChainRequest:
                     self.vcon_id, link_name, module, options, link_hook_config, "success", None, parties
                 )
                 link_processing_time = round(time.time() - started, 3)
+                # NB: do NOT include vcon.uuid here. This is a Histogram metric
+                # — every unique attribute combination produces its own
+                # OpenTelemetry time-series, so per-vCon labels would create
+                # unbounded cardinality and break percentile aggregation across
+                # vCons. Trace-level vcon.uuid lives on the span (see the
+                # vcon_processing.<chain_name> span this block runs inside).
                 record_histogram(
                     "conserver.link.execution_time",
                     link_processing_time,
                     attributes={
                         "link.name": link_name,
-                        "vcon.uuid": self.vcon_id,
                         "chain.name": self.chain_details["name"],
                     },
                 )
