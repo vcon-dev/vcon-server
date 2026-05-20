@@ -787,11 +787,13 @@ def worker_loop(worker_id: int) -> None:
     r = redis_mgr.get_client()
     queue = VconQueue(r)
 
-    # Register the ingress-list / DLQ depth gauge. The callback inside reads
-    # the live chain config on every tick, so new ingress lists begin
-    # emitting series automatically without a worker restart.
-    from lib.queue_metrics import register_ingress_list_length_gauge
+    # Register Redis-derived gauges. ingress_list.length samples LLEN per
+    # configured ingress + DLQ; redis.memory_used_bytes samples INFO memory.
+    # The ingress callback re-reads chain config on every tick, so new ingress
+    # lists begin emitting series automatically without a worker restart.
+    from lib.queue_metrics import register_ingress_list_length_gauge, register_redis_memory_gauge
     register_ingress_list_length_gauge(r)
+    register_redis_memory_gauge(r)
 
     # Re-register signal handler in worker process
     signal.signal(signal.SIGTERM, signal_handler)

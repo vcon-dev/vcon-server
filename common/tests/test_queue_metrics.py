@@ -1,14 +1,18 @@
-"""Unit tests for the ``conserver.ingress_list.length`` observable gauge.
+"""Unit tests for the observable gauges in ``lib.queue_metrics``.
 
-The callback construction can be tested without any OpenTelemetry SDK
-involvement — the helpers in ``lib.queue_metrics`` return a plain
-zero-arg callable whose output is a list of ``Observation``. This file
-exercises that callable directly.
+The callbacks are plain zero-arg callables returning a list of
+``Observation`` — they can be exercised without any OpenTelemetry SDK
+involvement. This file covers both the ingress-list-length callback and
+the Redis memory callback.
 """
 
 from unittest.mock import MagicMock, patch
 
-from lib.queue_metrics import _build_callback, _get_configured_ingress_lists
+from lib.queue_metrics import (
+    _build_callback,
+    _build_redis_memory_callback,
+    _get_configured_ingress_lists,
+)
 
 
 class TestConfiguredIngressLists:
@@ -150,3 +154,59 @@ class TestCallbackEmitsObservations:
             obs = cb()
         assert obs == []
         client.llen.assert_not_called()
+
+
+class TestRedisMemoryCallback:
+    def test_emits_single_observation_with_used_memory(self):
+        """Happy path: INFO memory returns a dict containing ``used_memory``;
+        the callback yields exactly one Observation with that integer value
+        and no attributes (host identity is on the resource, not per-series)."""
+        client = MagicMock()
+        client.info.return_value = {"used_memory": 12345678, "used_memory_peak": 20000000}
+        cb = _build_redis_memory_callback(client)
+
+        obs = cb()
+
+        assert len(obs) == 1
+        assert obs[0].value == 12345678
+        assert obs[0].attributes == {}
+        client.info.assert_called_once_with(section="memory")
+
+    def test_handles_info_failure(self):
+        """A Redis hiccup mid-export must NOT raise out of the callback
+        — degrade to no observation this tick."""
+        client = MagicMock()
+        client.info.side_effect = RuntimeError("connection lost")
+        cb = _build_redis_memory_callback(client)
+
+        assert cb() == []
+
+    def test_handles_missing_used_memory_key(self):
+        """Older Redis versions or unusual responses may omit
+        ``used_memory``. Skip the observation rather than crash."""
+        client = MagicMock()
+        client.info.return_value = {"used_memory_peak": 12345}
+        cb = _build_redis_memory_callback(client)
+
+        assert cb() == []
+
+    def test_handles_non_int_used_memory(self):
+        """If the value isn't int-coercible (shouldn't happen in practice
+        but the parser is paranoid), skip it."""
+        client = MagicMock()
+        client.info.return_value = {"used_memory": "not-a-number"}
+        cb = _build_redis_memory_callback(client)
+
+        assert cb() == []
+
+    def test_string_value_is_coerced_to_int(self):
+        """Some Redis clients return INFO values as strings; the callback
+        must coerce to int for the gauge type."""
+        client = MagicMock()
+        client.info.return_value = {"used_memory": "98765"}
+        cb = _build_redis_memory_callback(client)
+
+        obs = cb()
+        assert len(obs) == 1
+        assert obs[0].value == 98765
+        assert isinstance(obs[0].value, int)
