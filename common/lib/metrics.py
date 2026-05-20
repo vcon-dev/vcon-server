@@ -15,6 +15,7 @@ OTEL_METRIC_EXPORT_INTERVAL = int(os.environ.get("OTEL_METRIC_EXPORT_INTERVAL", 
 meter = None
 counter_metrics = {}
 histogram_metrics = {}
+observable_gauges = {}
 _otel_initialized = False
 
 logger = logging.getLogger(__name__)
@@ -119,6 +120,43 @@ def increment_counter(metric_name, value=1, attributes=None):
         counter_metrics[metric_name].add(value, attributes=attributes)
     except Exception as e:
         logger.warning(f"Failed to publish counter metric to OpenTelemetry: {e}")
+
+
+def register_observable_gauge(metric_name, callback, description=None):
+    """Register an OpenTelemetry observable gauge.
+
+    The callback is invoked by the OTel SDK on each metric-export tick
+    (interval governed by ``OTEL_METRIC_EXPORT_INTERVAL``). It receives a
+    single ``options`` argument (unused by callers here) and must return
+    an iterable of ``opentelemetry.metrics.Observation`` instances — one
+    per dimension combination.
+
+    No-op when ``OTEL_EXPORTER_OTLP_ENDPOINT`` is unset (tests, dev) or when
+    a gauge of the same name has already been registered in this process.
+
+    Args:
+        metric_name: Name of the metric (e.g. ``"conserver.ingress_list.length"``)
+        callback: Zero-arg callable returning an iterable of ``Observation``
+        description: Optional description; defaults to a generic string
+    """
+    # Lazy initialization on first use
+    _init_otel_metrics()
+
+    if not OTEL_EXPORTER_OTLP_ENDPOINT or not meter:
+        return
+
+    # Idempotent: a gauge is process-lifetime, so subsequent calls are no-ops.
+    if metric_name in observable_gauges:
+        return
+
+    try:
+        observable_gauges[metric_name] = meter.create_observable_gauge(
+            name=metric_name,
+            callbacks=[lambda _options: callback()],
+            description=description or f"Observable gauge for {metric_name}",
+        )
+    except Exception as e:
+        logger.warning(f"Failed to register OpenTelemetry observable gauge {metric_name!r}: {e}")
 
 
 def record_histogram(metric_name, value, attributes=None):
