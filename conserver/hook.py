@@ -12,15 +12,20 @@ def before_processing(
     vcon_id: str,
     chain_details: Dict[str, Any],
     context: Optional[Dict[str, Any]],
-) -> None:
+) -> Optional[str]:
     """Called before processing of a vCon starts.
 
     Args:
         vcon_id: The vCon identifier.
         chain_details: The chain configuration for this processing run.
         context: Optional context data (e.g. trace_id, span_id).
+
+    Returns:
+        The vCon identifier to continue chain processing, or a falsy value
+        (None / False / "") to skip processing for this vCon without raising
+        and without sending it to the DLQ. Mirrors the link contract.
     """
-    pass
+    return vcon_id
 
 
 def after_processing(
