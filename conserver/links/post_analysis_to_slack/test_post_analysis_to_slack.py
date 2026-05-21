@@ -75,6 +75,16 @@ def test_build_details_url_portal_placeholder_embeds_raw_uuid():
     )
 
 
+def test_build_details_url_leaves_unrelated_braces_alone():
+    # Unrelated ``{...}`` segments in the template must NOT raise — only
+    # ``{vcon_id}`` is substituted.
+    template = "https://app.example.com/users/{user_id}/conversations/{vcon_id}"
+    assert (
+        build_details_url(template, "abc-123")
+        == "https://app.example.com/users/{user_id}/conversations/abc-123"
+    )
+
+
 @patch("links.post_analysis_to_slack.increment_counter")
 @patch("links.post_analysis_to_slack.WebClient")
 def test_post_blocks_to_channel_falls_back_and_reraises(mock_web_client, mock_increment_counter):

@@ -25,7 +25,9 @@ def build_details_url(url_template: str, vcon_uuid: str) -> str:
     existing configs keep working unchanged.
     """
     if "{vcon_id}" in url_template:
-        return url_template.format(vcon_id=vcon_uuid)
+        # str.replace (not str.format) so unrelated ``{...}`` segments in
+        # the configured URL can't raise KeyError/ValueError at runtime.
+        return url_template.replace("{vcon_id}", vcon_uuid)
     return f'{url_template}?_vcon_id="{vcon_uuid}"'
 
 
