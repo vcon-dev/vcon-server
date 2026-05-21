@@ -4,6 +4,7 @@ from unittest.mock import ANY, MagicMock, call, patch
 import pytest
 
 from links.post_analysis_to_slack import (
+    build_details_url,
     get_dealer,
     get_summary,
     get_team,
@@ -46,6 +47,42 @@ def test_helper_functions_extract_team_dealer_and_summary():
     assert get_dealer(vcon) == "Dealer One"
     assert get_summary(vcon, 0)["body"] == "Summary for Slack"
     assert get_summary(vcon, 1) is None
+
+
+def test_build_details_url_legacy_appends_quoted_query_param():
+    # Old config style with no placeholder — keep the legacy Hex-shaped suffix.
+    assert (
+        build_details_url("https://details.test", "test-uuid")
+        == 'https://details.test?_vcon_id="test-uuid"'
+    )
+
+
+def test_build_details_url_hex_placeholder_quotes_uuid():
+    # Hex still expects the uuid wrapped in double quotes; the template owns the quoting.
+    template = 'https://app.hex.tech/x/app/y/latest?_vcon_id="{vcon_id}"'
+    assert (
+        build_details_url(template, "abc-123")
+        == 'https://app.hex.tech/x/app/y/latest?_vcon_id="abc-123"'
+    )
+
+
+def test_build_details_url_portal_placeholder_embeds_raw_uuid():
+    # Portal embeds the uuid directly in the path, no quotes.
+    template = "https://portal.strolidcxm.com/app/conversations/{vcon_id}"
+    assert (
+        build_details_url(template, "abc-123")
+        == "https://portal.strolidcxm.com/app/conversations/abc-123"
+    )
+
+
+def test_build_details_url_leaves_unrelated_braces_alone():
+    # Unrelated ``{...}`` segments in the template must NOT raise — only
+    # ``{vcon_id}`` is substituted.
+    template = "https://app.example.com/users/{user_id}/conversations/{vcon_id}"
+    assert (
+        build_details_url(template, "abc-123")
+        == "https://app.example.com/users/{user_id}/conversations/abc-123"
+    )
 
 
 @patch("links.post_analysis_to_slack.increment_counter")
