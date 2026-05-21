@@ -236,32 +236,13 @@ class VconChainRequest:
         the overall processing flow. Will stop processing if any link indicates
         the chain should not continue.
         
-        Creates a new span from context if available for trace propagation (POC).
+        Always opens a vcon_processing root span so the link.* and
+        storage.* spans for this vcon nest under one trace. A span
+        link to the producer's trace is attached when self.context
+        carries one; otherwise the span is created without a link.
         """
-        # Create span from context if available (POC) - use as context manager
-        if self.context:
-            self._span_context_manager = self._create_span_from_context()
-            if self._span_context_manager:
-                # Enter the context manager to make the span current
-                # This links the span to the parent trace
-                self._span = self._span_context_manager.__enter__()
-                # Verify trace linkage
-                if self._span:
-                    span_ctx = self._span.get_span_context()
-                    parent_trace_id = self.context.get("trace_id", "")
-                    logger.info(
-                        f"Span activated for vCon {self.vcon_id}: "
-                        f"trace_id={format(span_ctx.trace_id, '032x')}, "
-                        f"span_id={format(span_ctx.span_id, '016x')}, "
-                        f"expected_trace_id={parent_trace_id}, "
-                        f"match={format(span_ctx.trace_id, '032x') == parent_trace_id}"
-                    )
-            else:
-                self._span = None
-                self._span_context_manager = None
-        else:
-            self._span = None
-            self._span_context_manager = None
+        self._span_context_manager = self._create_span_from_context()
+        self._span = self._span_context_manager.__enter__()
         
         vcon_started = time.time()
         logger.info(
@@ -306,68 +287,60 @@ class VconChainRequest:
         record_histogram("conserver.main_loop.vcon_processing_time", vcon_processing_time, attributes=chain_attrs)
         increment_counter("conserver.main_loop.count_vcons_processed", attributes=chain_attrs)
         
-        # End span if created - exit the context manager
-        if self._span_context_manager:
-            try:
-                current_span = trace.get_current_span()
-                if current_span:
-                    current_span.set_status(Status(StatusCode.OK))
-                # Exit the context manager which will end the span
-                self._span_context_manager.__exit__(None, None, None)
-            except Exception as e:
-                logger.debug(f"Failed to end span: {e}")
+        # End the vcon_processing span we opened at the top of run().
+        try:
+            current_span = trace.get_current_span()
+            if current_span:
+                current_span.set_status(Status(StatusCode.OK))
+            self._span_context_manager.__exit__(None, None, None)
+        except Exception as e:
+            logger.debug(f"Failed to end span: {e}")
 
     def _create_span_from_context(self):
-        """Create a new span from propagated trace context using span links.
-        
-        Since vCon processing is asynchronous (queued and processed later),
-        we use span links instead of parent-child relationships to represent
-        the causal relationship between the API request and the async processing.
-        
+        """Open a vcon_processing root span for this chain run.
+
+        vCon processing is asynchronous (the producer enqueues, this
+        worker dequeues later), so the relationship to any upstream
+        trace is expressed as a span *link* rather than a parent-child
+        edge. A link is attached only when ``self.context`` carries a
+        valid trace_id/span_id pair — set by the producer via
+        ``store_context_*`` before enqueue. When no upstream context
+        is propagated (e.g. an adapter that doesn't speak OTel), the
+        span is created with no links so that ``link.*`` and
+        ``storage.*`` child spans still nest under a single root
+        instead of becoming orphan traces.
+
         Returns:
-            The span context manager, or None if creation failed
+            The span context manager (never None).
         """
-        if not self.context:
-            return None
-        
-        try:
-            tracer = trace.get_tracer(__name__)
-            
-            # Extract trace context from stored context
-            trace_id = int(self.context.get("trace_id", "0"), 16)
-            span_id = int(self.context.get("span_id", "0"), 16)
-            trace_flags = self.context.get("trace_flags", 0)
-            
-            # Create span context from the propagated values
-            parent_span_context = SpanContext(
-                trace_id=trace_id,
-                span_id=span_id,
-                is_remote=True,
-                trace_flags=TraceFlags(trace_flags)
-            )
-            
-            # Create a new span with a link to the parent span context
-            # This represents an async relationship rather than a parent-child relationship
-            # The span will be in the same trace but linked rather than nested
-            span_context_manager = tracer.start_as_current_span(
-                f"vcon_processing.{self.chain_details['name']}",
-                links=[Link(parent_span_context)],
-                attributes={
-                    "vcon_id": self.vcon_id,
-                    "chain_name": self.chain_details["name"],
-                    "vcon.uuid": self.vcon_id
-                }
-            )
-            
-            logger.debug(
-                f"Created linked span for vCon {self.vcon_id}: "
-                f"linked_trace_id={format(trace_id, '032x')}, linked_span_id={format(span_id, '016x')}"
-            )
-            
-            return span_context_manager
-        except Exception as e:
-            logger.warning(f"Failed to create span from context for vCon {self.vcon_id}: {e}")
-            return None
+        tracer = trace.get_tracer(__name__)
+        links = []
+        if self.context:
+            try:
+                trace_id = int(self.context.get("trace_id", "0"), 16)
+                span_id = int(self.context.get("span_id", "0"), 16)
+                trace_flags = self.context.get("trace_flags", 0)
+                if trace_id and span_id:
+                    links.append(Link(SpanContext(
+                        trace_id=trace_id,
+                        span_id=span_id,
+                        is_remote=True,
+                        trace_flags=TraceFlags(trace_flags),
+                    )))
+            except Exception as e:
+                logger.warning(
+                    f"Failed to build parent link for vCon {self.vcon_id}: {e}"
+                )
+
+        return tracer.start_as_current_span(
+            f"vcon_processing.{self.chain_details['name']}",
+            links=links,
+            attributes={
+                "vcon_id": self.vcon_id,
+                "chain_name": self.chain_details["name"],
+                "vcon.uuid": self.vcon_id,
+            },
+        )
 
     def _wrap_up(self) -> None:
         """Handle post-processing operations for the vCon.
