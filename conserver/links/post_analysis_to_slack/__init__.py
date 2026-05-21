@@ -8,10 +8,25 @@ logger = init_logger(__name__)
 default_options = {
     "token": None,
     "channel_name": None,
-    "url": "Url to hex sheet",
+    "url": "Url to link to the details page",
     "analysis_to_post": "summary",
     "only_if": {"analysis_type": "customer_frustration", "includes": "NEEDS REVIEW"},
 }
+
+
+def build_details_url(url_template: str, vcon_uuid: str) -> str:
+    """Render the details URL for a vCon.
+
+    If ``url_template`` contains a ``{vcon_id}`` placeholder, substitute the
+    uuid into it — letting each deployment decide where and how the id is
+    embedded (e.g. quoted for Hex, raw in a path for the portal).
+
+    Otherwise, fall back to the legacy ``?_vcon_id="<uuid>"`` suffix so
+    existing configs keep working unchanged.
+    """
+    if "{vcon_id}" in url_template:
+        return url_template.format(vcon_id=vcon_uuid)
+    return f'{url_template}?_vcon_id="{vcon_uuid}"'
 
 
 def get_team(vcon):
@@ -108,7 +123,7 @@ def run(vcon_id, link_name, opts=default_options):
         # and uses ``only_if.analysis_type`` + ``only_if.includes``.
         # Unifying the two is its own refactor.
 
-        url = f"{opts['url']}?_vcon_id=\"{vcon.uuid}\""
+        url = build_details_url(opts["url"], vcon.uuid)
         team_name = get_team(vcon)
         dealer_name = get_dealer(vcon)
         summary = get_summary(vcon, a["dialog"])

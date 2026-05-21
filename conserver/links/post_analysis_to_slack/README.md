@@ -18,7 +18,7 @@ The Post Analysis to Slack link is a specialized plugin that posts vCon analysis
 default_options = {
     "token": None,  # Slack API token
     "channel_name": None,  # Default Slack channel name
-    "url": "Url to hex sheet",  # URL for the details button
+    "url": "Url to link to the details page",  # URL template for the details button
     "analysis_to_post": "summary",  # Type of analysis to post
     "only_if": {
         "analysis_type": "customer_frustration",  # Analysis type to match
@@ -31,11 +31,30 @@ default_options = {
 
 - `token`: Your Slack API token
 - `channel_name`: Default Slack channel for notifications
-- `url`: URL for the details button in the Slack message
+- `url`: URL template for the details button (see below)
 - `analysis_to_post`: Type of analysis to post (e.g., "summary")
 - `only_if`: Conditions that must be met for posting:
   - `analysis_type`: Type of analysis to match
   - `includes`: Text that must be included in the analysis body
+
+### URL templating
+
+The `url` option is a template. If it contains `{vcon_id}`, the vCon uuid
+is substituted at that exact position — the template owns the quoting and
+placement. This lets the same link work with destinations that embed the
+id in different shapes:
+
+```yaml
+# Hex sheet — uuid must be wrapped in double quotes inside a query param.
+url: 'https://app.hex.tech/<workspace>/app/<app>/latest?_vcon_id="{vcon_id}"'
+
+# Path-based destination — uuid embedded raw in the path.
+url: "https://app.example.com/conversations/{vcon_id}"
+```
+
+If the `url` has no `{vcon_id}` placeholder, the link falls back to the
+legacy Hex-shaped suffix (`?_vcon_id="<uuid>"`) so existing configs keep
+working unchanged.
 
 ## Usage
 
