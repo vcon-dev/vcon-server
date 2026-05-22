@@ -1,3 +1,4 @@
+import json
 import pytest
 from unittest.mock import patch, MagicMock
 from links.tag_router import run
@@ -433,11 +434,124 @@ def test_tag_router_with_name_only_tags(mock_redis_with_name_tag_vcon):
 def test_tag_router_with_default_options(mock_redis_with_vcon):
     """Test link with default options"""
     _, mock_redis = mock_redis_with_vcon
-    
+
     result = run("test-uuid", "test-link")
-    
+
     # Check that no routing occurred (default tag_routes is empty)
     mock_redis.rpush.assert_not_called()
-    
+
     # Check that it was forwarded (default forward_original is True)
     assert result == "test-uuid"
+
+
+# ---------------------------------------------------------------------------
+# Regression: VconRedis._enforce_spec_on_write rewrites attachment bodies to
+# encoding="json" + a JSON-encoded string (per draft-ietf-vcon-vcon-core-02).
+# tag_router used to fall through both isinstance branches and silently route
+# nothing on the reload-and-process path. It now must extract tag names by
+# decoding via Vcon.decoded_body.
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def sample_vcon_with_stringified_list_body():
+    """vCon whose tags attachment looks like one reloaded from Redis post-normalize."""
+    return Vcon({
+        "uuid": "test-uuid-stringified",
+        "vcon": "0.0.1",
+        "parties": [],
+        "dialog": [],
+        "analysis": [],
+        "attachments": [
+            {
+                "type": "tags",
+                "body": json.dumps(["important:important", "followup:followup"]),
+                "encoding": "json",
+            }
+        ],
+        "redacted": {},
+    })
+
+
+@pytest.fixture
+def sample_vcon_with_stringified_dict_body():
+    return Vcon({
+        "uuid": "test-uuid-stringified-dict",
+        "vcon": "0.0.1",
+        "parties": [],
+        "dialog": [],
+        "analysis": [],
+        "attachments": [
+            {
+                "type": "tags",
+                "body": json.dumps({"cdr_id": "abc", "call_type": "0"}),
+                "encoding": "json",
+            }
+        ],
+        "redacted": {},
+    })
+
+
+def test_tag_router_with_json_stringified_list_body(
+    mock_vcon_redis, mock_redis, sample_vcon_with_stringified_list_body
+):
+    mock_instance = MagicMock()
+    mock_instance.get_vcon.return_value = sample_vcon_with_stringified_list_body
+    mock_vcon_redis.return_value = mock_instance
+
+    opts = {"tag_routes": {"important": "important_list", "followup": "followup_list"}}
+
+    result = run("test-uuid-stringified", "test-link", opts)
+
+    mock_redis.rpush.assert_any_call("important_list", "test-uuid-stringified")
+    mock_redis.rpush.assert_any_call("followup_list", "test-uuid-stringified")
+    assert mock_redis.rpush.call_count == 2
+    assert result == "test-uuid-stringified"
+
+
+def test_tag_router_with_json_stringified_dict_body(
+    mock_vcon_redis, mock_redis, sample_vcon_with_stringified_dict_body
+):
+    mock_instance = MagicMock()
+    mock_instance.get_vcon.return_value = sample_vcon_with_stringified_dict_body
+    mock_vcon_redis.return_value = mock_instance
+
+    opts = {"tag_routes": {"cdr_id": "cdr_list", "call_type": "call_type_list"}}
+
+    result = run("test-uuid-stringified-dict", "test-link", opts)
+
+    mock_redis.rpush.assert_any_call("cdr_list", "test-uuid-stringified-dict")
+    mock_redis.rpush.assert_any_call("call_type_list", "test-uuid-stringified-dict")
+    assert mock_redis.rpush.call_count == 2
+    assert result == "test-uuid-stringified-dict"
+
+
+def test_tag_router_matches_spec_current_purpose_key(mock_vcon_redis, mock_redis):
+    # Vcon.add_tag now writes ``purpose: tags`` per spec 0.4.0. tag_router
+    # must recognize that shape, not just the legacy ``type: tags`` one.
+    vcon = Vcon({
+        "uuid": "test-uuid-purpose",
+        "vcon": "0.0.1",
+        "parties": [],
+        "dialog": [],
+        "analysis": [],
+        "attachments": [
+            {
+                "purpose": "tags",
+                "body": json.dumps(["important:important"]),
+                "encoding": "json",
+            }
+        ],
+        "redacted": {},
+    })
+    mock_instance = MagicMock()
+    mock_instance.get_vcon.return_value = vcon
+    mock_vcon_redis.return_value = mock_instance
+
+    result = run(
+        "test-uuid-purpose",
+        "test-link",
+        {"tag_routes": {"important": "important_list"}},
+    )
+
+    mock_redis.rpush.assert_called_once_with("important_list", "test-uuid-purpose")
+    assert result == "test-uuid-purpose"

@@ -40,6 +40,7 @@ from lib.logging_utils import init_logger
 from lib.error_tracking import init_error_tracker
 from lib.metrics import record_histogram, increment_counter
 from lib.vcon_redis import VconRedis
+from vcon import Vcon
 
 # Initialize services
 init_error_tracker()
@@ -229,7 +230,12 @@ class VConLLMProcessor:
         transcript_text = ""
         for analysis in vcon.analysis:
             if analysis["type"] == "transcript":
-                transcript = analysis["body"].get("transcript", "")
+                # Decode body so a JSON-encoded transcript (post-spec-normalize)
+                # still surfaces as a dict here.
+                body = Vcon.decoded_body(analysis)
+                if not isinstance(body, dict):
+                    continue
+                transcript = body.get("transcript", "")
                 if transcript:
                     transcript_text += transcript + "\n"
         return transcript_text.strip()

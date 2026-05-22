@@ -49,6 +49,24 @@ def test_helper_functions_extract_team_dealer_and_summary():
     assert get_summary(vcon, 1) is None
 
 
+def test_helper_functions_resolve_spec_current_purpose_key():
+    # draft-ietf-vcon-vcon-core-02 renamed attachment ``type`` → ``purpose``.
+    # get_team / get_dealer must resolve attachments authored under the new
+    # key as well as the legacy one.
+    vcon = SimpleNamespace(
+        attachments=[
+            {
+                "purpose": "strolid_dealer",
+                "body": {"name": "Dealer Two", "team": {"name": "Beta Honda"}},
+            }
+        ],
+        analysis=[],
+    )
+
+    assert get_team(vcon) == "beta"
+    assert get_dealer(vcon) == "Dealer Two"
+
+
 def test_build_details_url_legacy_appends_quoted_query_param():
     # Old config style with no placeholder — keep the legacy Hex-shaped suffix.
     assert (

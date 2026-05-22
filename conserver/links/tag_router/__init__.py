@@ -2,6 +2,7 @@ from lib.logging_utils import init_logger
 from lib.vcon_redis import VconRedis
 from lib.metrics import increment_counter
 from lib.queue import VconQueue
+from vcon import Vcon
 
 logger = init_logger(__name__)
 
@@ -45,38 +46,44 @@ def run(vcon_uuid, link_name, opts=default_options):
         logger.warning(f"No tag routes configured for {link_name}, skipping")
         return vcon_uuid
 
-    # Extract all tags from attachments
-    tags = []
+    # Collect tag names from every tags attachment on the vCon.
+    tag_names = []
     for attachment in vcon.attachments:
-        # Handle only plural "tags" format
-        if attachment['type'] == "tags" and 'body' in attachment:
-            if isinstance(attachment['body'], list):
-                # Process each tag string in the list
-                for tag_str in attachment['body']:
-                    if isinstance(tag_str, str) and ":" in tag_str:
-                        # Split on first colon to get tag name
-                        tag_name = tag_str.split(":", 1)[0]
-                        if tag_name:
-                            tags.append(tag_name)
-            elif isinstance(attachment['body'], dict):
-                # If body is a dict, use the keys as tags
-                for tag_name in attachment['body'].keys():
+        # Handle only plural "tags" format. Spec 0.4.0 renamed the
+        # identifier from ``type`` to ``purpose`` — match either so old
+        # and new writers both resolve.
+        purpose = attachment.get('purpose') or attachment.get('type')
+        if purpose != "tags" or 'body' not in attachment:
+            continue
+        # Decode through Vcon helper so a body stringified by the spec
+        # normalizer (encoding=json) still presents as a list/dict here.
+        body = Vcon.decoded_body(attachment)
+        if isinstance(body, list):
+            # Each entry is a "name:value" string; we only route on name.
+            for tag_str in body:
+                if isinstance(tag_str, str) and ":" in tag_str:
+                    tag_name = tag_str.split(":", 1)[0]
                     if tag_name:
-                        tags.append(tag_name)
-    
-    if not tags:
+                        tag_names.append(tag_name)
+        elif isinstance(body, dict):
+            # Dict-shaped tags attachment — keys are the tag names.
+            for tag_name in body.keys():
+                if tag_name:
+                    tag_names.append(tag_name)
+
+    if not tag_names:
         logger.debug(f"No tags found in vCon {vcon_uuid}")
         return vcon_uuid if opts.get("forward_original") else None
 
     attrs = {"link.name": link_name, "vcon.uuid": vcon_uuid}
 
-    # Route the vCon to the appropriate Redis lists based on tags
+    # Route the vCon to the configured Redis lists by tag name.
     queue = VconQueue()
     routed = False
-    for tag in tags:
-        if tag in opts["tag_routes"]:
-            target_list = opts["tag_routes"][tag]
-            logger.info(f"Routing vCon {vcon_uuid} to list '{target_list}' based on tag '{tag}'")
+    for tag_name in tag_names:
+        if tag_name in opts["tag_routes"]:
+            target_list = opts["tag_routes"][tag_name]
+            logger.info(f"Routing vCon {vcon_uuid} to list '{target_list}' based on tag '{tag_name}'")
             # Push the vCon UUID to the target Redis list
             queue.enqueue(target_list, vcon_uuid)
             increment_counter(
@@ -85,7 +92,7 @@ def run(vcon_uuid, link_name, opts=default_options):
             )
             routed = True
         else:
-            logger.debug(f"No route configured for tag '{tag}'")
+            logger.debug(f"No route configured for tag '{tag_name}'")
 
     if routed:
         increment_counter("conserver.link.tag_router.routed_count", attributes=attrs)

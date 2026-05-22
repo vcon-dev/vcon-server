@@ -11,6 +11,7 @@ from tenacity import (
 from lib.metrics import record_histogram, increment_counter
 import time
 from lib.links.filters import is_included, randomly_execute_with_sampling
+from vcon import Vcon
 import os
 logger = init_logger(__name__)
 
@@ -97,7 +98,9 @@ def run(
             logger.warning("No %s found for vCon: %s", source_type, vCon.uuid)
             continue
 
-        source_text = navigate_dict(source, text_location)
+        # Decode body so a dotted ``text_location`` like ``body.transcript``
+        # can drill through a JSON-encoded body (spec-current shape).
+        source_text = navigate_dict(Vcon.with_decoded_body(source), text_location)
         if not source_text:
             logger.warning("No source_text found at %s for vCon: %s", text_location, vCon.uuid)
             continue

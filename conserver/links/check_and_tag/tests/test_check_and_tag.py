@@ -38,6 +38,18 @@ def test_navigate_dict():
     assert navigate_dict({"body": {"text": "hello"}}, "body.missing") is None
 
 
+def test_navigate_dict_drills_into_json_encoded_body_via_helper():
+    # Spec-current shape: encoding=json, body is a stringified dict.
+    # navigate_dict cannot drill into a string, so the link feeds it the
+    # output of Vcon.with_decoded_body first.
+    source = {
+        "type": "transcript",
+        "body": json.dumps({"transcript": "the actual text"}),
+        "encoding": "json",
+    }
+    assert navigate_dict(Vcon.with_decoded_body(source), "body.transcript") == "the actual text"
+
+
 def test_run_requires_tag_name():
     with pytest.raises(ValueError, match="tag_name is required"):
         run(
@@ -81,7 +93,8 @@ def test_run_applies_tag_when_evaluation_is_positive(
     assert result == "test-uuid"
     assert sample_vcon.get_tag("topic") == "billing"
     analysis = get_analysis_for_type(sample_vcon, 0, "tag_evaluation")
-    assert analysis["body"]["applies"] is True
+    # add_analysis JSON-encodes a dict body at the boundary (spec).
+    assert Vcon.decoded_body(analysis)["applies"] is True
     mock_instance.store_vcon.assert_called_once_with(sample_vcon)
     mock_increment_counter.assert_any_call(
         "conserver.link.openai.tags_applied",
@@ -130,7 +143,7 @@ def test_run_records_negative_evaluation_without_applying_tag(
     assert result == "test-uuid"
     assert sample_vcon.get_tag("topic") is None
     analysis = get_analysis_for_type(sample_vcon, 0, "tag_evaluation")
-    assert analysis["body"]["applies"] is False
+    assert Vcon.decoded_body(analysis)["applies"] is False
     mock_instance.store_vcon.assert_called_once_with(sample_vcon)
     mock_increment_counter.assert_not_called()
     mock_record_histogram.assert_called_once()
