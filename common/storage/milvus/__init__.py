@@ -11,6 +11,7 @@ import time
 from lib.logging_utils import init_logger
 from lib.metrics import record_histogram, increment_counter
 from lib.vcon_redis import VconRedis
+from vcon import Vcon
 
 try:
     from pymilvus import connections, Collection, FieldSchema, CollectionSchema, DataType, utility
@@ -131,21 +132,25 @@ def extract_text_from_vcon(vcon: dict) -> str:
     if "analysis" in vcon:
         transcript_analyses = [a for a in vcon["analysis"] if a.get("type") == "transcript"]
         for analysis in transcript_analyses:
-            if "body" in analysis and "text" in analysis["body"]:
-                text += analysis["body"]["text"] + " "
+            # Decode through the Vcon helper so a JSON-stringified body
+            # (post spec-enforcement on store) still surfaces as a dict.
+            body = Vcon.decoded_body(analysis)
+            if isinstance(body, dict) and "text" in body:
+                text += body["text"] + " "
                 extracted_components.append(f"transcript analysis")
                 logger.debug(f"Extracted transcript analysis from vCon {vcon_id}")
-    
+
     # Extract summary analysis
     if "analysis" in vcon:
         summary_analyses = [a for a in vcon["analysis"] if a.get("type") == "summary"]
         for analysis in summary_analyses:
-            if "body" in analysis and isinstance(analysis["body"], str):
-                text += analysis["body"] + " "
+            body = Vcon.decoded_body(analysis)
+            if isinstance(body, str):
+                text += body + " "
                 extracted_components.append(f"summary analysis")
                 logger.debug(f"Extracted summary analysis from vCon {vcon_id}")
-            elif "body" in analysis and isinstance(analysis["body"], dict) and "text" in analysis["body"]:
-                text += analysis["body"]["text"] + " "
+            elif isinstance(body, dict) and "text" in body:
+                text += body["text"] + " "
                 extracted_components.append(f"summary analysis")
                 logger.debug(f"Extracted summary analysis from vCon {vcon_id}")
     

@@ -44,16 +44,30 @@ def test_add_attachment():
     vcon = Vcon.build_new()
     vcon.add_attachment(body={"key": "value"}, type="test_type")
     attachment = vcon.find_attachment_by_purpose("test_type")
-    assert attachment["body"] == {"key": "value"}
+    # Per spec body is always String — a dict input is JSON-encoded at the
+    # boundary and ``encoding`` is forced to ``json``. The original Python
+    # value round-trips via Vcon.decoded_body.
+    assert attachment["body"] == json.dumps({"key": "value"})
+    assert attachment["encoding"] == "json"
+    assert Vcon.decoded_body(attachment) == {"key": "value"}
+
+
+def test_add_attachment_keeps_freeform_string_body_unchanged():
+    vcon = Vcon.build_new()
+    vcon.add_attachment(body="just text", type="note", encoding="none")
+    attachment = vcon.find_attachment_by_purpose("note")
+    assert attachment == {"type": "note", "body": "just text", "encoding": "none"}
 
 
 def test_add_analysis():
     vcon = Vcon.build_new()
     vcon.add_analysis(type="test_type", dialog=[1, 2], vendor="test_vendor", body={"key": "value"})
     analysis = vcon.find_analysis_by_type("test_type")
-    assert analysis["body"] == {"key": "value"}
+    assert analysis["body"] == json.dumps({"key": "value"})
+    assert analysis["encoding"] == "json"
     assert analysis["dialog"] == [1, 2]
     assert analysis["vendor"] == "test_vendor"
+    assert Vcon.decoded_body(analysis) == {"key": "value"}
 
 
 def test_add_party():
@@ -95,8 +109,8 @@ def test_find_attachment_by_type():
         warnings.simplefilter("ignore", DeprecationWarning)
         assert vcon.find_attachment_by_type("test_type") == {
             "type": "test_type",
-            "body": {"key": "value"},
-            "encoding": "none",
+            "body": json.dumps({"key": "value"}),
+            "encoding": "json",
         }
         assert vcon.find_attachment_by_type("nonexistent_type") is None
 
@@ -143,7 +157,13 @@ def test_find_attachment_by_purpose_tolerates_missing_keys():
 def test_find_analysis_by_type():
     vcon = Vcon.build_new()
     vcon.add_analysis(type="test_type", dialog=[1, 2], vendor="test_vendor", body={"key": "value"})
-    assert vcon.find_analysis_by_type("test_type") == {"type": "test_type", "dialog": [1, 2], "vendor": "test_vendor", "body": {"key": "value"}, "encoding": "none"}
+    assert vcon.find_analysis_by_type("test_type") == {
+        "type": "test_type",
+        "dialog": [1, 2],
+        "vendor": "test_vendor",
+        "body": json.dumps({"key": "value"}),
+        "encoding": "json",
+    }
     assert vcon.find_analysis_by_type("nonexistent_type") is None
 
 
@@ -192,4 +212,123 @@ def test_dumps():
 def test_error_handling():
     with pytest.raises(json.JSONDecodeError):
         Vcon.build_from_json("invalid_json")
-    
+
+
+# ---------------------------------------------------------------------------
+# Body decoding regression coverage. The Redis store path
+# (VconRedis._enforce_spec_on_write) stringifies dict/list bodies to JSON and
+# rewrites encoding to "json" per draft-ietf-vcon-vcon-core-02. Read-side
+# callers must round-trip through Vcon.decoded_body so they don't see a string
+# where they used to see a dict/list.
+# ---------------------------------------------------------------------------
+
+
+def test_decoded_body_parses_json_encoded_string():
+    entry = {"body": json.dumps({"k": "v"}), "encoding": "json"}
+    assert Vcon.decoded_body(entry) == {"k": "v"}
+
+
+def test_decoded_body_returns_freeform_string_for_encoding_none():
+    # encoding=none means body is a freeform string, no parsing.
+    entry = {"body": "NEEDS REVIEW: trailing context", "encoding": "none"}
+    assert Vcon.decoded_body(entry) == "NEEDS REVIEW: trailing context"
+
+
+def test_decoded_body_passes_through_legacy_dict_body():
+    # Legacy writers placed dict/list directly under body with encoding=none.
+    # The helper returns it as-is so callers don't have to special-case.
+    entry = {"body": {"k": "v"}, "encoding": "none"}
+    assert Vcon.decoded_body(entry) == {"k": "v"}
+
+
+def test_decoded_body_handles_none_entry():
+    assert Vcon.decoded_body(None) is None
+    assert Vcon.decoded_body({}) is None
+
+
+def test_with_decoded_body_returns_shallow_copy_with_parsed_body():
+    entry = {
+        "type": "transcript",
+        "dialog": 0,
+        "body": json.dumps({"transcript": "hello"}),
+        "encoding": "json",
+    }
+    decoded = Vcon.with_decoded_body(entry)
+
+    assert decoded == {
+        "type": "transcript",
+        "dialog": 0,
+        "body": {"transcript": "hello"},
+        "encoding": "json",
+    }
+    # Source entry untouched — important for callers that don't want to
+    # mutate the underlying vCon.
+    assert entry["body"] == json.dumps({"transcript": "hello"})
+
+
+def test_with_decoded_body_returns_none_for_empty_input():
+    assert Vcon.with_decoded_body(None) is None
+    assert Vcon.with_decoded_body({}) is None
+
+
+def test_add_tag_writes_spec_correct_shape():
+    # Per draft-ietf-vcon-vcon-core-02 §2.3.2 body is always a String. The
+    # tags purpose carries a JSON-encoded list of "name:value" strings.
+    vcon = Vcon.build_new()
+    vcon.add_tag("first", "1")
+    vcon.add_tag("second", "2")
+
+    tags_attachment = vcon.find_attachment_by_purpose("tags")
+    assert tags_attachment["encoding"] == "json"
+    assert isinstance(tags_attachment["body"], str)
+    assert json.loads(tags_attachment["body"]) == ["first:1", "second:2"]
+    assert vcon.get_tag("first") == "1"
+    assert vcon.get_tag("second") == "2"
+
+
+def test_add_tag_appends_to_legacy_unstringified_body():
+    # A tags attachment in the legacy shape (encoding=none, body is a Python
+    # list) must still be appendable — add_tag decodes, appends, and rewrites
+    # in the spec-correct shape.
+    vcon = Vcon.build_new()
+    vcon.vcon_dict["attachments"].append(
+        {"type": "tags", "body": ["legacy:1"], "encoding": "none"}
+    )
+
+    vcon.add_tag("new", "2")
+
+    tags_attachment = vcon.find_attachment_by_purpose("tags")
+    assert tags_attachment["encoding"] == "json"
+    assert json.loads(tags_attachment["body"]) == ["legacy:1", "new:2"]
+
+
+def test_add_tag_appends_to_already_stringified_body():
+    # Reproduces the reported crash path: a tags attachment carrying the
+    # spec-correct shape (encoding=json + stringified list) must be
+    # appendable without the previous AttributeError.
+    vcon = Vcon.build_new()
+    vcon.vcon_dict["attachments"].append(
+        {"type": "tags", "body": json.dumps(["first:1"]), "encoding": "json"}
+    )
+
+    vcon.add_tag("second", "2")
+
+    assert vcon.get_tag("first") == "1"
+    assert vcon.get_tag("second") == "2"
+
+
+def test_get_tag_reads_through_json_encoded_body():
+    vcon = Vcon.build_new()
+    vcon.vcon_dict["attachments"].append(
+        {"type": "tags", "body": json.dumps(["alpha:a", "beta:b"]), "encoding": "json"}
+    )
+    assert vcon.get_tag("alpha") == "a"
+    assert vcon.get_tag("beta") == "b"
+    assert vcon.get_tag("missing") is None
+
+
+def test_get_tag_preserves_colons_in_value():
+    # split(":", 1) — values containing ':' must not be truncated.
+    vcon = Vcon.build_new()
+    vcon.add_tag("url", "https://example.com/path")
+    assert vcon.get_tag("url") == "https://example.com/path"

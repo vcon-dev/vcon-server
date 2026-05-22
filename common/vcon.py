@@ -42,28 +42,74 @@ class Vcon:
     def tags(self):
         return self.find_attachment_by_purpose("tags")
 
+    @staticmethod
+    def decoded_body(entry):
+        """Return an attachment/analysis ``body`` as a live Python value.
+
+        Per draft-ietf-vcon-vcon-core-02 §2.3.2 ``body`` is *always* a String;
+        the ``encoding`` tells you how to interpret it:
+
+        - ``json`` → body is a JSON-encoded object/array, parse with ``json.loads``.
+        - ``base64url`` → body is base64url-encoded bytes, returned verbatim
+          (binary decoding is caller-specific).
+        - ``none`` → body is a freeform string, returned verbatim.
+
+        For backwards compatibility with legacy writers that placed a raw
+        dict/list under ``body`` with ``encoding: none``, the dict/list is
+        returned as-is. ``VconRedis._enforce_spec_on_write`` later normalises
+        that to spec-correct ``encoding: json`` + stringified body, after
+        which this helper still returns the same Python value on reload.
+
+        Returns ``None`` if ``entry`` is falsy.
+        """
+        if not entry:
+            return None
+        body = entry.get("body")
+        if entry.get("encoding") == "json" and isinstance(body, str):
+            return json.loads(body)
+        return body
+
+    @staticmethod
+    def with_decoded_body(entry):
+        """Shallow copy of an attachment/analysis entry with body decoded.
+
+        Returns a new dict identical to ``entry`` except ``body`` is replaced
+        with the live Python value parsed via :meth:`decoded_body`. Useful
+        when a caller wants to navigate into ``body`` with dict syntax (e.g.
+        via a dot-path navigator) without having to know whether body
+        arrived as a JSON-encoded string from storage.
+
+        Returns ``None`` if ``entry`` is falsy.
+        """
+        if not entry:
+            return None
+        return {**entry, "body": Vcon.decoded_body(entry)}
+
     def get_tag(self, tag_name):
         tags_attachment = self.find_attachment_by_purpose("tags")
         if not tags_attachment:
             return None
-        tag = next(
-            (t for t in tags_attachment["body"] if t.startswith(f"{tag_name}:")), None
-        )
+        tags = self.decoded_body(tags_attachment) or []
+        tag = next((t for t in tags if t.startswith(f"{tag_name}:")), None)
         if not tag:
             return None
-        tag_value = tag.split(":")[1]
-        return tag_value
+        return tag.split(":", 1)[1]
 
     def add_tag(self, tag_name, tag_value):
         tags_attachment = self.find_attachment_by_purpose("tags")
-        if not tags_attachment:
-            tags_attachment = {
-                "type": "tags",
-                "body": [],
-                "encoding": "none",
-            }
+        if tags_attachment is None:
+            # Spec 0.4.0 renamed attachment ``type`` → ``purpose``. New
+            # writes use the spec-current key; lookup tolerates both.
+            tags_attachment = {"purpose": "tags"}
             self.vcon_dict["attachments"].append(tags_attachment)
-        tags_attachment["body"].append(f"{tag_name}:{tag_value}")
+        # Decode existing body so a prior add_tag (or a Redis round-trip
+        # via VconRedis._enforce_spec_on_write) round-trips cleanly. Write
+        # back as spec-correct ``encoding=json`` + stringified list, per
+        # draft-ietf-vcon-vcon-core-02 §2.3.2 (body is always a String).
+        tags = self.decoded_body(tags_attachment) or []
+        tags.append(f"{tag_name}:{tag_value}")
+        tags_attachment["body"] = json.dumps(tags)
+        tags_attachment["encoding"] = "json"
 
     def find_attachment_by_purpose(self, purpose):
         # IETF vCon spec 0.4.0 attachment lookup. Matches `purpose` first
@@ -97,55 +143,68 @@ class Vcon:
     def add_attachment(self, *, body: Union[dict, list, str], type: str, encoding="none"):
         if encoding not in ['json', 'none', 'base64url']:
             raise Exception("Invalid encoding")
-        
+
+        # Per draft-ietf-vcon-vcon-core-02 §2.3.2 ``body`` is always a String.
+        # If a caller hands us a dict/list as a convenience, JSON-encode it
+        # immediately so any reader that touches the attachment between now
+        # and storage sees the spec-correct shape.
+        if isinstance(body, (dict, list)):
+            body = json.dumps(body)
+            encoding = "json"
+
         if encoding == "json":
             try:
                 json.loads(body)
             except Exception as e:
                 raise Exception("Invalid JSON body: ", e)
-            
+
         if encoding == 'base64url':
             try:
                 base64.urlsafe_b64decode(body)
             except Exception as e:
                 raise Exception("Invalid base64url body: ", e)
 
-        attachment = {
+        self.vcon_dict["attachments"].append({
             "type": type,
             "body": body,
             "encoding": encoding,
-        }
-        self.vcon_dict["attachments"].append(attachment)
+        })
 
     def find_analysis_by_type(self, type):  # TODO fix to search for specific dialog id if it's passed
         return next((a for a in self.vcon_dict["analysis"] if a["type"] == type), None)
 
     def add_analysis(self, *, type: str, dialog: Union[list, int], vendor: str, body: Union[dict, list, str], encoding="none", extra={}):
-        
         if encoding not in ['json', 'none', 'base64url']:
             raise Exception("Invalid encoding")
-        
+
+        # Per draft-ietf-vcon-vcon-core-02 §2.3.2 ``body`` is always a String.
+        # If a caller hands us a dict/list as a convenience, JSON-encode it
+        # immediately so any reader that touches the analysis between now
+        # and storage sees the spec-correct shape.
+        if isinstance(body, (dict, list)):
+            body = json.dumps(body)
+            encoding = "json"
+
         if encoding == "json":
             try:
                 json.loads(body)
             except Exception as e:
                 raise Exception("Invalid JSON body: ", e)
-            
+
         if encoding == 'base64url':
             try:
                 base64.urlsafe_b64decode(body)
             except Exception as e:
                 raise Exception("Invalid base64url body: ", e)
 
-        analysis = {
+        self.vcon_dict["analysis"].append({
             "type": type,
             "dialog": dialog,
             "vendor": vendor,
             "body": body,
             "encoding": encoding,
             **extra,
-        }
-        self.vcon_dict["analysis"].append(analysis)
+        })
 
     def add_party(self, party: dict):
         self.vcon_dict["parties"].append(party)

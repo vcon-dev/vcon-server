@@ -2,6 +2,7 @@ from lib.vcon_redis import VconRedis
 from lib.logging_utils import init_logger
 from lib.metrics import increment_counter
 from slack_sdk.web import WebClient
+from vcon import Vcon
 
 logger = init_logger(__name__)
 
@@ -31,12 +32,20 @@ def build_details_url(url_template: str, vcon_uuid: str) -> str:
     return f'{url_template}?_vcon_id="{vcon_uuid}"'
 
 
+def _is_strolid_dealer_attachment(a):
+    # Spec 0.4.0 renamed attachment ``type`` → ``purpose``. Match either so
+    # legacy and spec-current writers both resolve.
+    return a.get("purpose") == "strolid_dealer" or a.get("type") == "strolid_dealer"
+
+
 def get_team(vcon):
     team_name = None
     for a in vcon.attachments:
-        if a["type"] == "strolid_dealer":
-            t_obj = a["body"]
-            team = t_obj.get("team", None)
+        if _is_strolid_dealer_attachment(a):
+            # Body may be a JSON string (encoding=json) post-spec-normalization
+            # or a raw dict from legacy writers — decode either way.
+            t_obj = Vcon.decoded_body(a) or {}
+            team = t_obj.get("team", None) if isinstance(t_obj, dict) else None
             if team:
                 team_name = team["name"]
                 team_name = team_name.split()[0].lower()
@@ -46,9 +55,9 @@ def get_team(vcon):
 def get_dealer(vcon):
     dealer = None
     for a in vcon.attachments:
-        if a["type"] == "strolid_dealer":
-            d_obj = a["body"]
-            dealer = d_obj.get("name", None)
+        if _is_strolid_dealer_attachment(a):
+            d_obj = Vcon.decoded_body(a) or {}
+            dealer = d_obj.get("name", None) if isinstance(d_obj, dict) else None
     return dealer
 
 
@@ -113,6 +122,8 @@ def run(vcon_id, link_name, opts=default_options):
         # we need to skip first one an only post the second one to slack
         if a["type"] != opts["only_if"]["analysis_type"]:
             continue
+        # Per draft-ietf-vcon-vcon-core-02 §2.3.2 body is always a String —
+        # substring-match directly without decoding.
         if opts["only_if"]["includes"] not in a["body"]:
             continue
         if a.get("was_posted_to_slack"):
