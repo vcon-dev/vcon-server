@@ -12,11 +12,12 @@ Environment variables are loaded from .env using python-dotenv.
 import os
 import pytest
 from unittest.mock import Mock, patch
+from pydash import get as pydash_get
+
 from links.analyze import (
     generate_analysis,
     run,
     default_options,
-    navigate_dict,
     get_analysis_for_type,
 )
 from vcon import Vcon
@@ -84,31 +85,24 @@ def mock_redis_with_vcon(mock_vcon_redis, sample_vcon):
     return mock_instance
 
 
-class TestNavigateDict:
-    """Test the navigate_dict utility function"""
-    
-    def test_navigate_dict_simple(self):
-        """Test navigating a simple dictionary path"""
-        test_dict = {"a": {"b": {"c": "value"}}}
-        result = navigate_dict(test_dict, "a.b.c")
-        assert result == "value"
-    
-    def test_navigate_dict_missing_key(self):
-        """Test navigating to a missing key"""
-        test_dict = {"a": {"b": {"c": "value"}}}
-        result = navigate_dict(test_dict, "a.b.d")
-        assert result is None
-    
-    def test_navigate_dict_empty_path(self):
-        """Test navigating with empty path"""
-        test_dict = {"a": "value"}
-        result = navigate_dict(test_dict, "")
-        assert result is None  # Empty path should return None
-    
-    def test_navigate_dict_none_input(self):
-        """Test navigating with None input"""
-        result = navigate_dict(None, "a.b.c")
-        assert result is None
+class TestPydashGetContract:
+    """The analyze link uses pydash.get to walk dotted paths like
+    ``source.text_location`` into the analysis dict. The behaviour
+    contract we depend on — return None for any unreachable path,
+    including non-dict intermediates — is what fixes CON-573, so it's
+    worth pinning here even though pydash itself is well-tested."""
+
+    def test_returns_none_when_midpath_is_non_dict(self):
+        """Regression for CON-573: when a transcript analysis stores
+        body as a plain string (instead of {paragraphs:{transcript:…}}),
+        the dotted lookup must return None rather than raise TypeError.
+        The previous in-house navigate_dict did `key in current` —
+        which for strings is a substring check — and then
+        ``current[key]`` raised on the string-indexed access."""
+        # "paragraphs" appears as a substring of body, so the buggy
+        # impl let the in-check pass before crashing on the indexing.
+        source = {"body": "transcript with paragraphs in it"}
+        assert pydash_get(source, "body.paragraphs.transcript") is None
 
 
 class TestGetAnalysisForType:

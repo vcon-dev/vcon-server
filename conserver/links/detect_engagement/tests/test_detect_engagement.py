@@ -17,7 +17,6 @@ from tenacity import RetryError
 from links.detect_engagement import (
     check_engagement,
     get_analysis_for_type,
-    navigate_dict,
     run,
     default_options,
 )
@@ -89,23 +88,6 @@ def test_get_analysis_for_type():
     # Should return None if type does not exist
     result = get_analysis_for_type(vcon, 0, "nonexistent")
     assert result is None
-
-def test_navigate_dict():
-    """
-    Test that navigate_dict can traverse nested dictionaries using dot notation.
-    """
-    test_dict = {
-        "level1": {
-            "level2": {
-                "level3": "value"
-            }
-        }
-    }
-    # Should return the value at the nested path
-    assert navigate_dict(test_dict, "level1.level2.level3") == "value"
-    # Should return None for a non-existent path
-    assert navigate_dict(test_dict, "level1.nonexistent") is None
-    assert navigate_dict(test_dict, "nonexistent") is None
 
 def skip_if_no_openai_key():
     """

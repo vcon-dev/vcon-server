@@ -201,12 +201,3 @@ def run(
     return vcon_uuid
 
 
-def navigate_dict(dictionary, path):
-    keys = path.split(".")
-    current = dictionary
-    for key in keys:
-        if key in current:
-            current = current[key]
-        else:
-            return None
-    return current

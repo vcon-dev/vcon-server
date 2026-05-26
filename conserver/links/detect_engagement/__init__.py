@@ -12,6 +12,7 @@ from lib.metrics import record_histogram, increment_counter
 import time
 from lib.links.filters import is_included, randomly_execute_with_sampling
 from vcon import Vcon
+from pydash import get as pydash_get
 import os
 logger = init_logger(__name__)
 
@@ -100,7 +101,7 @@ def run(
 
         # Decode body so a dotted ``text_location`` like ``body.transcript``
         # can drill through a JSON-encoded body (spec-current shape).
-        source_text = navigate_dict(Vcon.with_decoded_body(source), text_location)
+        source_text = pydash_get(Vcon.with_decoded_body(source), text_location)
         if not source_text:
             logger.warning("No source_text found at %s for vCon: %s", text_location, vCon.uuid)
             continue
@@ -186,12 +187,3 @@ def run(
     return vcon_uuid
 
 
-def navigate_dict(dictionary, path):
-    keys = path.split(".")
-    current = dictionary
-    for key in keys:
-        if key in current:
-            current = current[key]
-        else:
-            return None
-    return current 
