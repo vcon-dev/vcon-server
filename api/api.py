@@ -23,7 +23,7 @@ storage backend again.
 import os
 import re
 import traceback
-from typing import Dict, List, Optional
+from typing import Annotated, Dict, List, Optional
 from uuid import UUID
 from datetime import datetime
 
@@ -1118,22 +1118,27 @@ async def post_config(config: Dict) -> None:
     tags=["dlq"],
 )
 async def post_dlq_reprocess(
-    ingress_list: str = Query(..., description="Name of ingress list to reprocess to")
+    ingress_list: str = Query(..., description="Name of ingress list to reprocess to"),
+    count: Annotated[
+        int,
+        Query(
+            ge=1,
+            le=100000,
+            description="Max items to move in this call. Callers drive the loop client-side for large DLQs to avoid HTTP timeouts.",
+        ),
+    ] = 1000,
 ) -> JSONResponse:
-    """Move items from a dead letter queue back to the ingress list.
+    """Move up to ``count`` items from a dead letter queue back to the ingress list.
 
-    Args:
-        ingress_list: Name of the ingress list to move items to
-
-    Returns:
-        JSONResponse containing count of items moved
-
-    Raises:
-        HTTPException: If there is an error reprocessing the DLQ
+    Bounded per call so each request returns quickly regardless of DLQ size.
+    Clients drain large DLQs by calling repeatedly until the response is 0.
     """
     try:
         counter = 0
-        while item := await queue.dequeue_dlq_async(redis_async, ingress_list):
+        for _ in range(count):
+            item = await queue.dequeue_dlq_async(redis_async, ingress_list)
+            if item is None:
+                break
             await queue.enqueue_async(redis_async, ingress_list, item)
             counter += 1
         return JSONResponse(content=counter)

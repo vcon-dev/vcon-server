@@ -220,6 +220,16 @@ async def test_get_vcon_count_get_config_and_dlq_endpoints_cover_success_and_err
         with pytest.raises(api.HTTPException, match="Failed to reprocess DLQ"):
             await api.post_dlq_reprocess("ingress-a")
 
+    # count param bounds how many items are moved per call: with count=3 and
+    # an effectively-unbounded DLQ, the endpoint stops at 3.
+    redis_async.lpop.side_effect = None
+    redis_async.lpop.return_value = "x"
+    redis_async.rpush.reset_mock()
+    with patch.object(api, "get_ingress_list_dlq_name", return_value="ingress-a:dlq"):
+        bounded = await api.post_dlq_reprocess("ingress-a", count=3)
+    assert json.loads(bounded.body) == 3
+    assert redis_async.rpush.await_count == 3
+
     redis_async.lrange.return_value = ["x", "y"]
     with patch.object(api, "get_ingress_list_dlq_name", return_value="ingress-a:dlq"):
         get_dlq_response = await api.get_dlq_vcons("ingress-a")
