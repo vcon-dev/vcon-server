@@ -435,7 +435,9 @@ def test_get_transcription(sample_vcon_with_existing_transcript):
     assert transcript is not None
     assert transcript["type"] == "transcript"
     assert transcript["dialog"] == 0
-    assert transcript["body"]["text"] == "Existing transcript"
+    # add_analysis JSON-encodes a dict body at the boundary per spec
+    # (draft-ietf-vcon-vcon-core-02 §2.3.2), so decode before drilling in.
+    assert Vcon.decoded_body(transcript)["text"] == "Existing transcript"
     
     # Check non-existent transcription
     transcript = get_transcription(sample_vcon_with_existing_transcript, 1)  # No dialog at index 1

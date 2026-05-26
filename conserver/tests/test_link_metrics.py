@@ -431,6 +431,7 @@ class TestCheckAndTagMetrics:
     def test_tag_applied_increments_counter(self, metric_reader):
         vcon = make_transcript_vcon()
         vcon.analysis[0]["body"] = "Hello world"
+        vcon.analysis[0]["encoding"] = "none"
         self._run(vcon, applies=True)
         metrics = extract_metrics(metric_reader)
         assert_metric_has_attrs(metrics, "conserver.link.openai.tags_applied",
@@ -441,6 +442,7 @@ class TestCheckAndTagMetrics:
     def test_success_records_evaluation_time(self, metric_reader):
         vcon = make_transcript_vcon()
         vcon.analysis[0]["body"] = "Hello world"
+        vcon.analysis[0]["encoding"] = "none"
         self._run(vcon, applies=True)
         metrics = extract_metrics(metric_reader)
         assert_metric_has_attrs(metrics, "conserver.link.openai.evaluation_time",
@@ -450,6 +452,7 @@ class TestCheckAndTagMetrics:
     def test_failure_increments_counter(self, metric_reader):
         vcon = make_transcript_vcon()
         vcon.analysis[0]["body"] = "Hello world"
+        vcon.analysis[0]["encoding"] = "none"
         self._run(vcon, side_effect=Exception("OpenAI error"))
         metrics = extract_metrics(metric_reader)
         assert_metric_has_attrs(metrics, "conserver.link.openai.evaluation_failures",
