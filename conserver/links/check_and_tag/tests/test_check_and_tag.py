@@ -3,7 +3,9 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from links.check_and_tag import get_analysis_for_type, navigate_dict, run
+from pydash import get as pydash_get
+
+from links.check_and_tag import get_analysis_for_type, run
 from vcon import Vcon
 
 
@@ -33,21 +35,16 @@ def test_get_analysis_for_type(sample_vcon):
     assert get_analysis_for_type(sample_vcon, 0, "missing") is None
 
 
-def test_navigate_dict():
-    assert navigate_dict({"body": {"text": "hello"}}, "body.text") == "hello"
-    assert navigate_dict({"body": {"text": "hello"}}, "body.missing") is None
-
-
-def test_navigate_dict_drills_into_json_encoded_body_via_helper():
+def test_dotted_lookup_drills_into_json_encoded_body_via_helper():
     # Spec-current shape: encoding=json, body is a stringified dict.
-    # navigate_dict cannot drill into a string, so the link feeds it the
+    # pydash.get cannot drill into a string, so the link feeds it the
     # output of Vcon.with_decoded_body first.
     source = {
         "type": "transcript",
         "body": json.dumps({"transcript": "the actual text"}),
         "encoding": "json",
     }
-    assert navigate_dict(Vcon.with_decoded_body(source), "body.transcript") == "the actual text"
+    assert pydash_get(Vcon.with_decoded_body(source), "body.transcript") == "the actual text"
 
 
 def test_run_requires_tag_name():

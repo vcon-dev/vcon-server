@@ -12,6 +12,8 @@ from tenacity import (
 from lib.metrics import record_histogram, increment_counter
 import time
 from lib.links.filters import is_included, randomly_execute_with_sampling
+from pydash import get as pydash_get
+from vcon import Vcon
 
 logger = init_logger(__name__)
 
@@ -89,15 +91,18 @@ def run(
         return vcon_uuid
 
     client = get_openai_client(opts)
-    source_type = navigate_dict(opts, "source.analysis_type")
-    text_location = navigate_dict(opts, "source.text_location")
+    source_type = pydash_get(opts, "source.analysis_type")
+    text_location = pydash_get(opts, "source.text_location")
 
     for index, dialog in enumerate(vCon.dialog):
         source = get_analysis_for_type(vCon, index, source_type)
         if not source:
             logger.warning("No %s found for vCon: %s", source_type, vCon.uuid)
             continue
-        source_text = navigate_dict(source, text_location)
+        # Decode body so a dotted ``text_location`` like
+        # ``body.paragraphs.transcript`` can drill through a JSON-encoded
+        # body (spec-current shape after vcon-server#182).
+        source_text = pydash_get(Vcon.with_decoded_body(source), text_location)
         if not source_text:
             logger.warning("No source_text found at %s for vCon: %s", text_location, vCon.uuid)
             continue
@@ -207,12 +212,3 @@ def run(
     return vcon_uuid
 
 
-def navigate_dict(dictionary, path):
-    keys = path.split(".")
-    current = dictionary
-    for key in keys:
-        if key in current:
-            current = current[key]
-        else:
-            return None
-    return current

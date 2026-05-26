@@ -3,7 +3,7 @@ import json
 import pytest
 from unittest.mock import patch, MagicMock, Mock
 
-from links.analyze_and_label import run, generate_analysis_with_labels, get_analysis_for_type, navigate_dict
+from links.analyze_and_label import run, generate_analysis_with_labels, get_analysis_for_type
 from vcon import Vcon
 from lib.vcon_redis import VconRedis
 
@@ -200,26 +200,6 @@ def test_get_analysis_for_type(sample_vcon, sample_vcon_with_analysis):
     # Test non-existent analysis
     analysis = get_analysis_for_type(sample_vcon, 0, "non_existent_type")
     assert analysis is None
-
-
-def test_navigate_dict():
-    """Test the navigate_dict function"""
-    test_dict = {
-        "a": {
-            "b": {
-                "c": "value"
-            }
-        },
-        "x": "y"
-    }
-    
-    # Test valid paths
-    assert navigate_dict(test_dict, "a.b.c") == "value"
-    assert navigate_dict(test_dict, "x") == "y"
-    
-    # Test invalid paths
-    assert navigate_dict(test_dict, "a.b.d") is None
-    assert navigate_dict(test_dict, "z") is None
 
 
 @patch('links.analyze_and_label.get_openai_client')
