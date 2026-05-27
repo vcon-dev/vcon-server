@@ -122,7 +122,27 @@ def test_find_attachment_by_type_emits_deprecation_warning():
         vcon.find_attachment_by_type("x")
 
 
-def test_init_coerces_json_string_arg_and_logs_caller(caplog):
+@pytest.fixture
+def vcon_logger_propagates():
+    # ``common/logging.conf`` sets ``[logger_vcon] propagate = 0`` so log
+    # records go straight to the project's JSON stdout handler and bypass
+    # the root logger that ``caplog`` attaches to. Force propagation for
+    # the duration of the test so ``caplog.records`` actually sees the
+    # records, then restore the original setting.
+    import logging
+    logger = logging.getLogger("vcon")
+    saved_propagate = logger.propagate
+    saved_disabled = logger.disabled
+    logger.propagate = True
+    logger.disabled = False
+    try:
+        yield logger
+    finally:
+        logger.propagate = saved_propagate
+        logger.disabled = saved_disabled
+
+
+def test_init_coerces_json_string_arg_and_logs_caller(caplog, vcon_logger_propagates):
     # Production logs show callers occasionally pass a JSON-encoded string
     # instead of a dict. Pre-fix, json.loads(json.dumps(str)) silently
     # round-trips and leaves vcon_dict as a str — every downstream method
@@ -141,7 +161,7 @@ def test_init_coerces_json_string_arg_and_logs_caller(caplog):
     assert any(rec.stack_info for rec in caplog.records if "received a str" in rec.message)
 
 
-def test_init_bails_to_empty_dict_for_non_json_string(caplog):
+def test_init_bails_to_empty_dict_for_non_json_string(caplog, vcon_logger_propagates):
     # If the bad input is not even valid JSON, fall through to an empty
     # vcon_dict rather than leaving a poisoned string. Caller stack must
     # still be logged so the broken caller is findable.
