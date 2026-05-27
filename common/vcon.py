@@ -1,5 +1,6 @@
 import copy
 import json
+import logging
 import warnings
 from typing import Optional, Union
 import hashlib
@@ -13,9 +14,32 @@ import os
 _LAST_V8_TIMESTAMP = None
 UUID8_DOMAIN_NAME = os.getenv("UUID8_DOMAIN_NAME", "strolid.com")
 
+_logger = logging.getLogger(__name__)
+
 
 class Vcon:
     def __init__(self, vcon_dict={}):
+        # Defensive: production logs show callers occasionally pass a
+        # JSON-encoded string here, which silently round-trips through
+        # json.dumps/loads and leaves self.vcon_dict as a str. Every
+        # downstream access (e.g. find_attachment_by_purpose at line
+        # ``self.vcon_dict["attachments"]``) then crashes with
+        # ``TypeError: string indices must be integers, not 'str'``.
+        # Coerce the string back to a dict and log the caller stack so
+        # we can find and fix the originating call site.
+        if isinstance(vcon_dict, str):
+            _logger.error(
+                "Vcon.__init__ received a str (len=%d, head=%r); coercing via json.loads",
+                len(vcon_dict),
+                vcon_dict[:200],
+                stack_info=True,
+            )
+            try:
+                vcon_dict = json.loads(vcon_dict)
+            except json.JSONDecodeError:
+                # Not JSON either — bail out with an empty dict rather
+                # than poisoning self.vcon_dict for downstream callers.
+                vcon_dict = {}
         # deep copy
         self.vcon_dict = json.loads(json.dumps(vcon_dict))
 

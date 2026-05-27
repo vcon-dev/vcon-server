@@ -122,6 +122,55 @@ def test_find_attachment_by_type_emits_deprecation_warning():
         vcon.find_attachment_by_type("x")
 
 
+@pytest.fixture
+def vcon_logger_propagates():
+    # ``common/logging.conf`` sets ``[logger_vcon] propagate = 0`` so log
+    # records go straight to the project's JSON stdout handler and bypass
+    # the root logger that ``caplog`` attaches to. Force propagation for
+    # the duration of the test so ``caplog.records`` actually sees the
+    # records, then restore the original setting.
+    import logging
+    logger = logging.getLogger("vcon")
+    saved_propagate = logger.propagate
+    saved_disabled = logger.disabled
+    logger.propagate = True
+    logger.disabled = False
+    try:
+        yield logger
+    finally:
+        logger.propagate = saved_propagate
+        logger.disabled = saved_disabled
+
+
+def test_init_coerces_json_string_arg_and_logs_caller(caplog, vcon_logger_propagates):
+    # Production logs show callers occasionally pass a JSON-encoded string
+    # instead of a dict. Pre-fix, json.loads(json.dumps(str)) silently
+    # round-trips and leaves vcon_dict as a str — every downstream method
+    # then crashes with TypeError: string indices must be integers.
+    # Post-fix, __init__ must coerce the string back to a dict and emit
+    # an ERROR log with a caller stack so the originating call site is
+    # findable.
+    payload = '{"uuid": "abc", "vcon": "0.0.1", "attachments": [{"purpose": "tags", "body": "[]", "encoding": "json"}], "parties": [], "dialog": [], "analysis": [], "group": [], "redacted": {}}'
+    with caplog.at_level("ERROR", logger="vcon"):
+        v = Vcon(payload)
+    assert isinstance(v.vcon_dict, dict)
+    assert v.vcon_dict["uuid"] == "abc"
+    # add_tag would otherwise raise TypeError here pre-fix
+    v.add_tag("k", "v")
+    assert any("received a str" in rec.message for rec in caplog.records)
+    assert any(rec.stack_info for rec in caplog.records if "received a str" in rec.message)
+
+
+def test_init_bails_to_empty_dict_for_non_json_string(caplog, vcon_logger_propagates):
+    # If the bad input is not even valid JSON, fall through to an empty
+    # vcon_dict rather than leaving a poisoned string. Caller stack must
+    # still be logged so the broken caller is findable.
+    with caplog.at_level("ERROR", logger="vcon"):
+        v = Vcon("not even json")
+    assert v.vcon_dict == {}
+    assert any("received a str" in rec.message for rec in caplog.records)
+
+
 def test_find_attachment_by_purpose_matches_purpose_key():
     # IETF vCon spec 0.4.0 renamed `type` → `purpose` on attachments. The
     # canonical lookup must find attachments authored by spec-current writers.
