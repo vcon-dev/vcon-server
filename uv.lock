@@ -2356,8 +2356,10 @@ conserver = [
     { name = "pymilvus" },
     { name = "pymongo" },
     { name = "slack-sdk" },
-    { name = "transformers" },
     { name = "watchdog" },
+]
+conserver-local = [
+    { name = "transformers" },
 ]
 dev = [
     { name = "anyio" },
@@ -2432,9 +2434,9 @@ conserver = [
     { name = "pymilvus", specifier = ">=2.3.0" },
     { name = "pymongo", specifier = ">=4.7.2" },
     { name = "slack-sdk", specifier = ">=3.27.1" },
-    { name = "transformers", specifier = ">=4.48.0" },
     { name = "watchdog" },
 ]
+conserver-local = [{ name = "transformers", specifier = ">=4.48.0" }]
 dev = [
     { name = "anyio", specifier = ">=4.8.0" },
     { name = "black", specifier = ">=24.2.0" },
