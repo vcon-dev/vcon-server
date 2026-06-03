@@ -52,7 +52,6 @@ api = [
 conserver = [
     {include-group = "storage"},
     # Processing links
-    "transformers>=4.48.0",
     "openai>=1.60.0",
     "groq>=0.4.0",
     "deepgram-sdk>=3.1.5,<4.0.0",
@@ -62,6 +61,16 @@ conserver = [
     "jq>=1.8.0",
     # Hot-reload wrapper used by docker-compose watchmedo
     "watchdog",
+]
+
+# Optional: on-device HuggingFace inference for hugging_llm_link's local-model path.
+# transformers is ~48MB (plus tokenizers/huggingface_hub, ~67MB total) and additionally
+# needs a model backend such as torch installed separately. The default hugging_llm_link
+# path (use_local_model=false) calls the HuggingFace HTTP API and needs none of this, so
+# transformers is kept out of the base conserver install.
+# Install with: uv sync --group conserver --group conserver-local
+conserver-local = [
+    "transformers>=4.48.0",
 ]
 
 # Development / test dependencies.

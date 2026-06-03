@@ -32,7 +32,6 @@ from tenacity import (
     RetryError,
     before_sleep_log,
 )
-import transformers
 import anyio
 
 # Local imports
@@ -153,6 +152,19 @@ class LocalHuggingFaceLLM(BaseLLM):
 
     def __init__(self, config: LLMConfig):
         super().__init__(config)
+        # transformers (and a backend such as torch) is an optional dependency.
+        # The default, API-based path (use_local_model=false) does not need it, so
+        # the import is deferred to here rather than loaded at module import time.
+        try:
+            import transformers
+        except ImportError as e:
+            raise ImportError(
+                "Local HuggingFace inference requires the optional 'conserver-local' "
+                "dependency group plus a model backend (e.g. torch). "
+                "Install it with: uv sync --group conserver-local. "
+                "The default path (use_local_model=false) calls the HuggingFace API "
+                "and needs none of this."
+            ) from e
         logger.info(f"Initializing local model: {self.config.model}")
         device = "cpu"  # Always use CPU for local models
         logger.info(f"Using device: {device}")

@@ -1,5 +1,4 @@
 from typing import Dict, Any, Optional
-from transformers import pipeline
 
 
 class HuggingLLMLink:
@@ -12,6 +11,9 @@ class HuggingLLMLink:
             model_name: The HuggingFace model to use
             **kwargs: Additional arguments passed to the model pipeline
         """
+        # transformers is an optional dependency (group: conserver-local); import lazily.
+        from transformers import pipeline
+
         self.classifier = pipeline(
             "zero-shot-classification", model=model_name, **kwargs
         )

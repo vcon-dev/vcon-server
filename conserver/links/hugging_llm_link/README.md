@@ -20,6 +20,13 @@ The link can be configured through environment variables or the link configurati
 HUGGINGFACE_API_KEY=your-api-key  # Required for API-based inference
 ```
 
+> **Local inference is opt-in.** The default path (`use_local_model: false`) calls the
+> HuggingFace HTTP API and pulls in no ML dependencies. Setting `use_local_model: true`
+> runs the model on-device via `transformers`, which is **not** part of the base
+> `conserver` install. Install it with `uv sync --group conserver --group conserver-local`
+> and add a model backend (e.g. `torch`) yourself. Without it, the local path raises a
+> clear `ImportError` at runtime.
+
 Additional configuration options:
 - `model`: HuggingFace model ID (default: "meta-llama/Llama-2-70b-chat-hf")
 - `use_local_model`: Toggle local model inference (default: false)
