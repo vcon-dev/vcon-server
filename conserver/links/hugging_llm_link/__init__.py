@@ -162,7 +162,7 @@ class LocalHuggingFaceLLM(BaseLLM):
             raise ImportError(
                 "Local HuggingFace inference requires the optional 'conserver-local' "
                 "dependency group plus a model backend (e.g. torch). "
-                "Install it with: uv sync --group conserver-local. "
+                "Install it with: uv sync --group conserver --group conserver-local. "
                 "The default path (use_local_model=false) calls the HuggingFace API "
                 "and needs none of this."
             ) from e
