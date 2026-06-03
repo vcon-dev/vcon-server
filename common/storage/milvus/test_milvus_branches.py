@@ -2,6 +2,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+# pymilvus is an optional dependency (group: storage-milvus). storage.milvus
+# imports it at module load, so skip this whole module when it isn't installed.
+pytest.importorskip("pymilvus")
+
 from storage import milvus as milvus_module
 from storage.milvus import (
     check_vcon_exists,
