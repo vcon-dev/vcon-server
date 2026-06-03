@@ -21,8 +21,13 @@ class HuggingLLMLink:
             **kwargs: Additional arguments passed to the model pipeline
         """
         # transformers is an optional dependency (group: conserver-local); import lazily.
-        from transformers import pipeline
-
+        try:
+            from transformers import pipeline
+        except ImportError as e:
+            raise ImportError(
+                "HuggingLLMLink requires the optional 'conserver-local' dependency group. "
+                "Install it with: uv sync --group conserver --group conserver-local."
+            ) from e
         self.classifier = pipeline(
             "zero-shot-classification", model=model_name, **kwargs
         )
