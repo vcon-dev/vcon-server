@@ -26,7 +26,7 @@ class Vcon:
     def build_new(cls):
         vcon_dict = {
             "uuid": cls.uuid8_domain_name("strolid.com"),
-            "vcon": "0.0.1",
+            "vcon": "0.4.0",
             "created_at": datetime.now(UTC).isoformat()[:-3] + "+00:00",
             "redacted": {},
             "group": [],
@@ -65,8 +65,15 @@ class Vcon:
         tags_attachment["body"].append(f"{tag_name}:{tag_value}")
 
     def find_attachment_by_type(self, type):
+        # Use .get so spec-compliant attachments that carry `purpose` but no
+        # legacy `type` key don't raise KeyError. We intentionally match on
+        # `type` only (not `purpose`) for the tags attachment: a purpose:"tags"
+        # attachment may use a different body shape (e.g. a JSON dict) than this
+        # class's list-of-"k:v" convention, so we leave it untouched and keep
+        # our own type:"tags" attachment alongside it.
         return next(
-            (a for a in self.vcon_dict["attachments"] if a["type"] == type), None
+            (a for a in self.vcon_dict.get("attachments", []) if a.get("type") == type),
+            None,
         )
 
     def add_attachment(self, *, body: Union[dict, list, str], type: str, encoding="none"):
@@ -93,7 +100,7 @@ class Vcon:
         self.vcon_dict["attachments"].append(attachment)
 
     def find_analysis_by_type(self, type):  # TODO fix to search for specific dialog id if it's passed
-        return next((a for a in self.vcon_dict["analysis"] if a["type"] == type), None)
+        return next((a for a in self.vcon_dict.get("analysis", []) if a.get("type") == type), None)
 
     def add_analysis(self, *, type: str, dialog: Union[list, int], vendor: str, body: Union[dict, list, str], encoding="none", extra={}):
         
