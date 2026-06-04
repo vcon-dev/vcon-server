@@ -1,4 +1,4 @@
-from typing import Dict, Any, Optional
+from typing import Any, Dict
 
 AUDIT_META = {
     "third_party_service": "Hugging Face",
