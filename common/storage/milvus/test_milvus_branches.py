@@ -2,9 +2,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-# pymilvus is an optional dependency (group: storage-milvus). storage.milvus
-# imports it at module load, so skip this whole module when it isn't installed.
+# pymilvus/openai are optional dependencies (group: storage-milvus). storage.milvus
+# imports them at module load, so skip this whole module when they aren't installed.
 pytest.importorskip("pymilvus")
+pytest.importorskip("openai")
 
 from storage import milvus as milvus_module
 from storage.milvus import (
