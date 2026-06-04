@@ -23,7 +23,9 @@ class HuggingLLMLink:
         # transformers is an optional dependency (group: conserver-local); import lazily.
         try:
             from transformers import pipeline
-        except ImportError as e:
+        except ModuleNotFoundError as e:
+            if e.name != "transformers":
+                raise
             raise ImportError(
                 "HuggingLLMLink requires the optional 'conserver-local' dependency group. "
                 "Install it with: uv sync --group conserver --group conserver-local."
