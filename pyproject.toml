@@ -80,6 +80,9 @@ dev = [
     "anyio>=4.8.0",
     "httpx>=0.27.0",
     "pytest-cov>=7.1.0",
+    # Used by test_vcon_egress_compat to validate downgraded payloads against
+    # the derived legacy (0.0.1) schema.
+    "jsonschema>=4.21.0",
 ]
 
 

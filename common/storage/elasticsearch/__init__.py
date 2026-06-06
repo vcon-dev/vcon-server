@@ -1,5 +1,6 @@
 from lib.logging_utils import init_logger
 from lib.vcon_redis import VconRedis
+from lib.vcon_egress_compat import to_legacy
 import logging
 import elasticsearch
 import json
@@ -65,6 +66,14 @@ def save(
         vcon = vcon_redis.get_vcon(vcon_uuid)
         vcon_dict = vcon.to_dict()
 
+        # Optionally downgrade the indexed payload to a legacy format for
+        # downstream consumers built against an older schema. The canonical vCon
+        # in Redis is untouched. This also restores the legacy attachment
+        # ``type`` key the index names below are built from.
+        egress_format_version = opts.get("egress_format_version")
+        if egress_format_version:
+            vcon_dict = to_legacy(vcon_dict, egress_format_version)
+
         if not vcon_dict["dialog"]:
             return
 
@@ -99,9 +108,11 @@ def save(
 
         # Index the attachments, separated by 'type' - id=f"{vcon_uuid}_{attachment_index}"
         for ind, attachment in enumerate(vcon_dict["attachments"]):
-            attachment_type = attachment.get(
-                "type"
-            ).lower()  # TODO this might be "purpose" in some of the attachments!!
+            # Spec 0.4.0 renamed attachment ``type`` -> ``purpose``; accept
+            # either so the index name resolves regardless of payload version.
+            attachment_type = (
+                attachment.get("type") or attachment.get("purpose") or "unknown"
+            ).lower()
             encoding = attachment.get("encoding", "none")
             if encoding == "json" and isinstance(attachment["body"], str):  # Only parse if it's a string
                 attachment["body"] = json.loads(attachment["body"])
