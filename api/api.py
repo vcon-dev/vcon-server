@@ -47,6 +47,7 @@ from dlq_utils import get_ingress_list_dlq_name
 from lib.context_utils import store_context_async, extract_otel_trace_context
 from lib.logging_utils import init_logger
 from lib.queue import VconQueue
+from lib.vcon_redis import VconRedis
 import redis_mgr
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request as StarletteRequest
@@ -485,6 +486,12 @@ async def sync_vcon_from_storage(vcon_uuid: UUID) -> Optional[dict]:
     for storage_name in Configuration.get_storages():
         vcon = Storage(storage_name=storage_name).get(str(vcon_uuid))
         if vcon:
+            # Storage may hold a legacy / egress-converted format (see the
+            # egress_format_version storage option). Canonicalize to the current
+            # spec before caching or returning so Redis and API clients never see
+            # legacy field names or JSON-string bodies — mirrors the
+            # VconRedis.get_vcon storage-fallback path.
+            VconRedis._enforce_spec_on_write(vcon)
             # Store the vCon back in Redis with expiration
             await cache_vcon_in_redis(f"vcon:{str(vcon_uuid)}", vcon)
             # Add to sorted set for timestamp-based retrieval

@@ -74,6 +74,40 @@ async def test_sync_vcon_from_storage_restores_to_redis_and_indexes(redis_async)
 
 
 @pytest.mark.asyncio
+async def test_sync_vcon_from_storage_canonicalizes_legacy_payload(redis_async):
+    """A storage backend may hold a legacy / egress-converted 0.0.1 payload
+    (see egress_format_version). The fallback must canonicalize it before
+    caching to Redis or returning to the client, so downstream links/clients
+    never see legacy field names or native (non-stringified) bodies."""
+    vcon_uuid = uuid4()
+    legacy = {
+        "uuid": str(vcon_uuid),
+        "created_at": "2024-01-01T12:00:00",
+        "vcon": "0.0.1",
+        "attachments": [{"type": "tags", "body": ["a", "b"], "encoding": "none"}],
+        "analysis": [{"type": "summary", "body": {"k": "v"}, "encoding": "none"}],
+    }
+    storage = Mock(get=Mock(return_value=legacy))
+
+    with patch.object(api.Configuration, "get_storages", return_value=["s"]), patch.object(
+        api, "Storage", return_value=storage
+    ), patch.object(api, "add_vcon_to_set", AsyncMock()):
+        result = await api.sync_vcon_from_storage(vcon_uuid)
+
+    # Returned payload is canonical.
+    att = result["attachments"][0]
+    assert att.get("purpose") == "tags" and "type" not in att
+    assert isinstance(att["body"], str) and att["encoding"] == "json"
+    an = result["analysis"][0]
+    assert isinstance(an["body"], str) and an["encoding"] == "json"
+
+    # The copy cached back into Redis is canonical too (not the raw legacy dict).
+    cached = redis_async.json.return_value.set.await_args.args[2]
+    assert cached["attachments"][0].get("purpose") == "tags"
+    assert "type" not in cached["attachments"][0]
+
+
+@pytest.mark.asyncio
 async def test_sync_vcon_from_storage_returns_none_when_not_found(redis_async):
     with patch.object(api.Configuration, "get_storages", return_value=["a"]), patch.object(
         api, "Storage", return_value=Mock(get=Mock(return_value=None))
