@@ -1,5 +1,4 @@
-from typing import Dict, Any, Optional
-from transformers import pipeline
+from typing import Any, Dict
 
 AUDIT_META = {
     "third_party_service": "Hugging Face",
@@ -21,6 +20,16 @@ class HuggingLLMLink:
             model_name: The HuggingFace model to use
             **kwargs: Additional arguments passed to the model pipeline
         """
+        # transformers is an optional dependency (group: conserver-local); import lazily.
+        try:
+            from transformers import pipeline
+        except ModuleNotFoundError as e:
+            if e.name != "transformers":
+                raise
+            raise ImportError(
+                "HuggingLLMLink requires the optional 'conserver-local' dependency group. "
+                "Install it with: uv sync --group conserver --group conserver-local."
+            ) from e
         self.classifier = pipeline(
             "zero-shot-classification", model=model_name, **kwargs
         )
