@@ -108,6 +108,43 @@ async def test_sync_vcon_from_storage_canonicalizes_legacy_payload(redis_async):
 
 
 @pytest.mark.asyncio
+async def test_get_vcon_endpoint_emits_legacy_when_setting_on(redis_async):
+    """GET /vcon honors the deployment-wide EGRESS_FORMAT_VERSION: the response
+    is downgraded to the legacy format, while the cached/internal copy stays
+    canonical."""
+    vcon_uuid = uuid4()
+    canonical = {
+        "uuid": str(vcon_uuid),
+        "vcon": "0.4.0",
+        "created_at": "2024-01-01T12:00:00",
+        "attachments": [{"purpose": "tags", "body": "[\"a\"]", "encoding": "json"}],
+    }
+    with patch.object(api, "ensure_vcon_in_redis", AsyncMock(return_value=canonical)), patch(
+        "settings.EGRESS_FORMAT_VERSION", "0.0.1"
+    ):
+        resp = await api.get_vcon(vcon_uuid)
+
+    body = json.loads(resp.body)
+    assert body["vcon"] == "0.0.1"
+    assert body["attachments"][0].get("type") == "tags"
+    assert "purpose" not in body["attachments"][0]
+    # Body re-inflated to native form for the legacy consumer.
+    assert body["attachments"][0]["body"] == ["a"]
+
+
+@pytest.mark.asyncio
+async def test_get_vcon_endpoint_canonical_when_setting_off(redis_async):
+    vcon_uuid = uuid4()
+    canonical = {"uuid": str(vcon_uuid), "vcon": "0.4.0", "created_at": "2024-01-01T12:00:00"}
+    with patch.object(api, "ensure_vcon_in_redis", AsyncMock(return_value=canonical)), patch(
+        "settings.EGRESS_FORMAT_VERSION", None
+    ):
+        resp = await api.get_vcon(vcon_uuid)
+
+    assert json.loads(resp.body)["vcon"] == "0.4.0"
+
+
+@pytest.mark.asyncio
 async def test_sync_vcon_from_storage_returns_none_when_not_found(redis_async):
     with patch.object(api.Configuration, "get_storages", return_value=["a"]), patch.object(
         api, "Storage", return_value=Mock(get=Mock(return_value=None))

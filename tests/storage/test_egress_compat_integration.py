@@ -67,16 +67,18 @@ def _mock_vcon():
     return mock
 
 
+# Behavior is driven by the deployment-wide EGRESS_FORMAT_VERSION setting, read
+# lazily by lib.vcon_egress_compat.to_configured_legacy. Patch it on the
+# settings module so each egress point sees it at call time.
+def _legacy(version="0.0.1"):
+    return patch("settings.EGRESS_FORMAT_VERSION", version)
+
+
 # --- s3 storage ------------------------------------------------------------
 
-def test_s3_save_emits_legacy_when_option_set():
-    opts = {
-        "aws_access_key_id": "k",
-        "aws_secret_access_key": "s",
-        "aws_bucket": "b",
-        "egress_format_version": "0.0.1",
-    }
-    with patch("storage.s3.VconRedis") as redis_cls, patch("storage.s3.boto3.client") as boto:
+def test_s3_save_emits_legacy_when_setting_on():
+    opts = {"aws_access_key_id": "k", "aws_secret_access_key": "s", "aws_bucket": "b"}
+    with _legacy(), patch("storage.s3.VconRedis") as redis_cls, patch("storage.s3.boto3.client") as boto:
         redis_cls.return_value.get_vcon.return_value = _mock_vcon()
         mock_s3 = MagicMock()
         boto.return_value = mock_s3
@@ -91,30 +93,27 @@ def test_s3_save_emits_legacy_when_option_set():
         assert stored["dialog"][0]["mimetype"] == "audio/wav"
 
 
-def test_s3_save_unchanged_when_option_absent():
+def test_s3_save_unchanged_when_setting_off():
     opts = {"aws_access_key_id": "k", "aws_secret_access_key": "s", "aws_bucket": "b"}
-    with patch("storage.s3.VconRedis") as redis_cls, patch("storage.s3.boto3.client") as boto:
-        vcon = _mock_vcon()
-        redis_cls.return_value.get_vcon.return_value = vcon
+    with _legacy(None), patch("storage.s3.VconRedis") as redis_cls, patch("storage.s3.boto3.client") as boto:
+        redis_cls.return_value.get_vcon.return_value = _mock_vcon()
         mock_s3 = MagicMock()
         boto.return_value = mock_s3
 
         s3_storage.save("test-uuid", opts)
 
         body_call = next(c for c in mock_s3.put_object.call_args_list if c.kwargs["Key"].endswith(".vcon"))
-        # Default path uses vcon.dumps() verbatim — the canonical 0.4.0 payload.
         assert json.loads(body_call.kwargs["Body"])["vcon"] == "0.4.0"
-        vcon.dumps.assert_called_once()
 
 
 # --- elasticsearch storage -------------------------------------------------
 
-def test_elasticsearch_indexes_attachments_by_legacy_type_when_option_set():
-    opts = {"url": "http://es:9200", "username": "u", "password": "p", "egress_format_version": "0.0.1"}
+def test_elasticsearch_indexes_attachments_by_legacy_type_when_setting_on():
+    opts = {"url": "http://es:9200", "username": "u", "password": "p"}
     # Patch the module's bound `elasticsearch` reference wholesale rather than a
     # dotted attribute path — robust to import-name shadowing under full-suite
     # collection order.
-    with patch.object(es_storage, "VconRedis") as redis_cls, \
+    with _legacy(), patch.object(es_storage, "VconRedis") as redis_cls, \
          patch.object(es_storage, "elasticsearch") as es_lib:
         redis_cls.return_value.get_vcon.return_value = _mock_vcon()
         es = es_lib.Elasticsearch.return_value
@@ -127,9 +126,9 @@ def test_elasticsearch_indexes_attachments_by_legacy_type_when_option_set():
 
 # --- webhook link ----------------------------------------------------------
 
-def test_webhook_posts_legacy_payload_when_option_set():
-    opts = {"webhook-urls": ["https://downstream.example/ingest"], "egress_format_version": "0.0.1"}
-    with patch.object(webhook_link, "VconRedis") as redis_cls, \
+def test_webhook_posts_legacy_payload_when_setting_on():
+    opts = {"webhook-urls": ["https://downstream.example/ingest"]}
+    with _legacy(), patch.object(webhook_link, "VconRedis") as redis_cls, \
          patch.object(webhook_link, "requests") as req:
         redis_cls.return_value.get_vcon.return_value = _mock_vcon()
         req.post.return_value = MagicMock(status_code=200, text="ok")
@@ -143,9 +142,9 @@ def test_webhook_posts_legacy_payload_when_option_set():
         assert "purpose" not in posted["attachments"][0]
 
 
-def test_webhook_posts_canonical_when_option_absent():
+def test_webhook_posts_canonical_when_setting_off():
     opts = {"webhook-urls": ["https://downstream.example/ingest"]}
-    with patch.object(webhook_link, "VconRedis") as redis_cls, \
+    with _legacy(None), patch.object(webhook_link, "VconRedis") as redis_cls, \
          patch.object(webhook_link, "requests") as req:
         redis_cls.return_value.get_vcon.return_value = _mock_vcon()
         req.post.return_value = MagicMock(status_code=200, text="ok")

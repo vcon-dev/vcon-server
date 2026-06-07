@@ -8,11 +8,12 @@ unsupported-version rejection, a round-trip against the forward normalizer
 import copy
 import json
 import os
+from unittest.mock import patch
 
 import pytest
 
 from lib.vcon_compat import normalize_legacy_fields
-from lib.vcon_egress_compat import SUPPORTED_VERSIONS, to_legacy
+from lib.vcon_egress_compat import SUPPORTED_VERSIONS, to_configured_legacy, to_legacy
 
 SCHEMA_PATH = os.path.join(os.path.dirname(__file__), "schemas", "vcon-0.0.1.schema.json")
 
@@ -203,3 +204,21 @@ def test_canonical_payload_fails_legacy_schema():
     jsonschema = pytest.importorskip("jsonschema")
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate(instance=_canonical_vcon(), schema=_schema())
+
+
+# --- to_configured_legacy (reads the EGRESS_FORMAT_VERSION setting) --------
+
+def test_to_configured_legacy_applies_when_set():
+    with patch("settings.EGRESS_FORMAT_VERSION", "0.0.1"):
+        out = to_configured_legacy(_canonical_vcon())
+    assert out["vcon"] == "0.0.1"
+    assert out["attachments"][0].get("type") == "tags"
+
+
+def test_to_configured_legacy_noop_when_unset():
+    original = _canonical_vcon()
+    with patch("settings.EGRESS_FORMAT_VERSION", None):
+        out = to_configured_legacy(original)
+    # Unset → returned unchanged (same object, current spec).
+    assert out is original
+    assert out["vcon"] == "0.4.0"

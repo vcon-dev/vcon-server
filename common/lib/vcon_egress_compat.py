@@ -137,3 +137,20 @@ def to_legacy(vcon_dict: Dict[str, Any], target_version: str) -> Dict[str, Any]:
 
     out["vcon"] = target_version
     return out
+
+
+def to_configured_legacy(vcon_dict: Dict[str, Any]) -> Dict[str, Any]:
+    """Apply :func:`to_legacy` if the deployment configured a legacy egress
+    version, otherwise return ``vcon_dict`` unchanged.
+
+    Reads the single ``EGRESS_FORMAT_VERSION`` setting (deployment-wide). This
+    is the one place every egress point — the webhook link, the storage
+    backends, and the API read endpoints — consults, so the behavior is
+    configured once rather than per module. The setting is read lazily on each
+    call so tests (and runtime config reloads) take effect.
+    """
+    from settings import EGRESS_FORMAT_VERSION
+
+    if EGRESS_FORMAT_VERSION:
+        return to_legacy(vcon_dict, EGRESS_FORMAT_VERSION)
+    return vcon_dict

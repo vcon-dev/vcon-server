@@ -14,7 +14,7 @@ The module supports:
 from typing import Optional, Dict, Any, Type
 from lib.logging_utils import init_logger
 from lib.vcon_redis import VconRedis
-from lib.vcon_egress_compat import to_legacy
+from lib.vcon_egress_compat import to_configured_legacy
 from playhouse.postgres_ext import PostgresqlExtDatabase, BinaryJSONField
 from peewee import (
     Model,
@@ -119,13 +119,11 @@ def save(
         vcon_redis = VconRedis()
         vcon = vcon_redis.get_vcon(vcon_uuid)
 
-        # Optionally downgrade the persisted payload to a legacy format for
-        # downstream consumers built against an older schema. The canonical vCon
-        # in Redis is untouched; the stored copy normalizes back up on read.
-        vcon_json = vcon.to_dict()
-        egress_format_version = opts.get("egress_format_version")
-        if egress_format_version:
-            vcon_json = to_legacy(vcon_json, egress_format_version)
+        # If EGRESS_FORMAT_VERSION is set, downgrade the persisted payload to
+        # that legacy format for downstream consumers built against an older
+        # schema. The canonical vCon in Redis is untouched; the stored copy
+        # normalizes back up on read.
+        vcon_json = to_configured_legacy(vcon.to_dict())
 
         # Connect to Postgres
         db = get_db_connection(opts)

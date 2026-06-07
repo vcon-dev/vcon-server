@@ -65,6 +65,14 @@ CONSERVER_WORKERS = int(os.getenv("CONSERVER_WORKERS", 1))
 # Enable parallel storage writes using ThreadPoolExecutor (default True)
 CONSERVER_PARALLEL_STORAGE = os.getenv("CONSERVER_PARALLEL_STORAGE", "true").lower() in ("true", "1", "yes")
 
+# Egress format compatibility (deployment-wide).
+# When set to a legacy vCon version string (e.g. "0.0.1"), every egress point
+# emits that older format instead of the current spec: the webhook link, the
+# storage backends, and the API read endpoints. Leave unset to emit the current
+# spec everywhere. The canonical in-pipeline representation (Redis cache, link
+# processing) is always kept on the current spec regardless of this setting.
+EGRESS_FORMAT_VERSION = os.getenv("EGRESS_FORMAT_VERSION") or None
+
 # Per-worker in-flight vCon concurrency (default 1 = strict serial, current behaviour).
 # When > 1, each worker process dispatches up to N vCons to a ThreadPoolExecutor,
 # back-pressuring before BLPOP so at most N chains run in parallel per worker.

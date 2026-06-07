@@ -296,6 +296,7 @@ class TestSave:
         """Create a mock vCon object."""
         mock = MagicMock()
         mock.dumps.return_value = '{"uuid": "test-uuid", "vcon": "1.0.0"}'
+        mock.to_dict.return_value = {"uuid": "test-uuid", "vcon": "1.0.0"}
         mock.created_at = "2025-12-10T15:30:00Z"
         return mock
 

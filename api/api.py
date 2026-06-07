@@ -48,6 +48,7 @@ from lib.context_utils import store_context_async, extract_otel_trace_context
 from lib.logging_utils import init_logger
 from lib.queue import VconQueue
 from lib.vcon_redis import VconRedis
+from lib.vcon_egress_compat import to_configured_legacy
 import redis_mgr
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request as StarletteRequest
@@ -617,11 +618,13 @@ async def get_vcon(vcon_uuid: UUID) -> JSONResponse:
         HTTPException: If vCon is not found (404)
     """
     vcon = await ensure_vcon_in_redis(vcon_uuid)
-    
+
     if not vcon:
         raise HTTPException(status_code=404, detail="vCon not found")
-        
-    return JSONResponse(content=vcon)
+
+    # Redis/cache stays canonical; emit the configured legacy format (if any)
+    # only on the egress response.
+    return JSONResponse(content=to_configured_legacy(vcon))
 
 
 @api_router.get(
@@ -656,7 +659,9 @@ async def get_vcons(
         if not vcon:
             # Only sync from storage if not found in Redis (avoids redundant Redis check)
             vcon = await sync_vcon_from_storage(vcon_uuid)
-        results.append(vcon)
+        # Redis/cache stays canonical; emit the configured legacy format (if
+        # any) only on the egress response.
+        results.append(to_configured_legacy(vcon) if vcon else vcon)
 
     return JSONResponse(content=results, status_code=200)
 
