@@ -2429,7 +2429,6 @@ api = [
     { name = "msal" },
     { name = "peewee" },
     { name = "psycopg2-binary" },
-    { name = "pymilvus" },
     { name = "pymongo" },
     { name = "starlette" },
     { name = "uvicorn" },
@@ -2446,7 +2445,6 @@ conserver = [
     { name = "peewee" },
     { name = "psycopg2-binary" },
     { name = "pydub" },
-    { name = "pymilvus" },
     { name = "pymongo" },
     { name = "slack-sdk" },
     { name = "watchdog" },
@@ -2473,8 +2471,11 @@ storage = [
     { name = "msal" },
     { name = "peewee" },
     { name = "psycopg2-binary" },
-    { name = "pymilvus" },
     { name = "pymongo" },
+]
+storage-milvus = [
+    { name = "openai" },
+    { name = "pymilvus" },
 ]
 
 [package.metadata]
@@ -2508,7 +2509,6 @@ api = [
     { name = "msal", specifier = ">=1.32.3" },
     { name = "peewee", specifier = ">=3.17.1" },
     { name = "psycopg2-binary", specifier = ">=2.9.9" },
-    { name = "pymilvus", specifier = ">=2.3.0" },
     { name = "pymongo", specifier = ">=4.7.2" },
     { name = "starlette", specifier = ">=0.40.0" },
     { name = "uvicorn", specifier = "==0.23.2" },
@@ -2525,7 +2525,6 @@ conserver = [
     { name = "peewee", specifier = ">=3.17.1" },
     { name = "psycopg2-binary", specifier = ">=2.9.9" },
     { name = "pydub", specifier = ">=0.25.1" },
-    { name = "pymilvus", specifier = ">=2.3.0" },
     { name = "pymongo", specifier = ">=4.7.2" },
     { name = "slack-sdk", specifier = ">=3.27.1" },
     { name = "watchdog" },
@@ -2550,8 +2549,11 @@ storage = [
     { name = "msal", specifier = ">=1.32.3" },
     { name = "peewee", specifier = ">=3.17.1" },
     { name = "psycopg2-binary", specifier = ">=2.9.9" },
-    { name = "pymilvus", specifier = ">=2.3.0" },
     { name = "pymongo", specifier = ">=4.7.2" },
+]
+storage-milvus = [
+    { name = "openai", specifier = ">=1.60.0" },
+    { name = "pymilvus", specifier = ">=2.3.0" },
 ]
 
 [[package]]

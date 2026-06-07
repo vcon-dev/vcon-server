@@ -2,6 +2,12 @@
 
 This module implements vector database storage using Milvus for the vCon server.
 
+> **Optional dependency.** `pymilvus` (which pulls in pandas + grpcio, ~85MB the
+> rest of vcon-server does not use) is **not** part of the base `storage` group.
+> Install it explicitly to use this backend:
+> `uv sync --group storage --group storage-milvus`. Without it, importing
+> `storage.milvus` will fail with `ImportError`/`ModuleNotFoundError` due to the missing dependency.
+
 ## Overview
 
 Milvus storage provides high-performance vector similarity search capabilities, ideal for storing and retrieving vector embeddings of vCon data. It's particularly useful for semantic search and similarity matching applications.

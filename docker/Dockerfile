@@ -29,9 +29,11 @@ COPY pyproject.toml uv.lock /app/
 
 # Install all groups (conserver + api + dev) so the image works for both
 # running services and running pytest.
+# storage-milvus is included here (but NOT in the production Dockerfile.conserver /
+# Dockerfile.api images) so the Milvus storage tests run in CI rather than skip.
 # Venv at /opt/venv so docker-compose volume mounts don't wipe it.
 RUN uv venv --seed /opt/venv && \
-    UV_PROJECT_ENVIRONMENT=/opt/venv uv sync --frozen --group conserver --group api --group dev
+    UV_PROJECT_ENVIRONMENT=/opt/venv uv sync --frozen --group conserver --group api --group dev --group storage-milvus
 ENV PATH="/opt/venv/bin:$PATH"
 
 # Auto-install OTel instrumentation packages for the installed libraries.

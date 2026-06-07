@@ -34,11 +34,21 @@ dependencies = [
 storage = [
     "pymongo>=4.7.2",
     "elasticsearch>=8.13.1,<9.0.0",
-    "pymilvus>=2.3.0",
     "msal>=1.32.3",
     "boto3>=1.34.52",
     "psycopg2-binary>=2.9.9",
     "peewee>=3.17.1",
+]
+
+# Optional: Milvus vector-database storage backend (storage.milvus).
+# pymilvus drags in pandas (~48MB) and grpcio (~37MB), neither of which the
+# rest of vcon-server uses, so it is kept out of the base `storage` group.
+# Includes openai for the embedding calls the backend makes. Only installs
+# pymilvus when explicitly requested; storage.milvus raises a clear ImportError
+# otherwise. Install with: uv sync --group storage --group storage-milvus
+storage-milvus = [
+    "pymilvus>=2.3.0",
+    "openai>=1.60.0",
 ]
 
 # API service dependencies — HTTP layer and API key management.
