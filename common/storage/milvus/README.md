@@ -6,7 +6,7 @@ This module implements vector database storage using Milvus for the vCon server.
 > rest of vcon-server does not use) is **not** part of the base `storage` group.
 > Install it explicitly to use this backend:
 > `uv sync --group storage --group storage-milvus`. Without it, importing
-> `storage.milvus` raises `ImportError`/`ModuleNotFoundError`.
+> `storage.milvus` will fail with `ImportError`/`ModuleNotFoundError` due to the missing dependency.
 
 ## Overview
 
