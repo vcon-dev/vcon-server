@@ -158,7 +158,12 @@ class LocalHuggingFaceLLM(BaseLLM):
         # the import is deferred to here rather than loaded at module import time.
         try:
             import transformers
-        except ImportError as e:
+        except ModuleNotFoundError as e:
+            # Only translate the "transformers itself is missing" case. If transformers
+            # is present but raises while importing a transitive dep/backend, re-raise the
+            # original error so the real cause isn't masked by the guidance below.
+            if e.name != "transformers":
+                raise
             raise ImportError(
                 "Local HuggingFace inference requires the optional 'conserver-local' "
                 "dependency group plus a model backend (e.g. torch). "
