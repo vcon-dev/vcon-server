@@ -40,7 +40,7 @@ COPY common/ /app/common/
 COPY api/ /app/api/
 COPY docker/ /app/docker/
 
-ENV PYTHONPATH="${PYTHONPATH}:/app/:/app/common/:/app/api/"
+ENV PYTHONPATH="/app/:/app/common/:/app/api/"
 
 ENTRYPOINT ["/app/docker/wait_for_redis.sh"]
 CMD ["opentelemetry-instrument", "uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]

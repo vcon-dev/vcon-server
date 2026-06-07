@@ -46,7 +46,7 @@ COPY common/ /app/common/
 COPY conserver/ /app/conserver/
 COPY docker/ /app/docker/
 
-ENV PYTHONPATH="${PYTHONPATH}:/app/:/app/common/:/app/conserver/"
+ENV PYTHONPATH="/app/:/app/common/:/app/conserver/"
 
 ENTRYPOINT ["/app/docker/wait_for_redis.sh"]
 CMD ["opentelemetry-instrument", "python", "/app/conserver/main.py"]
