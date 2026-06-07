@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Optional
 from lib.logging_utils import init_logger
 from lib.vcon_redis import VconRedis
+from lib.vcon_egress_compat import to_configured_legacy
 import boto3
 
 logger = init_logger(__name__)
@@ -85,10 +86,16 @@ def save(
         vcon = vcon_redis.get_vcon(vcon_uuid)
         s3 = _create_s3_client(opts)
 
+        # If EGRESS_FORMAT_VERSION is set, downgrade the stored payload to that
+        # legacy format for downstream consumers built against an older schema.
+        # The canonical vCon in Redis is untouched.
+        vcon_dict = to_configured_legacy(vcon.to_dict())
+        body = json.dumps(vcon_dict)
+
         date_path = _date_prefix(vcon.created_at)
         destination_directory = _build_s3_key(vcon_uuid, date_path, opts.get("s3_path"))
         s3.put_object(
-            Bucket=opts["aws_bucket"], Key=destination_directory, Body=vcon.dumps()
+            Bucket=opts["aws_bucket"], Key=destination_directory, Body=body
         )
 
         lookup_key = _build_lookup_key(vcon_uuid, opts.get("s3_path"))

@@ -1,0 +1,66 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://vcon.dev/schemas/vcon-0.0.1.schema.json",
+  "title": "Legacy vCon 0.0.1 (egress-compat target)",
+  "description": "Derived from Strolid's production conserver store (no canonical 0.0.1 schema exists). Permissive about extension/custom keys, but strict about the spec deltas that must be downgraded: attachments use `type` (not `purpose`), dialog uses `mimetype` (not `mediatype`), top level uses `appended`/`must_support` (not `amended`/`critical`), and `vcon` is `0.0.1`. Validation fails if any 0.4.0 spec key leaks through.",
+  "type": "object",
+  "required": [
+    "vcon",
+    "uuid",
+    "created_at",
+    "redacted",
+    "appended",
+    "group",
+    "parties",
+    "dialog",
+    "analysis",
+    "attachments"
+  ],
+  "not": { "anyOf": [
+    { "required": ["amended"] },
+    { "required": ["critical"] }
+  ]},
+  "properties": {
+    "vcon": { "const": "0.0.1" },
+    "uuid": { "type": "string" },
+    "created_at": { "type": "string" },
+    "subject": { "type": ["string", "null"] },
+    "redacted": { "type": "object" },
+    "appended": { "type": ["object", "null"] },
+    "group": { "type": "array" },
+    "meta": { "type": "object" },
+    "parties": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "dialog": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "not": { "required": ["mediatype"] }
+      }
+    },
+    "analysis": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type"],
+        "not": { "anyOf": [
+          { "required": ["purpose"] },
+          { "required": ["schema"] }
+        ]}
+      }
+    },
+    "attachments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type"],
+        "not": { "anyOf": [
+          { "required": ["purpose"] },
+          { "required": ["mediatype"] }
+        ]}
+      }
+    }
+  }
+}

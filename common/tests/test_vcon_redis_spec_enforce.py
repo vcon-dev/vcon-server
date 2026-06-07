@@ -15,6 +15,14 @@ def test_keeps_existing_syntax_param():
     assert d["vcon"] == "0.4.0"
 
 
+def test_upgrades_legacy_syntax_param():
+    # A stale legacy version is stamped to the current spec, since the field
+    # names are normalized up to that spec on the same pass.
+    d = {"uuid": "u", "vcon": "0.0.1"}
+    VconRedis._enforce_spec_on_write(d)
+    assert d["vcon"] == "0.4.0"
+
+
 def test_strips_empty_group():
     d = {"uuid": "u", "group": []}
     VconRedis._enforce_spec_on_write(d)

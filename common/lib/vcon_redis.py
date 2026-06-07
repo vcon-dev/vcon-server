@@ -69,9 +69,13 @@ class VconRedis:
         # Rename legacy field names before the rest of the enforcement
         # so subsequent loops operate on spec-named entries.
         normalize_legacy_fields(vcon_dict)
-        # draft-ietf-vcon-vcon-core-02 §4.1.1 — syntax param.
-        if not vcon_dict.get("vcon"):
-            vcon_dict["vcon"] = "0.4.0"
+        # draft-ietf-vcon-vcon-core-02 §4.1.1 — syntax param. The renames above
+        # bring field names up to the current spec, so stamp the matching
+        # version unconditionally. A missing value, or a stale legacy value
+        # (e.g. "0.0.1" from a legacy producer or an egress-converted storage
+        # payload loaded back on a Redis miss), would otherwise misdescribe the
+        # now-canonical data.
+        vcon_dict["vcon"] = "0.4.0"
         # speckit: ``group`` is reserved and must not be emitted empty.
         if vcon_dict.get("group") == []:
             vcon_dict.pop("group", None)

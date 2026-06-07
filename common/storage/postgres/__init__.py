@@ -14,6 +14,7 @@ The module supports:
 from typing import Optional, Dict, Any, Type
 from lib.logging_utils import init_logger
 from lib.vcon_redis import VconRedis
+from lib.vcon_egress_compat import to_configured_legacy
 from playhouse.postgres_ext import PostgresqlExtDatabase, BinaryJSONField
 from peewee import (
     Model,
@@ -117,14 +118,20 @@ def save(
     try:
         vcon_redis = VconRedis()
         vcon = vcon_redis.get_vcon(vcon_uuid)
-        
+
+        # If EGRESS_FORMAT_VERSION is set, downgrade the persisted payload to
+        # that legacy format for downstream consumers built against an older
+        # schema. The canonical vCon in Redis is untouched; the stored copy
+        # normalizes back up on read.
+        vcon_json = to_configured_legacy(vcon.to_dict())
+
         # Connect to Postgres
         db = get_db_connection(opts)
         table_name = opts.get("table_name", "vcons")
-        
+
         # Create dynamic model for this database and table
         VconsModel = create_vcons_model(db, table_name)
-        
+
         # Ensure table exists
         db.create_tables([VconsModel], safe=True)
 
@@ -132,11 +139,11 @@ def save(
         vcon_data = {
             "id": vcon.uuid,
             "uuid": vcon.uuid,
-            "vcon": vcon.vcon,
+            "vcon": vcon_json.get("vcon", vcon.vcon),
             "created_at": vcon.created_at,
             "updated_at": datetime.now(),
             "subject": vcon.subject,
-            "vcon_json": vcon.to_dict(),
+            "vcon_json": vcon_json,
         }
         
         # Insert or update the vCon

@@ -1,6 +1,7 @@
 from lib.vcon_redis import VconRedis
 from lib.logging_utils import init_logger
 from lib.metrics import increment_counter
+from lib.vcon_egress_compat import to_configured_legacy
 import requests
 
 logger = init_logger(__name__)
@@ -13,6 +14,8 @@ logger = init_logger(__name__)
 #         "x-conserver-api-token": "your-api-token",
 #     },
 # }
+# To emit a legacy vCon format instead of the current spec, set the
+# deployment-wide EGRESS_FORMAT_VERSION environment variable (see settings).
 
 default_options = {
     "webhook-urls": [],
@@ -32,6 +35,11 @@ def run(
 
     # The webhook needs a stringified JSON version.
     json_dict = vCon.to_dict()
+
+    # If EGRESS_FORMAT_VERSION is set, downgrade the egress payload to that
+    # legacy format for downstream consumers built against an older schema. The
+    # canonical vCon in Redis is untouched.
+    json_dict = to_configured_legacy(json_dict)
 
     # Build headers from configuration
     headers = opts.get("headers", {})
