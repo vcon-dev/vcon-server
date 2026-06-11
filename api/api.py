@@ -46,6 +46,7 @@ from config import Configuration
 from dlq_utils import get_ingress_list_dlq_name
 from lib.context_utils import store_context_async, extract_otel_trace_context
 from lib.logging_utils import init_logger
+from lib.metrics import increment_counter
 from lib.queue import VconQueue
 from lib.vcon_redis import VconRedis
 from lib.vcon_egress_compat import to_configured_legacy
@@ -800,6 +801,10 @@ async def post_vcon(
                 if context:
                     await store_context_async(redis_async, ingress_list, vcon_uuid_str, context)
                 await queue.enqueue_async(redis_async, ingress_list, vcon_uuid_str)
+                increment_counter(
+                    "conserver.api.count_vcons_enqueued",
+                    attributes={"ingress_list": ingress_list, "source": "new"},
+                )
 
         try:
             vcon_hook.on_vcon_created(str(inbound_vcon.uuid), dict_vcon, ingress_lists)
@@ -898,6 +903,10 @@ async def external_ingress_vcon(
         if context:
             await store_context_async(redis_async, ingress_list, vcon_uuid_str, context)
         await queue.enqueue_async(redis_async, ingress_list, vcon_uuid_str)
+        increment_counter(
+            "conserver.api.count_vcons_enqueued",
+            attributes={"ingress_list": ingress_list, "source": "external"},
+        )
 
         logger.info(
             f"Successfully stored vCon {inbound_vcon.uuid} and added to ingress list {ingress_list}"
@@ -1032,6 +1041,11 @@ async def post_vcon_ingress(
                 for vcon_uuid_str in valid_vcon_uuids:
                     await store_context_async(redis_async, ingress_list, vcon_uuid_str, context)
             await queue.enqueue_async(redis_async, ingress_list, *valid_vcon_uuids)
+            increment_counter(
+                "conserver.api.count_vcons_enqueued",
+                value=len(valid_vcon_uuids),
+                attributes={"ingress_list": ingress_list, "source": "reingress"},
+            )
             logger.info(f"Added {len(valid_vcon_uuids)} vCon UUIDs to ingress list {ingress_list}")
         else:
             logger.warning(f"No valid vCons found to add to ingress list {ingress_list}")
@@ -1153,6 +1167,12 @@ async def post_dlq_reprocess(
                 break
             await queue.enqueue_async(redis_async, ingress_list, item)
             counter += 1
+        if counter:
+            increment_counter(
+                "conserver.api.count_vcons_enqueued",
+                value=counter,
+                attributes={"ingress_list": ingress_list, "source": "dlq_reprocess"},
+            )
         return JSONResponse(content=counter)
     except Exception as e:
         logger.error(f"Error reprocessing DLQ: {str(e)}")
