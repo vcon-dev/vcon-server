@@ -34,6 +34,19 @@ def test_run_respects_custom_tags(mock_vcon_redis):
 
 
 @patch("links.tag.VconRedis")
+def test_run_halts_chain_when_vcon_missing(mock_vcon_redis):
+    # Regression for CON-617: get_vcon returns None on a Redis/storage miss.
+    # The link must halt the chain, not crash with 'NoneType' has no add_tag.
+    mock_instance = mock_vcon_redis.return_value
+    mock_instance.get_vcon.return_value = None
+
+    result = run("missing-uuid", "tag")
+
+    assert result is None
+    mock_instance.store_vcon.assert_not_called()
+
+
+@patch("links.tag.VconRedis")
 def test_run_handles_empty_tag_list(mock_vcon_redis):
     vcon = Vcon.build_new()
     mock_instance = mock_vcon_redis.return_value
