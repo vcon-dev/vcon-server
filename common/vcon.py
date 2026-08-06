@@ -131,6 +131,14 @@ class Vcon:
         # back as spec-correct ``encoding=json`` + stringified list, per
         # draft-ietf-vcon-vcon-core-02 §2.3.2 (body is always a String).
         tags = self.decoded_body(tags_attachment) or []
+        if isinstance(tags, dict):
+            # A producer wrote purpose="tags" with a dict body (e.g. the SIPREC
+            # adapter's provenance metadata). Flatten to the tag convention's
+            # "name:value" list so get_tag reads it and append never raises.
+            # (CON-737)
+            tags = [f"{k}:{v}" for k, v in tags.items()]
+        elif not isinstance(tags, list):
+            tags = [tags]
         tags.append(f"{tag_name}:{tag_value}")
         tags_attachment["body"] = json.dumps(tags)
         tags_attachment["encoding"] = "json"
