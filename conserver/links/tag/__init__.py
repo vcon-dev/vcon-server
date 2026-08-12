@@ -16,6 +16,12 @@ def run(
 
     vcon_redis = VconRedis()
     vCon = vcon_redis.get_vcon(vcon_uuid)
+    if vCon is None:
+        # get_vcon returns None when the vCon is missing from Redis and every
+        # storage backend (evicted/expired under chain latency). None is the
+        # documented "halt the chain" contract, so stop rather than crash.
+        logger.warning(f"tag: vCon {vcon_uuid} not found, halting chain")
+        return None
     for tag in opts.get("tags", []):
         vCon.add_tag(tag_name=tag, tag_value=tag)
     vcon_redis.store_vcon(vCon)
