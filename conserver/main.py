@@ -245,7 +245,7 @@ class VconChainRequest:
         self._span = self._span_context_manager.__enter__()
         
         vcon_started = time.time()
-        logger.info(
+        logger.debug(
             "Started processing vCon %s with chain %s",
             self.vcon_id,
             self.chain_details["name"]
@@ -351,7 +351,7 @@ class VconChainRequest:
         """
         egress_lists = self.chain_details.get("egress_lists", [])
         if egress_lists:
-            logger.info(
+            logger.debug(
                 "Forwarding vCon %s to egress lists: %s",
                 self.vcon_id,
                 ", ".join(egress_lists)
@@ -367,7 +367,7 @@ class VconChainRequest:
 
         storage_backends = self.chain_details.get("storages", [])
         if storage_backends:
-            logger.info(
+            logger.debug(
                 "Saving vCon %s to storage backends: %s",
                 self.vcon_id,
                 ", ".join(storage_backends)
@@ -381,7 +381,7 @@ class VconChainRequest:
                 for storage_name in storage_backends:
                     self._process_storage(storage_name)
 
-        logger.info(
+        logger.debug(
             "Completed chain %s processing for vCon: %s",
             self.chain_details["name"],
             self.vcon_id,
@@ -467,7 +467,7 @@ class VconChainRequest:
                     )
         
         storage_time = round(time.time() - storage_started, 3)
-        logger.info(
+        logger.debug(
             "Completed parallel storage writes for vCon %s in %s seconds (%d backends)",
             self.vcon_id,
             storage_time,
@@ -485,7 +485,7 @@ class VconChainRequest:
                 tracer_options = tracer.get("options")
                 try:
                     tracer_started = time.time()
-                    logger.info("Processing tracer %s for vCon: %s", tracer_name, self.vcon_id)
+                    logger.debug("Processing tracer %s for vCon: %s", tracer_name, self.vcon_id)
                     tracer_module_name = tracer["module"]
                     if tracer_module_name not in imported_modules:
                         logger.debug("Importing module %s for tracer %s", tracer_module_name, tracer_name)
@@ -494,7 +494,7 @@ class VconChainRequest:
                     tracer_module = imported_modules[tracer_module_name]
                     tracer_module.run(in_vcon_uuid, out_vcon_uuid, tracer_name, links, link_index, tracer_options)
                     tracer_processing_time = round(time.time() - tracer_started, 3)
-                    logger.info(
+                    logger.debug(
                         "Completed tracer %s (module: %s) for vCon: %s in %s seconds",
                         tracer_name,
                         tracer_module_name,
@@ -529,7 +529,8 @@ class VconChainRequest:
             bool: Whether the chain should continue processing
         """
         link_name = links[link_index]
-        logger.info("Processing link %s for vCon: %s", link_name, self.vcon_id)
+        # CON-763: per-link, per-vCon — ~5k lines/s at BDS volume, 38 GiB/day of log storage
+        logger.debug("Processing link %s for vCon: %s", link_name, self.vcon_id)
         link = config["links"][link_name]
 # Create a span for this link - automatically inherits parent span context
         tracer = trace.get_tracer(__name__)
@@ -598,7 +599,7 @@ class VconChainRequest:
                         "outcome": "success" if should_continue_chain else "halt",
                     },
                 )
-                logger.info(
+                logger.debug(
                     "Completed link %s (module: %s) for vCon: %s in %s seconds",
                     link_name,
                     module_name,
@@ -663,7 +664,7 @@ def log_llen(list_name: str) -> None:
         list_name: Name of the Redis list to check
     """
     llen = queue.queue_length(list_name)
-    logger.info(
+    logger.debug(
         "Queue status: %s has %s pending items",
         list_name,
         llen,
