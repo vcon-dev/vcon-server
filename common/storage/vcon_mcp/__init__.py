@@ -14,10 +14,14 @@ Configuration options:
 - base_url: Base URL of vcon-mcp REST API (e.g. http://localhost:3000/api/v1)
 - api_key: Optional. API key for Authorization: Bearer <api_key>
 - timeout: Optional. Request timeout in seconds (default: 30)
+- transient_retries: Optional. Retries for transient failures (default: 3)
+- transient_backoff_base_s: Optional. Backoff factor in seconds (default: 0.5)
 """
 
 from typing import Optional, Dict, Any
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from lib.logging_utils import init_logger
 from lib.vcon_redis import VconRedis
 
@@ -27,7 +31,47 @@ default_options: Dict[str, Any] = {
     "base_url": "http://127.0.0.1:3000/api/v1",
     "api_key": "",
     "timeout": 30,
+    "transient_retries": 3,
+    "transient_backoff_base_s": 0.5,
 }
+
+# Retryable because the request never got a verdict, or got one that says
+# "later". Everything else (401, 400, 404, ...) is a decision the server has
+# already made, and repeating the call only delays the inevitable.
+_RETRY_STATUSES = (429, 502, 503, 504)
+
+
+def _session(opts: Dict[str, Any]) -> requests.Session:
+    """Session that retries transient failures with exponential backoff.
+
+    urllib3 retries connection errors and read timeouts in addition to the
+    status codes listed, and honours Retry-After on 429/503.
+
+    POST is included in ``allowed_methods``, which urllib3 excludes by default
+    as non-idempotent. That is safe here specifically because vcon-mcp upserts
+    on the vCon uuid (``onConflict: 'id'``), so a retried create converges on
+    one row instead of duplicating.
+    """
+    retries = opts.get("transient_retries", default_options["transient_retries"])
+    backoff = opts.get(
+        "transient_backoff_base_s", default_options["transient_backoff_base_s"]
+    )
+    retry = Retry(
+        total=retries,
+        connect=retries,
+        read=retries,
+        status=retries,
+        status_forcelist=_RETRY_STATUSES,
+        allowed_methods=frozenset(["GET", "POST", "DELETE"]),
+        backoff_factor=backoff,
+        raise_on_status=False,
+        respect_retry_after_header=True,
+    )
+    session = requests.Session()
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    return session
 
 
 def _headers(opts: Dict[str, Any]) -> Dict[str, str]:
@@ -67,7 +111,7 @@ def save(vcon_uuid: str, opts: Dict[str, Any] = None) -> None:
         payload = vcon.to_dict()
         url = _url(opts, "vcons")
         timeout = opts.get("timeout", default_options["timeout"])
-        resp = requests.post(
+        resp = _session(opts).post(
             url,
             json=payload,
             headers=_headers(opts),
@@ -107,7 +151,7 @@ def get(vcon_uuid: str, opts: Dict[str, Any] = None) -> Optional[dict]:
     try:
         url = _url(opts, f"vcons/{vcon_uuid}")
         timeout = opts.get("timeout", default_options["timeout"])
-        resp = requests.get(
+        resp = _session(opts).get(
             url,
             headers=_headers(opts),
             timeout=timeout,
@@ -147,7 +191,7 @@ def delete(vcon_uuid: str, opts: Dict[str, Any] = None) -> bool:
     try:
         url = _url(opts, f"vcons/{vcon_uuid}")
         timeout = opts.get("timeout", default_options["timeout"])
-        resp = requests.delete(
+        resp = _session(opts).delete(
             url,
             headers=_headers(opts),
             timeout=timeout,

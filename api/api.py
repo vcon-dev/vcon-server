@@ -43,7 +43,7 @@ from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 from starlette.status import HTTP_403_FORBIDDEN
 
 from config import Configuration
-from dlq_utils import get_ingress_list_dlq_name
+from dlq_utils import get_ingress_list_dlq_name, get_storage_dlq_name
 from lib.context_utils import store_context_async, extract_otel_trace_context
 from lib.logging_utils import init_logger
 from lib.metrics import increment_counter
@@ -1177,6 +1177,82 @@ async def post_dlq_reprocess(
     except Exception as e:
         logger.error(f"Error reprocessing DLQ: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to reprocess DLQ")
+
+
+@api_router.post(
+    "/dlq/storage/reprocess",
+    status_code=200,
+    summary="Retry failed storage writes",
+    description="Re-attempt the storage write for vCons in a storage backend's DLQ",
+    tags=["dlq"],
+)
+async def post_storage_dlq_reprocess(
+    storage_name: str = Query(..., description="Name of the storage backend to retry"),
+    count: Annotated[
+        int,
+        Query(
+            ge=1,
+            le=100000,
+            description="Max items to retry in this call. Callers drive the loop client-side for large DLQs to avoid HTTP timeouts.",
+        ),
+    ] = 1000,
+) -> JSONResponse:
+    """Re-attempt up to ``count`` failed writes to a storage backend.
+
+    Only the storage write is replayed, not the chain that produced the vCon.
+    An item whose retry fails again goes back on the DLQ, so a backend that is
+    still down does not drain the queue into nothing. Draining stops at the
+    first such failure rather than spinning through every item.
+
+    Returns the number of vCons successfully written.
+    """
+    try:
+        storage = Storage(storage_name=storage_name)
+    except Exception as e:
+        logger.error(f"Unknown storage backend {storage_name}: {str(e)}")
+        raise HTTPException(status_code=404, detail=f"Unknown storage backend: {storage_name}")
+
+    succeeded = 0
+    try:
+        for _ in range(count):
+            vcon_id = await queue.dequeue_storage_dlq_async(redis_async, storage_name)
+            if vcon_id is None:
+                break
+            try:
+                storage.save(vcon_id)
+                succeeded += 1
+            except Exception as e:
+                # Put it back and stop: the backend is still unhealthy, and
+                # popping the rest would only re-queue them one at a time.
+                logger.warning(
+                    f"Storage DLQ retry failed for vCon {vcon_id} on {storage_name}: {e}"
+                )
+                queue.enqueue_storage_dlq(storage_name, vcon_id)
+                break
+        return JSONResponse(content=succeeded)
+    except Exception as e:
+        logger.error(f"Error reprocessing storage DLQ: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to reprocess storage DLQ")
+
+
+@api_router.get(
+    "/dlq/storage",
+    status_code=200,
+    summary="Get storage DLQ contents",
+    description="Get list of vCons whose write to a storage backend failed",
+    tags=["dlq"],
+)
+async def get_storage_dlq_vcons(
+    storage_name: str = Query(..., description="Name of the storage backend")
+) -> JSONResponse:
+    """Get all vCon ids in a storage backend's dead letter queue."""
+    try:
+        dlq_name = get_storage_dlq_name(storage_name)
+        vcons = await redis_async.lrange(dlq_name, 0, -1)
+        return JSONResponse(content=vcons)
+    except Exception as e:
+        logger.error(f"Error reading storage DLQ: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to read storage DLQ")
 
 
 @api_router.get(

@@ -416,17 +416,44 @@ class VconChainRequest:
                     current_span.set_status(Status(StatusCode.ERROR, str(e)))
                     current_span.record_exception(e)
                 logger.error(
-                    "Failed to save vCon %s to storage %s: %s",
+                    "Failed to save vCon %s to storage %s: %s - Moving to storage DLQ",
                     self.vcon_id,
                     storage_name,
                     str(e),
                     exc_info=True
                 )
+                # Dead-letter rather than re-raise. Re-raising would send the vCon
+                # to the ingress DLQ, and replaying from there re-runs the whole
+                # chain including transcription that already succeeded. This DLQ
+                # replays the storage write alone.
+                self._dead_letter_storage(storage_name)
             finally:
                 duration_ms = round((time.time() - started) * 1000, 3)
                 attrs = {"backend": storage_name, "outcome": outcome}
                 increment_counter("conserver.storage.count", attributes=attrs)
                 record_histogram("conserver.storage.duration_ms", duration_ms, attributes=attrs)
+
+    def _dead_letter_storage(self, storage_name: str) -> None:
+        """Record a failed storage write so the vCon can be replayed later.
+
+        Pushes onto ``DLQ:storage:<backend>`` and extends the vCon's Redis TTL
+        to ``VCON_DLQ_EXPIRY`` so the body outlives the default retention and
+        is still there to replay. Mirrors what the ingress DLQ path does.
+
+        Never raises: this already runs on an error path, and losing the vCon
+        outright because Redis also hiccuped is the failure mode being fixed.
+        """
+        try:
+            queue.enqueue_storage_dlq(storage_name, self.vcon_id)
+            if VCON_DLQ_EXPIRY > 0:
+                queue.set_vcon_ttl(self.vcon_id, VCON_DLQ_EXPIRY)
+        except Exception:
+            logger.error(
+                "Could not dead-letter vCon %s for storage %s; it is now lost",
+                self.vcon_id,
+                storage_name,
+                exc_info=True,
+            )
 
     def _process_storage_parallel(self, storage_backends: List[str]) -> None:
         """Save vCon to multiple storage backends concurrently.
