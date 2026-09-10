@@ -440,7 +440,11 @@ async def add_vcon_to_set(vcon_uuid: str, timestamp: int) -> None:
         vcon_uuid: UUID string of the vCon to add
         timestamp: Unix timestamp to use as score
     """
-    await redis_async.zadd(VCON_SORTED_SET_NAME, {vcon_uuid: timestamp})
+    # Callers pass either a bare uuid or a "vcon:<uuid>" key. Normalize here so
+    # the sorted set only ever holds one shape; readers strip the prefix. Mixed
+    # shapes used to make GET /vcon raise IndexError on the bare members.
+    member = vcon_uuid if str(vcon_uuid).startswith("vcon:") else f"vcon:{vcon_uuid}"
+    await redis_async.zadd(VCON_SORTED_SET_NAME, {member: timestamp})
 
 
 async def cache_vcon_in_redis(vcon_key: str, vcon: dict) -> None:
@@ -556,7 +560,8 @@ async def get_vcons_uuids(
     logger.info(f"Returning {len(vcon_uuids)} vcon_uuids")
 
     # Convert the vcon_uuids to strings and strip the vcon: prefix
-    return [vcon.split(":")[1] for vcon in vcon_uuids]
+    # [-1], not [1]: tolerate members already written in the bare-uuid shape.
+    return [vcon.split(":")[-1] for vcon in vcon_uuids]
 
 
 @api_router.get(
@@ -651,6 +656,9 @@ async def get_vcons(
     Returns:
         JSONResponse containing a list of found vCons
     """
+    if not vcon_uuids:
+        return JSONResponse(content=[], status_code=200)
+
     # Use mget for efficient batch retrieval from Redis
     keys = [f"vcon:{vcon_uuid}" for vcon_uuid in vcon_uuids]
     vcons = await redis_async.json().mget(keys=keys, path=".")
