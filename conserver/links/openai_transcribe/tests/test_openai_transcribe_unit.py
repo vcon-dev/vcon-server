@@ -301,6 +301,7 @@ def test_run_skips_irrelevant_dialogs_and_redacts_sensitive_opts():
                 "minimum_duration": 3,
                 "model": "gpt-4o-transcribe",
                 "OPENAI_API_KEY": "secret",
+                "LITELLM_MASTER_KEY": "litellm-secret",
                 "ai_usage_api_token": "usage-secret",
                 "send_ai_usage_data_to_url": "https://usage.example",
             },
@@ -319,6 +320,7 @@ def test_run_skips_irrelevant_dialogs_and_redacts_sensitive_opts():
     assert redacted_opts["use_silence_chunking"] is True
     assert "OPENAI_API_KEY" not in redacted_opts
     assert "AZURE_OPENAI_API_KEY" not in redacted_opts
+    assert "LITELLM_MASTER_KEY" not in redacted_opts
     assert "ai_usage_api_token" not in redacted_opts
     assert "send_ai_usage_data_to_url" not in redacted_opts
     redis_client.store_vcon.assert_called_once_with(fake_vcon)

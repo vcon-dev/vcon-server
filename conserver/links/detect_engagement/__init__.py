@@ -1,3 +1,4 @@
+from lib.redaction import safe_opts
 from lib.vcon_redis import VconRedis
 from lib.logging_utils import init_logger
 from lib.openai_client import get_openai_client
@@ -119,7 +120,7 @@ def run(
         logger.info(
             "Analyzing engagement for dialog %s with options: %s",
             index,
-            {k: v for k, v in opts.items() if k != "OPENAI_API_KEY"},
+            safe_opts(opts),
         )
         start = time.time()
         try:
