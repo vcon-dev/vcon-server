@@ -11,6 +11,7 @@ transcription process, error retries, and updates vCon objects with
 transcription results.
 """
 
+from lib.redaction import safe_opts
 import base64
 import hashlib
 import logging
@@ -413,10 +414,7 @@ def run(
 
         # Prepare vendor schema without sensitive data
         vendor_schema = {
-            "opts": {
-                k: v
-                for k, v in opts.items() if k != "API_KEY"
-            }
+            "opts": safe_opts(opts)
         }
 
         # Add transcription analysis to vCon

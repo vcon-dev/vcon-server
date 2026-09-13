@@ -6,6 +6,7 @@ The ``conserver/main.py`` link resolver automatically reroutes
 emits a one-time deprecation warning.
 """
 
+from lib.redaction import safe_opts
 import re
 from urllib.parse import unquote, urlparse
 from lib.logging_utils import init_logger
@@ -575,8 +576,7 @@ def run(
 
         # Prepare vendor schema, omitting credentials
         vendor_schema = {}
-        sensitive_keys = {"OPENAI_API_KEY", "AZURE_OPENAI_API_KEY", "ai_usage_api_token", "send_ai_usage_data_to_url"}
-        vendor_schema["opts"] = {k: v for k, v in opts.items() if k not in sensitive_keys}
+        vendor_schema["opts"] = safe_opts(opts)
 
         # Add the transcript analysis to the vCon
         vCon.add_analysis(
