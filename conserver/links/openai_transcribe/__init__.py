@@ -331,9 +331,9 @@ def combine_transcription_results(results: list) -> dict:
     combined_text = " ".join([result.get("text", "") for result in results if result.get("text")])
     
     # Combine usage statistics
-    total_input_tokens = sum([result.get("usage", {}).get("input_tokens", 0) for result in results])
-    total_output_tokens = sum([result.get("usage", {}).get("output_tokens", 0) for result in results])
-    total_tokens = sum([result.get("usage", {}).get("total_tokens", 0) for result in results])
+    total_input_tokens = sum([(result.get("usage") or {}).get("input_tokens", 0) for result in results])
+    total_output_tokens = sum([(result.get("usage") or {}).get("output_tokens", 0) for result in results])
+    total_tokens = sum([(result.get("usage") or {}).get("total_tokens", 0) for result in results])
     
     # Use the first result as base and update with combined data
     combined_result = results[0].copy()
