@@ -448,7 +448,7 @@ def transcribe_openai(url: str, opts: dict = None, vcon_uuid: str = None) -> dic
             ai_usage_api_token = opts.get("ai_usage_api_token", "")
             
             if vcon_uuid:
-                usage_info = result.get("usage", {})
+                usage_info = result.get("usage") or {}  # providers such as Telnyx Inference return usage: null
                 input_units = usage_info.get("input_tokens", 0)
                 output_units = usage_info.get("output_tokens", 0)
                 
