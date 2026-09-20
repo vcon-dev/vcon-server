@@ -92,15 +92,17 @@ Copy and customize the Docker Compose file:
 cp example_docker-compose.yml docker-compose.yml
 ```
 
+For existing Redis Stack installations, complete the [Redis migration](redis-migration.md) before upgrading. RedisJSON persistence files cannot be reused with the ordinary Redis image.
+
+Redis listens on port 6379 inside the Docker network. The default configuration publishes no Redis port and does not include Redis Insight. The previous `REDIS_EXTERNAL_PORT` setting no longer applies. For local debugging, use `docker compose exec redis redis-cli`.
+
 The default configuration includes:
 
 ```yaml
 services:
   redis:
-    image: redis/redis-stack:latest
-    ports:
-      - "6379:6379"
-      - "8001:8001"  # Redis Insight UI
+    image: redis:7.4-alpine@sha256:520775a41a63e77e06c73e35d2fd9cc15921a609516818796b4ecbb813078bc7
+    command: ["redis-server", "--save", "20", "1", "--notify-keyspace-events", "Ex", "--dir", "/data", "--appendonly", "yes"]
     volumes:
       - redis_data:/data
     networks:
