@@ -111,12 +111,13 @@ def save(vcon_uuid: str, opts: Dict[str, Any] = None) -> None:
         payload = vcon.to_dict()
         url = _url(opts, "vcons")
         timeout = opts.get("timeout", default_options["timeout"])
-        resp = _session(opts).post(
-            url,
-            json=payload,
-            headers=_headers(opts),
-            timeout=timeout,
-        )
+        with _session(opts) as session:
+            resp = session.post(
+                url,
+                json=payload,
+                headers=_headers(opts),
+                timeout=timeout,
+            )
         resp.raise_for_status()
         logger.info("Finished vcon-mcp storage save for vCon: %s", vcon_uuid)
     except requests.RequestException as e:
@@ -151,11 +152,12 @@ def get(vcon_uuid: str, opts: Dict[str, Any] = None) -> Optional[dict]:
     try:
         url = _url(opts, f"vcons/{vcon_uuid}")
         timeout = opts.get("timeout", default_options["timeout"])
-        resp = _session(opts).get(
-            url,
-            headers=_headers(opts),
-            timeout=timeout,
-        )
+        with _session(opts) as session:
+            resp = session.get(
+                url,
+                headers=_headers(opts),
+                timeout=timeout,
+            )
         if resp.status_code == 404:
             logger.info("vCon %s not found in vcon-mcp storage", vcon_uuid)
             return None
@@ -191,11 +193,12 @@ def delete(vcon_uuid: str, opts: Dict[str, Any] = None) -> bool:
     try:
         url = _url(opts, f"vcons/{vcon_uuid}")
         timeout = opts.get("timeout", default_options["timeout"])
-        resp = _session(opts).delete(
-            url,
-            headers=_headers(opts),
-            timeout=timeout,
-        )
+        with _session(opts) as session:
+            resp = session.delete(
+                url,
+                headers=_headers(opts),
+                timeout=timeout,
+            )
         if resp.status_code == 404:
             logger.info("vCon %s not found in vcon-mcp storage", vcon_uuid)
             return False
