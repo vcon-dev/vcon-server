@@ -17,8 +17,8 @@ def _load_sample_vcon_dict():
 def test_store_vcon(mock_redis):
     vcon_redis = VconRedis()
     vcon_obj = vcon.Vcon(_load_sample_vcon_dict())
-    mock_json = MagicMock()
-    mock_redis.json.return_value = mock_json
+    mock_json = mock_redis
+
 
     vcon_redis.store_vcon(vcon_obj)
 
@@ -32,9 +32,8 @@ def test_store_vcon(mock_redis):
 def test_get_vcon(mock_redis):
     vcon_redis = VconRedis()
     vcon_dict = _load_sample_vcon_dict()
-    mock_json = MagicMock()
-    mock_json.get.return_value = vcon_dict
-    mock_redis.json.return_value = mock_json
+    mock_json = mock_redis
+    mock_json.get.return_value = json.dumps(vcon_dict)
 
     loaded_vcon = vcon_redis.get_vcon(vcon_dict["uuid"])
 
@@ -49,8 +48,8 @@ def test_get_vcon(mock_redis):
 def test_store_vcon_dict(mock_redis):
     vcon_redis = VconRedis()
     vcon_dict = _load_sample_vcon_dict()
-    mock_json = MagicMock()
-    mock_redis.json.return_value = mock_json
+    mock_json = mock_redis
+
 
     vcon_redis.store_vcon_dict(vcon_dict)
 
@@ -64,12 +63,12 @@ def test_store_vcon_dict(mock_redis):
 def test_get_vcon_dict(mock_redis):
     vcon_redis = VconRedis()
     vcon_dict = _load_sample_vcon_dict()
-    mock_json = MagicMock()
-    mock_json.get.return_value = vcon_dict
-    mock_redis.json.return_value = mock_json
+    mock_json = mock_redis
+    mock_json.get.return_value = json.dumps(vcon_dict)
 
     loaded_vcon_dict = vcon_redis.get_vcon_dict(vcon_dict["uuid"])
 
+    normalize_legacy_fields(vcon_dict)
     assert vcon_dict == loaded_vcon_dict
 
 
@@ -79,12 +78,11 @@ def test_get_vcon_dict(mock_redis):
 
 
 def _miss_then_hit_redis(mock_redis, storage_dict):
-    """Configure the mocked redis client so .json().get() returns None
+    """Configure the mocked redis client so get() returns None
     (Redis miss). Returns the mock_json handle so callers can assert on
     re-cache writes."""
-    mock_json = MagicMock()
+    mock_json = mock_redis
     mock_json.get.return_value = None
-    mock_redis.json.return_value = mock_json
     return mock_json
 
 
@@ -109,9 +107,9 @@ def test_get_vcon_redis_miss_storage_hit_recaches(
     assert loaded.uuid == vcon_dict["uuid"]
     mock_storage_cls.assert_called_once_with(storage_name="s3")
     storage_instance.get.assert_called_once_with(vcon_dict["uuid"])
-    # Re-cache happened: json().set and expire on the key, and sorted-set add.
+    # Re-cache happened: SET with expiration on the key, and sorted-set add.
     assert mock_json.set.call_count == 1
-    mock_redis.expire.assert_called_once()
+    assert mock_redis.set.call_args.kwargs["ex"] == VconRedis.DEFAULT_TTL
     mock_redis.zadd.assert_called_once()
 
 
@@ -202,9 +200,8 @@ def test_get_vcon_redis_hit_skips_storage(
 ):
     """When Redis has the vCon, storage must not be touched at all."""
     vcon_dict = _load_sample_vcon_dict()
-    mock_json = MagicMock()
-    mock_json.get.return_value = vcon_dict  # Redis hit
-    mock_redis.json.return_value = mock_json
+    mock_json = mock_redis
+    mock_json.get.return_value = json.dumps(vcon_dict)  # Redis hit
 
     loaded = VconRedis().get_vcon(vcon_dict["uuid"])
 

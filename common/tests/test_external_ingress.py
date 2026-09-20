@@ -49,9 +49,8 @@ class TestExternalIngress:
 
         # Mock Redis client properly (sadd/expire used by index_vcon_parties)
         mock_redis = MagicMock()
-        mock_json = MagicMock()
+        mock_json = mock_redis
         mock_json.set = AsyncMock()
-        mock_redis.json.return_value = mock_json
         mock_redis.expire = AsyncMock()
         mock_redis.sadd = AsyncMock()
         mock_redis.rpush = AsyncMock()
@@ -101,9 +100,8 @@ class TestExternalIngress:
 
         # Mock Redis client properly (sadd/expire used by index_vcon_parties)
         mock_redis = MagicMock()
-        mock_json = MagicMock()
+        mock_json = mock_redis
         mock_json.set = AsyncMock()
-        mock_redis.json.return_value = mock_json
         mock_redis.expire = AsyncMock()
         mock_redis.sadd = AsyncMock()
         mock_redis.rpush = AsyncMock()
@@ -229,9 +227,8 @@ class TestExternalIngress:
 
         # Mock Redis client that fails (use MagicMock to avoid coroutine issues)
         mock_redis = MagicMock()
-        mock_json = MagicMock()
+        mock_json = mock_redis
         mock_json.set = AsyncMock(side_effect=Exception("Redis connection failed"))
-        mock_redis.json.return_value = mock_json
         mock_redis.expire = AsyncMock()
         mock_redis.sadd = AsyncMock()
         mock_redis.rpush = AsyncMock()
@@ -269,9 +266,8 @@ class TestExternalIngress:
 
         # Mock Redis client properly (sadd/expire used by index_vcon_parties)
         mock_redis = MagicMock()
-        mock_json = MagicMock()
+        mock_json = mock_redis
         mock_json.set = AsyncMock()
-        mock_redis.json.return_value = mock_json
         mock_redis.expire = AsyncMock()
         mock_redis.sadd = AsyncMock()
         mock_redis.rpush = AsyncMock()

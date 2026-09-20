@@ -53,8 +53,8 @@ class TestStoreVconWithTTL:
     @patch('lib.vcon_redis.redis')
     def test_store_vcon_without_ttl(self, mock_redis, vcon_redis, sample_vcon_obj):
         """Verify store_vcon without TTL does not set expiry."""
-        mock_json = MagicMock()
-        mock_redis.json.return_value = mock_json
+        mock_json = mock_redis
+
 
         vcon_redis.store_vcon(sample_vcon_obj)
 
@@ -66,8 +66,8 @@ class TestStoreVconWithTTL:
     @patch('lib.vcon_redis.redis')
     def test_store_vcon_with_custom_ttl(self, mock_redis, vcon_redis, sample_vcon_obj):
         """Verify store_vcon with TTL sets the expiry."""
-        mock_json = MagicMock()
-        mock_redis.json.return_value = mock_json
+        mock_json = mock_redis
+
 
         custom_ttl = 7200  # 2 hours
         vcon_redis.store_vcon(sample_vcon_obj, ttl=custom_ttl)
@@ -76,18 +76,18 @@ class TestStoreVconWithTTL:
         mock_json.set.assert_called_once()
         # Verify expire was called with correct TTL
         expected_key = f"vcon:{sample_vcon_obj.uuid}"
-        mock_redis.expire.assert_called_once_with(expected_key, custom_ttl)
+        assert mock_redis.set.call_args.kwargs["ex"] == custom_ttl
 
     @patch('lib.vcon_redis.redis')
     def test_store_vcon_with_default_ttl(self, mock_redis, vcon_redis, sample_vcon_obj):
         """Verify store_vcon with DEFAULT_TTL sets the correct expiry."""
-        mock_json = MagicMock()
-        mock_redis.json.return_value = mock_json
+        mock_json = mock_redis
+
 
         vcon_redis.store_vcon(sample_vcon_obj, ttl=VconRedis.DEFAULT_TTL)
 
         expected_key = f"vcon:{sample_vcon_obj.uuid}"
-        mock_redis.expire.assert_called_once_with(expected_key, 3600)
+        assert mock_redis.set.call_args.kwargs["ex"] == 3600
 
 
 class TestStoreVconDictWithTTL:
@@ -96,8 +96,8 @@ class TestStoreVconDictWithTTL:
     @patch('lib.vcon_redis.redis')
     def test_store_vcon_dict_without_ttl(self, mock_redis, vcon_redis, sample_vcon_dict):
         """Verify store_vcon_dict without TTL does not set expiry."""
-        mock_json = MagicMock()
-        mock_redis.json.return_value = mock_json
+        mock_json = mock_redis
+
 
         vcon_redis.store_vcon_dict(sample_vcon_dict)
 
@@ -107,14 +107,14 @@ class TestStoreVconDictWithTTL:
     @patch('lib.vcon_redis.redis')
     def test_store_vcon_dict_with_ttl(self, mock_redis, vcon_redis, sample_vcon_dict):
         """Verify store_vcon_dict with TTL sets the expiry."""
-        mock_json = MagicMock()
-        mock_redis.json.return_value = mock_json
+        mock_json = mock_redis
+
 
         custom_ttl = 1800  # 30 minutes
         vcon_redis.store_vcon_dict(sample_vcon_dict, ttl=custom_ttl)
 
         expected_key = f"vcon:{sample_vcon_dict['uuid']}"
-        mock_redis.expire.assert_called_once_with(expected_key, custom_ttl)
+        assert mock_redis.set.call_args.kwargs["ex"] == custom_ttl
 
 
 class TestSetExpiry:
@@ -205,9 +205,8 @@ class TestAsyncStoreVconWithTTL:
     async def test_store_vcon_async_without_ttl(self, vcon_redis, sample_vcon_obj):
         """Verify store_vcon_async without TTL does not set expiry."""
         mock_redis_async = MagicMock()
-        mock_json = MagicMock()
+        mock_json = mock_redis_async
         mock_json.set = AsyncMock()
-        mock_redis_async.json.return_value = mock_json
         mock_redis_async.expire = AsyncMock()
 
         await vcon_redis.store_vcon_async(mock_redis_async, sample_vcon_obj)
@@ -219,9 +218,8 @@ class TestAsyncStoreVconWithTTL:
     async def test_store_vcon_async_with_ttl(self, vcon_redis, sample_vcon_obj):
         """Verify store_vcon_async with TTL sets the expiry."""
         mock_redis_async = MagicMock()
-        mock_json = MagicMock()
+        mock_json = mock_redis_async
         mock_json.set = AsyncMock()
-        mock_redis_async.json.return_value = mock_json
         mock_redis_async.expire = AsyncMock()
 
         custom_ttl = 7200
@@ -229,7 +227,7 @@ class TestAsyncStoreVconWithTTL:
 
         mock_json.set.assert_called_once()
         expected_key = f"vcon:{sample_vcon_obj.uuid}"
-        mock_redis_async.expire.assert_called_once_with(expected_key, custom_ttl)
+        assert mock_redis_async.set.call_args.kwargs["ex"] == custom_ttl
 
 
 class TestAsyncStoreVconDictWithTTL:
@@ -239,16 +237,15 @@ class TestAsyncStoreVconDictWithTTL:
     async def test_store_vcon_dict_async_with_ttl(self, vcon_redis, sample_vcon_dict):
         """Verify store_vcon_dict_async with TTL sets the expiry."""
         mock_redis_async = MagicMock()
-        mock_json = MagicMock()
+        mock_json = mock_redis_async
         mock_json.set = AsyncMock()
-        mock_redis_async.json.return_value = mock_json
         mock_redis_async.expire = AsyncMock()
 
         custom_ttl = 1800
         await vcon_redis.store_vcon_dict_async(mock_redis_async, sample_vcon_dict, ttl=custom_ttl)
 
         expected_key = f"vcon:{sample_vcon_dict['uuid']}"
-        mock_redis_async.expire.assert_called_once_with(expected_key, custom_ttl)
+        assert mock_redis_async.set.call_args.kwargs["ex"] == custom_ttl
 
 
 class TestAsyncSetExpiry:
@@ -300,10 +297,6 @@ class TestAsyncGetTTL:
 
 
 @pytest.mark.integration
-@pytest.mark.skipif(
-    os.getenv("REDIS_URL", "").startswith("redis://redis:"),
-    reason="Integration tests require local Redis (not docker redis)"
-)
 class TestIntegrationWithRealRedis:
     """Integration tests using real Redis connection.
     
@@ -316,31 +309,13 @@ class TestIntegrationWithRealRedis:
 
     @pytest.fixture(autouse=True)
     def check_redis_and_cleanup(self, vcon_redis, sample_vcon_obj):
-        """Skip integration tests if RedisJSON is unavailable, and clean up test keys."""
-        try:
-            from redis_mgr import redis
-            redis.ping()
-            probe_key = f"vcon:test-json-probe:{sample_vcon_obj.uuid}"
-            try:
-                redis.json().set(probe_key, ".", {"probe": True})
-                redis.delete(probe_key)
-            except Exception as exc:
-                if "unknown command" in str(exc).lower() and "json.set" in str(exc).lower():
-                    pytest.skip("RedisJSON not available for integration tests")
-                raise
-            # Clean up any existing test key before each test
-            redis.delete(f"vcon:{sample_vcon_obj.uuid}")
-        except Exception:
-            pytest.skip("Redis not available for integration tests")
-        
+        """A required Redis integration service must fail loudly if unavailable."""
+        from redis_mgr import redis
+        redis.ping()
+        key = f"vcon:{sample_vcon_obj.uuid}"
+        redis.delete(key)
         yield
-        
-        # Clean up after test
-        try:
-            from redis_mgr import redis
-            redis.delete(f"vcon:{sample_vcon_obj.uuid}")
-        except Exception:
-            pass
+        redis.delete(key)
 
     def test_store_vcon_with_ttl_integration(self, vcon_redis, sample_vcon_obj):
         """Integration test: store vCon with TTL and verify expiry is set."""

@@ -31,9 +31,8 @@ class TestPostVconExpiry:
     ):
         """Test that POST /vcon stores the vCon with the default cache TTL."""
         mock_redis = MagicMock()
-        mock_json = MagicMock()
+        mock_json = mock_redis
         mock_json.set = AsyncMock()
-        mock_redis.json.return_value = mock_json
         mock_redis.expire = AsyncMock()
         mock_redis.sadd = AsyncMock()
         mock_redis.rpush = AsyncMock()
@@ -53,7 +52,8 @@ class TestPostVconExpiry:
             assert response.status_code == 201
             mock_json.set.assert_called_once()
             vcon_key = f"vcon:{self.test_vcon['uuid']}"
-            mock_redis.expire.assert_awaited_once_with(vcon_key, VCON_REDIS_EXPIRY)
+            assert mock_redis.set.await_args.args[0] == vcon_key
+            assert mock_redis.set.await_args.kwargs["ex"] == VCON_REDIS_EXPIRY
 
         finally:
             api.redis_async = None
@@ -70,9 +70,8 @@ class TestPostVconExpiry:
     ):
         """Test that POST /vcon with ingress_lists applies default TTL and queues it."""
         mock_redis = MagicMock()
-        mock_json = MagicMock()
+        mock_json = mock_redis
         mock_json.set = AsyncMock()
-        mock_redis.json.return_value = mock_json
         mock_redis.expire = AsyncMock()
         mock_redis.sadd = AsyncMock()
         mock_redis.rpush = AsyncMock()
@@ -87,7 +86,8 @@ class TestPostVconExpiry:
 
             assert response.status_code == 201
             vcon_key = f"vcon:{self.test_vcon['uuid']}"
-            mock_redis.expire.assert_awaited_once_with(vcon_key, VCON_REDIS_EXPIRY)
+            assert mock_redis.set.await_args.args[0] == vcon_key
+            assert mock_redis.set.await_args.kwargs["ex"] == VCON_REDIS_EXPIRY
             mock_redis.rpush.assert_called_once_with("test_ingress", self.test_vcon["uuid"])
 
         finally:
@@ -114,9 +114,8 @@ class TestExternalIngressExpiry:
         mock_get_ingress_auth.return_value = {self.ingress_list: self.valid_api_key}
 
         mock_redis = MagicMock()
-        mock_json = MagicMock()
+        mock_json = mock_redis
         mock_json.set = AsyncMock()
-        mock_redis.json.return_value = mock_json
         mock_redis.expire = AsyncMock()
         mock_redis.sadd = AsyncMock()
         mock_redis.rpush = AsyncMock()
@@ -136,7 +135,8 @@ class TestExternalIngressExpiry:
 
             assert response.status_code == 204
             vcon_key = f"vcon:{self.test_vcon['uuid']}"
-            mock_redis.expire.assert_awaited_once_with(vcon_key, VCON_REDIS_EXPIRY)
+            assert mock_redis.set.await_args.args[0] == vcon_key
+            assert mock_redis.set.await_args.kwargs["ex"] == VCON_REDIS_EXPIRY
 
         finally:
             api.redis_async = None
@@ -151,9 +151,8 @@ class TestExternalIngressExpiry:
         mock_get_ingress_auth.return_value = {self.ingress_list: self.valid_api_key}
 
         mock_redis = MagicMock()
-        mock_json = MagicMock()
+        mock_json = mock_redis
         mock_json.set = AsyncMock()
-        mock_redis.json.return_value = mock_json
         mock_redis.expire = AsyncMock()
         mock_redis.sadd = AsyncMock()
         mock_redis.rpush = AsyncMock()

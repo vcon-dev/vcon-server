@@ -18,6 +18,7 @@ RUN apt-get update && \
         sox \
         libpq5 \
         redis-tools \
+        redis-server \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=ghcr.io/astral-sh/uv:0.10.9 /uv /usr/local/bin/uv

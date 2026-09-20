@@ -5,8 +5,7 @@ from config import Configuration
 from lib.logging_utils import init_logger
 from lib.metrics import increment_counter
 from lib.vcon_compat import normalize_legacy_fields
-from redis.commands.json.path import Path
-from redis_mgr import redis
+from redis_mgr import redis, json_set, json_get, json_set_async
 from settings import (
     VCON_REDIS_EXPIRY,
     VCON_SORTED_SET_NAME,
@@ -94,14 +93,13 @@ class VconRedis:
 
         Args:
             vCon (vcon.Vcon): The vCon to store in redis.
-            ttl (Optional[int]): Time-to-live in seconds. If None, no expiry is set.
+            ttl (Optional[int]): Time-to-live in seconds. If None, existing expiry is retained; new keys are persistent.
                 Use DEFAULT_TTL for the configured default expiry.
         """
         key = f"vcon:{vCon.uuid}"
         cleanvCon = self._enforce_spec_on_write(vCon.to_dict())
-        redis.json().set(key, Path.root_path(), cleanvCon)
+        json_set(redis, key, cleanvCon, ttl)
         if ttl is not None:
-            redis.expire(key, ttl)
             logger.debug(f"Set TTL of {ttl}s on vCon {vCon.uuid}")
 
     @staticmethod
@@ -180,14 +178,13 @@ class VconRedis:
         
         Args:
             vcon_dict (dict): The vCon as a dictionary to store.
-            ttl (Optional[int]): Time-to-live in seconds. If None, no expiry is set.
+            ttl (Optional[int]): Time-to-live in seconds. If None, existing expiry is retained; new keys are persistent.
                 Use DEFAULT_TTL for the configured default expiry.
         """
         key = f"vcon:{vcon_dict['uuid']}"
         self._enforce_spec_on_write(vcon_dict)
-        redis.json().set(key, Path.root_path(), vcon_dict)
+        json_set(redis, key, vcon_dict, ttl)
         if ttl is not None:
-            redis.expire(key, ttl)
             logger.debug(f"Set TTL of {ttl}s on vCon {vcon_dict['uuid']}")
 
     def get_vcon_dict(self, vcon_id: str) -> Optional[dict]:
@@ -207,9 +204,7 @@ class VconRedis:
         Returns:
             The vCon as a dictionary if found, otherwise ``None``.
         """
-        vcon_dict = redis.json().get(
-            f"vcon:{vcon_id}", Path.root_path()
-        )
+        vcon_dict = json_get(redis, f"vcon:{vcon_id}")
         if not vcon_dict:
             increment_counter("conserver.lib.vcon_redis.get_vcon_redis_miss")
             vcon_dict = self._load_from_storage(vcon_id)
@@ -277,14 +272,13 @@ class VconRedis:
         Args:
             redis_async: Async Redis client instance.
             vCon (vcon.Vcon): The vCon to store in redis.
-            ttl (Optional[int]): Time-to-live in seconds. If None, no expiry is set.
+            ttl (Optional[int]): Time-to-live in seconds. If None, existing expiry is retained; new keys are persistent.
                 Use DEFAULT_TTL for the configured default expiry.
         """
         key = f"vcon:{vCon.uuid}"
         cleanvCon = self._enforce_spec_on_write(vCon.to_dict())
-        await redis_async.json().set(key, "$", cleanvCon)
+        await json_set_async(redis_async, key, cleanvCon, ttl)
         if ttl is not None:
-            await redis_async.expire(key, ttl)
             logger.debug(f"Set TTL of {ttl}s on vCon {vCon.uuid}")
 
     async def store_vcon_dict_async(
@@ -298,14 +292,13 @@ class VconRedis:
         Args:
             redis_async: Async Redis client instance.
             vcon_dict (dict): The vCon as a dictionary to store.
-            ttl (Optional[int]): Time-to-live in seconds. If None, no expiry is set.
+            ttl (Optional[int]): Time-to-live in seconds. If None, existing expiry is retained; new keys are persistent.
                 Use DEFAULT_TTL for the configured default expiry.
         """
         key = f"vcon:{vcon_dict['uuid']}"
         self._enforce_spec_on_write(vcon_dict)
-        await redis_async.json().set(key, "$", vcon_dict)
+        await json_set_async(redis_async, key, vcon_dict, ttl)
         if ttl is not None:
-            await redis_async.expire(key, ttl)
             logger.debug(f"Set TTL of {ttl}s on vCon {vcon_dict['uuid']}")
 
     async def set_expiry_async(self, redis_async, vcon_id: str, ttl: int) -> bool:

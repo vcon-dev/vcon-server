@@ -52,6 +52,7 @@ from lib.queue import VconQueue
 from lib.vcon_redis import VconRedis
 from lib.vcon_egress_compat import to_configured_legacy
 import redis_mgr
+from redis_mgr import json_set_async, json_get_async, json_mget_async
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request as StarletteRequest
 from starlette.responses import Response
@@ -446,8 +447,7 @@ async def add_vcon_to_set(vcon_uuid: str, timestamp: int) -> None:
 
 async def cache_vcon_in_redis(vcon_key: str, vcon: dict) -> None:
     """Store a vCon in Redis and apply the default cache expiry."""
-    await redis_async.json().set(vcon_key, "$", vcon)
-    await redis_async.expire(vcon_key, VCON_REDIS_EXPIRY)
+    await json_set_async(redis_async, vcon_key, vcon, VCON_REDIS_EXPIRY)
 
 
 async def ensure_vcon_in_redis(vcon_uuid: UUID) -> Optional[dict]:
@@ -464,7 +464,7 @@ async def ensure_vcon_in_redis(vcon_uuid: UUID) -> Optional[dict]:
         The vCon data if found, None if not found in any storage
     """
     # First check if vCon exists in Redis
-    vcon = await redis_async.json().get(f"vcon:{str(vcon_uuid)}")
+    vcon = await json_get_async(redis_async, f"vcon:{str(vcon_uuid)}")
     if vcon:
         return vcon
     
@@ -654,7 +654,7 @@ async def get_vcons(
     """
     # Use mget for efficient batch retrieval from Redis
     keys = [f"vcon:{vcon_uuid}" for vcon_uuid in vcon_uuids]
-    vcons = await redis_async.json().mget(keys=keys, path=".")
+    vcons = await json_mget_async(redis_async, keys)
 
     results = []
     for vcon_uuid, vcon in zip(vcon_uuids, vcons):
@@ -951,7 +951,7 @@ async def delete_vcon(vcon_uuid: UUID) -> None:
     
     # Delete from Redis
     try:
-        await redis_async.json().delete(f"vcon:{str(vcon_uuid)}")
+        await redis_async.delete(f"vcon:{str(vcon_uuid)}")
         logger.info(f"Successfully deleted vCon {vcon_uuid} from Redis")
     except Exception as e:
         logger.warning(f"Failed to delete vCon {vcon_uuid} from Redis: {e}")
@@ -1018,7 +1018,7 @@ async def post_vcon_ingress(
         
         # Use mget for efficient batch retrieval from Redis
         keys = [f"vcon:{vcon_uuid}" for vcon_uuid in vcon_uuids]
-        vcons = await redis_async.json().mget(keys=keys, path=".")
+        vcons = await json_mget_async(redis_async, keys)
 
         # Track which vCons to add to ingress list
         valid_vcon_uuids = []
@@ -1330,7 +1330,7 @@ async def index_vcon(uuid: UUID) -> None:
         uuid: UUID of the vCon to index
     """
     key = f"vcon:{uuid}"
-    vcon = await redis_async.json().get(key)
+    vcon = await json_get_async(redis_async, key)
     created_at = datetime.fromisoformat(vcon["created_at"])
     timestamp = int(created_at.timestamp())
     vcon_uuid = vcon["uuid"]

@@ -11,12 +11,10 @@ import api
 @pytest.fixture
 def redis_async(monkeypatch):
     redis = Mock()
-    redis_json = Mock()
-    redis_json.get = AsyncMock()
-    redis_json.mget = AsyncMock()
-    redis_json.set = AsyncMock()
-    redis_json.delete = AsyncMock()
-    redis.json = Mock(return_value=redis_json)
+    redis.get = AsyncMock()
+    redis.mget = AsyncMock()
+    redis.set = AsyncMock()
+    redis.delete = AsyncMock()
     redis.expire = AsyncMock()
     redis.zrevrangebyscore = AsyncMock()
     redis.rpop = AsyncMock()
@@ -34,7 +32,7 @@ def redis_async(monkeypatch):
 @pytest.mark.asyncio
 async def test_ensure_vcon_in_redis_returns_cached_vcon(redis_async):
     vcon_uuid = uuid4()
-    redis_async.json.return_value.get.return_value = {"uuid": str(vcon_uuid)}
+    redis_async.get.return_value = json.dumps({"uuid": str(vcon_uuid)})
 
     with patch.object(api, "sync_vcon_from_storage", AsyncMock()) as mock_sync:
         result = await api.ensure_vcon_in_redis(vcon_uuid)
@@ -46,7 +44,7 @@ async def test_ensure_vcon_in_redis_returns_cached_vcon(redis_async):
 @pytest.mark.asyncio
 async def test_ensure_vcon_in_redis_falls_back_to_storage_sync(redis_async):
     vcon_uuid = uuid4()
-    redis_async.json.return_value.get.return_value = None
+    redis_async.get.return_value = None
 
     with patch.object(api, "sync_vcon_from_storage", AsyncMock(return_value={"uuid": str(vcon_uuid)})) as mock_sync:
         result = await api.ensure_vcon_in_redis(vcon_uuid)
@@ -68,8 +66,7 @@ async def test_sync_vcon_from_storage_restores_to_redis_and_indexes(redis_async)
         result = await api.sync_vcon_from_storage(vcon_uuid)
 
     assert result == vcon
-    redis_async.json.return_value.set.assert_awaited_once_with(f"vcon:{vcon_uuid}", "$", vcon)
-    redis_async.expire.assert_awaited_once_with(f"vcon:{vcon_uuid}", api.VCON_REDIS_EXPIRY)
+    redis_async.set.assert_awaited_once_with(f"vcon:{vcon_uuid}", json.dumps(vcon), ex=api.VCON_REDIS_EXPIRY)
     mock_add_to_set.assert_awaited_once()
 
 
@@ -102,7 +99,7 @@ async def test_sync_vcon_from_storage_canonicalizes_legacy_payload(redis_async):
     assert isinstance(an["body"], str) and an["encoding"] == "json"
 
     # The copy cached back into Redis is canonical too (not the raw legacy dict).
-    cached = redis_async.json.return_value.set.await_args.args[2]
+    cached = json.loads(redis_async.set.await_args.args[1])
     assert cached["attachments"][0].get("purpose") == "tags"
     assert "type" not in cached["attachments"][0]
 
@@ -151,7 +148,7 @@ async def test_sync_vcon_from_storage_returns_none_when_not_found(redis_async):
     ):
         assert await api.sync_vcon_from_storage(uuid4()) is None
 
-    redis_async.json.return_value.set.assert_not_called()
+    redis_async.set.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -189,7 +186,7 @@ async def test_get_vcon_egress_pops_multiple_items_and_handles_errors(redis_asyn
 async def test_get_vcons_uses_mget_and_storage_fallback(redis_async):
     first_uuid = uuid4()
     second_uuid = uuid4()
-    redis_async.json.return_value.mget.return_value = [{"uuid": str(first_uuid)}, None]
+    redis_async.mget.return_value = [json.dumps(v) if v is not None else None for v in [{"uuid": str(first_uuid)}, None]]
 
     with patch.object(
         api, "sync_vcon_from_storage", AsyncMock(return_value={"uuid": str(second_uuid)})
@@ -217,7 +214,7 @@ async def test_search_vcons_validates_params_and_supports_union_intersection_and
 @pytest.mark.asyncio
 async def test_delete_vcon_continues_through_partial_failures(redis_async):
     vcon_uuid = uuid4()
-    redis_async.json.return_value.delete.side_effect = RuntimeError("redis delete failed")
+    redis_async.delete.side_effect = RuntimeError("redis delete failed")
     storage_a = Mock(delete=Mock(return_value=False))
     storage_b = Mock(delete=Mock(side_effect=RuntimeError("storage failed")))
 
@@ -226,7 +223,7 @@ async def test_delete_vcon_continues_through_partial_failures(redis_async):
     ), patch.object(api.vcon_hook, "on_vcon_deleted", side_effect=RuntimeError("hook failed")):
         await api.delete_vcon(vcon_uuid)
 
-    redis_async.json.return_value.delete.assert_awaited_once_with(f"vcon:{vcon_uuid}")
+    redis_async.delete.assert_awaited_once_with(f"vcon:{vcon_uuid}")
 
 
 @pytest.mark.asyncio
@@ -234,7 +231,7 @@ async def test_post_vcon_ingress_adds_only_valid_vcons_and_stores_context(redis_
     first_uuid = uuid4()
     second_uuid = uuid4()
     third_uuid = uuid4()
-    redis_async.json.return_value.mget.return_value = [None, {"uuid": str(second_uuid)}, None]
+    redis_async.mget.return_value = [json.dumps(v) if v is not None else None for v in [None, {"uuid": str(second_uuid)}, None]]
 
     with patch.object(
         api,
@@ -256,7 +253,7 @@ async def test_post_vcon_ingress_adds_only_valid_vcons_and_stores_context(redis_
 
 @pytest.mark.asyncio
 async def test_post_vcon_ingress_raises_for_redis_errors(redis_async):
-    redis_async.json.return_value.mget.side_effect = RuntimeError("mget failed")
+    redis_async.mget.side_effect = RuntimeError("mget failed")
 
     with pytest.raises(api.HTTPException, match="Failed to add to ingress list"):
         await api.post_vcon_ingress([uuid4()], ingress_list="ingress-a")
@@ -328,11 +325,11 @@ async def test_index_helpers_cover_parties_single_vcon_and_bulk_reindex(redis_as
         ]
     )
 
-    redis_async.json.return_value.get.return_value = {
+    redis_async.get.return_value = json.dumps({
         "uuid": "vc-2",
         "created_at": "2024-01-01T10:00:00",
         "parties": [{"name": "Alice"}],
-    }
+    })
     with patch.object(api, "add_vcon_to_set", AsyncMock()) as mock_add_to_set, patch.object(
         api, "index_vcon_parties", AsyncMock()
     ) as mock_index_parties:
