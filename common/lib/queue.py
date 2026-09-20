@@ -108,17 +108,30 @@ class VconQueue:
         increment_counter("conserver.dlq.count", attributes={"queue_name": dlq_name})
         return result
 
-    def enqueue_storage_dlq(self, storage_name: str, vcon_id: str) -> int:
-        """RPUSH a vCon onto the DLQ for a storage backend that failed to write.
+    def enqueue_storage_dlq(self, storage_name: str, vcon_id: str, retention_seconds: int = 0) -> int:
+        """Atomically retain the body and enqueue a failed storage write.
 
-        Emits the same ``conserver.dlq.count{queue_name}`` counter as
-        :meth:`enqueue_dlq`, so an alert on that metric covers storage
-        failures without needing a new rule.
+        Persistent bodies and longer TTLs are preserved. A missing body is an
+        explicit recovery failure, never counted as successfully dead-lettered.
+        Zero retention disables extension, matching the ingress DLQ setting.
         """
         from dlq_utils import get_storage_dlq_name
 
         dlq_name = get_storage_dlq_name(storage_name)
-        result = self._client.rpush(dlq_name, vcon_id)
+        result = self._client.eval(
+            """
+            local ttl = redis.call('TTL', KEYS[1])
+            if ttl == -2 then return -1 end
+            local retention = tonumber(ARGV[2])
+            if retention > 0 and ttl >= 0 and ttl < retention then
+                redis.call('EXPIRE', KEYS[1], retention)
+            end
+            return redis.call('RPUSH', KEYS[2], ARGV[1])
+            """,
+            2, _vcon_key(vcon_id), dlq_name, vcon_id, retention_seconds,
+        )
+        if result == -1:
+            raise ValueError(f"Cannot dead-letter missing vCon body: {vcon_id}")
         increment_counter("conserver.dlq.count", attributes={"queue_name": dlq_name})
         return result
 
@@ -157,16 +170,4 @@ class VconQueue:
         from dlq_utils import get_ingress_list_dlq_name
 
         dlq_name = get_ingress_list_dlq_name(ingress_list)
-        return await redis_async.lpop(dlq_name)
-
-    async def dequeue_storage_dlq_async(self, redis_async, storage_name: str):
-        """Async LPOP one vCon id off a storage backend's DLQ.
-
-        Returns the popped vCon id, or ``None`` if the DLQ is empty. Pairs
-        with :meth:`enqueue_storage_dlq` (RPUSH) for oldest-failure-first
-        ordering.
-        """
-        from dlq_utils import get_storage_dlq_name
-
-        dlq_name = get_storage_dlq_name(storage_name)
         return await redis_async.lpop(dlq_name)

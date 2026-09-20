@@ -444,12 +444,12 @@ class VconChainRequest:
         outright because Redis also hiccuped is the failure mode being fixed.
         """
         try:
-            queue.enqueue_storage_dlq(storage_name, self.vcon_id)
-            if VCON_DLQ_EXPIRY > 0:
-                queue.set_vcon_ttl(self.vcon_id, VCON_DLQ_EXPIRY)
+            queue.enqueue_storage_dlq(
+                storage_name, self.vcon_id, retention_seconds=VCON_DLQ_EXPIRY
+            )
         except Exception:
             logger.error(
-                "Could not dead-letter vCon %s for storage %s; it is now lost",
+                "Could not durably dead-letter vCon %s for storage %s; manual recovery required",
                 self.vcon_id,
                 storage_name,
                 exc_info=True,

@@ -41,6 +41,7 @@ from playhouse.postgres_ext import (
 )
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 from starlette.status import HTTP_403_FORBIDDEN
+from starlette.concurrency import run_in_threadpool
 
 from config import Configuration
 from dlq_utils import get_ingress_list_dlq_name, get_storage_dlq_name
@@ -1200,7 +1201,7 @@ async def post_storage_dlq_reprocess(
     """Re-attempt up to ``count`` failed writes to a storage backend.
 
     Only the storage write is replayed, not the chain that produced the vCon.
-    An item whose retry fails again goes back on the DLQ, so a backend that is
+    An item stays on the DLQ until its write succeeds, so a backend that is
     still down does not drain the queue into nothing. Draining stops at the
     first such failure rather than spinning through every item.
 
@@ -1212,27 +1213,35 @@ async def post_storage_dlq_reprocess(
         logger.error(f"Unknown storage backend {storage_name}: {str(e)}")
         raise HTTPException(status_code=404, detail=f"Unknown storage backend: {storage_name}")
 
+    dlq_name = get_storage_dlq_name(storage_name)
+    # No lease expiry: a slow save must never outlive its exclusive right to ack.
+    # A crashed worker leaves this lock for explicit operator recovery.
+    replay_lock = redis_async.lock(f"{dlq_name}:replay-lock", timeout=None, thread_local=False)
+    if not await replay_lock.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail="Storage replay already running or requires lock recovery")
+
     succeeded = 0
     try:
-        for _ in range(count):
-            vcon_id = await queue.dequeue_storage_dlq_async(redis_async, storage_name)
-            if vcon_id is None:
-                break
+        # Snapshot without removing entries. A stopped process or failed acknowledgement
+        # leaves the write replayable. Recovery is at-least-once: backends must tolerate
+        # repeated saves of the same UUID. The lock serializes snapshots and acknowledgements.
+        pending = await redis_async.lrange(dlq_name, 0, count - 1)
+        for vcon_id in pending:
             try:
-                storage.save(vcon_id)
-                succeeded += 1
+                await run_in_threadpool(storage.save, vcon_id)
             except Exception as e:
-                # Put it back and stop: the backend is still unhealthy, and
-                # popping the rest would only re-queue them one at a time.
                 logger.warning(
                     f"Storage DLQ retry failed for vCon {vcon_id} on {storage_name}: {e}"
                 )
-                queue.enqueue_storage_dlq(storage_name, vcon_id)
                 break
+            await redis_async.lrem(dlq_name, 1, vcon_id)
+            succeeded += 1
         return JSONResponse(content=succeeded)
     except Exception as e:
         logger.error(f"Error reprocessing storage DLQ: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to reprocess storage DLQ")
+    finally:
+        await replay_lock.release()
 
 
 @api_router.get(
