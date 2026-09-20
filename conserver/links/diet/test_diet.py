@@ -7,31 +7,11 @@ from botocore.exceptions import ClientError
 from links.diet import run, default_options, remove_system_prompts_recursive, _upload_to_s3_and_get_presigned_url
 
 
-def _bridge_vcon_redis(mock_redis_cls, vcon_dict):
-    """Wire a VconRedis mock to a legacy redis.json()-shaped MagicMock.
-
-    The original tests in this file were written against a raw
-    redis.json() interface. The link now goes through VconRedis. To
-    avoid a 200-line test rewrite, this helper hooks side_effects on
-    ``get_vcon_dict`` / ``store_vcon_dict`` that record calls onto a
-    shared ``mock_json`` object with the legacy ``get/set`` signature,
-    so assertions like ``mock_json.set.assert_called_once()`` and
-    ``args[2]`` access keep working.
-    """
+def _stub_vcon_redis(mock_redis_cls, vcon_dict):
+    """Stub the public storage interface without assuming a Redis wire format."""
     instance = mock_redis_cls.return_value
-    mock_json = MagicMock()
-    mock_json.get.return_value = vcon_dict
-
-    def fake_get_dict(uuid):
-        mock_json.get(f"vcon:{uuid}")
-        return vcon_dict
-
-    def fake_store_dict(vcon):
-        mock_json.set(f"vcon:{vcon.get('uuid', 'unknown')}", "$", vcon)
-
-    instance.get_vcon_dict.side_effect = fake_get_dict
-    instance.store_vcon_dict.side_effect = fake_store_dict
-    return mock_json
+    instance.get_vcon_dict.return_value = vcon_dict
+    return instance
 
 @pytest.fixture
 def sample_vcon():
@@ -88,15 +68,15 @@ def test_nonexistent_vcon(mock_redis):
 @patch('links.diet.VconRedis')
 def test_remove_dialog_body(mock_redis, sample_vcon):
     # Test removing dialog bodies
-    mock_json = _bridge_vcon_redis(mock_redis, sample_vcon)
+    mock_store = _stub_vcon_redis(mock_redis, sample_vcon)
 
     run("test-vcon-123", "diet", {"remove_dialog_body": True})
 
-    # Verify JSON.SET was called with the correct parameters
-    mock_json.set.assert_called_once()
+    # Verify the vCon was stored with the correct parameters
+    mock_store.store_vcon_dict.assert_called_once()
     # Get the saved vCon from the call arguments
-    args, kwargs = mock_json.set.call_args
-    saved_vcon = args[2]  # The vcon is the third argument to json().set()
+    args, kwargs = mock_store.store_vcon_dict.call_args
+    saved_vcon = args[0]
 
     # Check if dialog bodies were removed
     assert saved_vcon["dialog"][0]["body"] == ""
@@ -106,7 +86,7 @@ def test_remove_dialog_body(mock_redis, sample_vcon):
 @patch('links.diet.requests.post')
 def test_post_media_to_url(mock_post, mock_redis, sample_vcon):
     # Test posting media to URL
-    mock_json = _bridge_vcon_redis(mock_redis, sample_vcon)
+    mock_store = _stub_vcon_redis(mock_redis, sample_vcon)
 
     # Mock the post response
     mock_response = MagicMock()
@@ -119,11 +99,11 @@ def test_post_media_to_url(mock_post, mock_redis, sample_vcon):
         "post_media_to_url": "https://upload.example.com"
     })
 
-    # Verify JSON.SET was called with the correct parameters
-    mock_json.set.assert_called_once()
+    # Verify the vCon was stored with the correct parameters
+    mock_store.store_vcon_dict.assert_called_once()
     # Get the saved vCon from the call arguments
-    args, kwargs = mock_json.set.call_args
-    saved_vcon = args[2]  # The vcon is the third argument to json().set()
+    args, kwargs = mock_store.store_vcon_dict.call_args
+    saved_vcon = args[0]
 
     # Check if dialog bodies were replaced with URLs
     assert saved_vcon["dialog"][0]["body"] == "https://media.example.com/dialog1"
@@ -150,7 +130,7 @@ def test_post_media_to_url(mock_post, mock_redis, sample_vcon):
 @patch('links.diet.requests.post')
 def test_post_media_failure(mock_post, mock_redis, sample_vcon):
     # Test handling failed media post
-    mock_json = _bridge_vcon_redis(mock_redis, sample_vcon)
+    mock_store = _stub_vcon_redis(mock_redis, sample_vcon)
 
     # Mock the post response as a failure
     mock_response = MagicMock()
@@ -162,11 +142,11 @@ def test_post_media_failure(mock_post, mock_redis, sample_vcon):
         "post_media_to_url": "https://upload.example.com"
     })
 
-    # Verify JSON.SET was called with the correct parameters
-    mock_json.set.assert_called_once()
+    # Verify the vCon was stored with the correct parameters
+    mock_store.store_vcon_dict.assert_called_once()
     # Get the saved vCon from the call arguments
-    args, kwargs = mock_json.set.call_args
-    saved_vcon = args[2]  # The vcon is the third argument to json().set()
+    args, kwargs = mock_store.store_vcon_dict.call_args
+    saved_vcon = args[0]
 
     # Check if dialog bodies were emptied due to failure
     assert saved_vcon["dialog"][0]["body"] == ""
@@ -174,15 +154,15 @@ def test_post_media_failure(mock_post, mock_redis, sample_vcon):
 @patch('links.diet.VconRedis')
 def test_remove_analysis(mock_redis, sample_vcon):
     # Test removing analysis
-    mock_json = _bridge_vcon_redis(mock_redis, sample_vcon)
+    mock_store = _stub_vcon_redis(mock_redis, sample_vcon)
 
     run("test-vcon-123", "diet", {"remove_analysis": True})
 
-    # Verify JSON.SET was called with the correct parameters
-    mock_json.set.assert_called_once()
+    # Verify the vCon was stored with the correct parameters
+    mock_store.store_vcon_dict.assert_called_once()
     # Get the saved vCon from the call arguments
-    args, kwargs = mock_json.set.call_args
-    saved_vcon = args[2]  # The vcon is the third argument to json().set()
+    args, kwargs = mock_store.store_vcon_dict.call_args
+    saved_vcon = args[0]
 
     # Check if analysis was removed
     assert "analysis" not in saved_vcon
@@ -190,15 +170,15 @@ def test_remove_analysis(mock_redis, sample_vcon):
 @patch('links.diet.VconRedis')
 def test_remove_attachment_types(mock_redis, sample_vcon):
     # Test removing attachments by type
-    mock_json = _bridge_vcon_redis(mock_redis, sample_vcon)
+    mock_store = _stub_vcon_redis(mock_redis, sample_vcon)
 
     run("test-vcon-123", "diet", {"remove_attachment_types": ["image/jpeg", "audio/mp3"]})
 
-    # Verify JSON.SET was called with the correct parameters
-    mock_json.set.assert_called_once()
+    # Verify the vCon was stored with the correct parameters
+    mock_store.store_vcon_dict.assert_called_once()
     # Get the saved vCon from the call arguments
-    args, kwargs = mock_json.set.call_args
-    saved_vcon = args[2]  # The vcon is the third argument to json().set()
+    args, kwargs = mock_store.store_vcon_dict.call_args
+    saved_vcon = args[0]
 
     # Check if attachments were filtered correctly
     assert len(saved_vcon["attachments"]) == 1
@@ -208,15 +188,15 @@ def test_remove_attachment_types(mock_redis, sample_vcon):
 @patch('links.diet.VconRedis')
 def test_remove_system_prompts(mock_redis, sample_vcon):
     # Test removing system_prompt keys
-    mock_json = _bridge_vcon_redis(mock_redis, sample_vcon)
+    mock_store = _stub_vcon_redis(mock_redis, sample_vcon)
 
     run("test-vcon-123", "diet", {"remove_system_prompts": True})
 
-    # Verify JSON.SET was called with the correct parameters
-    mock_json.set.assert_called_once()
+    # Verify the vCon was stored with the correct parameters
+    mock_store.store_vcon_dict.assert_called_once()
     # Get the saved vCon from the call arguments
-    args, kwargs = mock_json.set.call_args
-    saved_vcon = args[2]  # The vcon is the third argument to json().set()
+    args, kwargs = mock_store.store_vcon_dict.call_args
+    saved_vcon = args[0]
 
     # Check if system_prompt was removed from analysis
     assert "system_prompt" not in saved_vcon["analysis"]
@@ -254,7 +234,7 @@ def test_remove_system_prompts_recursive_function():
 @patch('links.diet.VconRedis')
 def test_combined_options(mock_redis, sample_vcon):
     # Test all options together
-    mock_json = _bridge_vcon_redis(mock_redis, sample_vcon)
+    mock_store = _stub_vcon_redis(mock_redis, sample_vcon)
 
     run("test-vcon-123", "diet", {
         "remove_dialog_body": True,
@@ -263,11 +243,11 @@ def test_combined_options(mock_redis, sample_vcon):
         "remove_system_prompts": True
     })
 
-    # Verify JSON.SET was called with the correct parameters
-    mock_json.set.assert_called_once()
+    # Verify the vCon was stored with the correct parameters
+    mock_store.store_vcon_dict.assert_called_once()
     # Get the saved vCon from the call arguments
-    args, kwargs = mock_json.set.call_args
-    saved_vcon = args[2]  # The vcon is the third argument to json().set()
+    args, kwargs = mock_store.store_vcon_dict.call_args
+    saved_vcon = args[0]
 
     # Check that all transformations were applied
     assert saved_vcon["dialog"][0]["body"] == ""
@@ -406,7 +386,7 @@ def test_upload_to_s3_failure(mock_boto3):
 @patch('links.diet.boto3')
 def test_run_with_s3_storage(mock_boto3, mock_redis, sample_vcon, s3_options):
     # Test the full run function with S3 storage
-    mock_json = _bridge_vcon_redis(mock_redis, sample_vcon)
+    mock_store = _stub_vcon_redis(mock_redis, sample_vcon)
 
     mock_s3 = MagicMock()
     mock_boto3.client.return_value = mock_s3
@@ -414,10 +394,10 @@ def test_run_with_s3_storage(mock_boto3, mock_redis, sample_vcon, s3_options):
 
     run("test-vcon-123", "diet", s3_options)
 
-    # Verify JSON.SET was called
-    mock_json.set.assert_called_once()
-    args, kwargs = mock_json.set.call_args
-    saved_vcon = args[2]
+    # Verify the vCon was stored
+    mock_store.store_vcon_dict.assert_called_once()
+    args, kwargs = mock_store.store_vcon_dict.call_args
+    saved_vcon = args[0]
 
     # Check that dialog bodies were replaced with presigned URLs
     assert saved_vcon["dialog"][0]["body"] == "https://test-bucket.s3.amazonaws.com/presigned-url"
@@ -433,7 +413,7 @@ def test_run_with_s3_storage(mock_boto3, mock_redis, sample_vcon, s3_options):
 @patch('links.diet.boto3')
 def test_run_with_s3_storage_failure_removes_body(mock_boto3, mock_redis, sample_vcon, s3_options):
     # Test that body is removed when S3 upload fails
-    mock_json = _bridge_vcon_redis(mock_redis, sample_vcon)
+    mock_store = _stub_vcon_redis(mock_redis, sample_vcon)
 
     mock_s3 = MagicMock()
     mock_boto3.client.return_value = mock_s3
@@ -444,10 +424,10 @@ def test_run_with_s3_storage_failure_removes_body(mock_boto3, mock_redis, sample
 
     run("test-vcon-123", "diet", s3_options)
 
-    # Verify JSON.SET was called
-    mock_json.set.assert_called_once()
-    args, kwargs = mock_json.set.call_args
-    saved_vcon = args[2]
+    # Verify the vCon was stored
+    mock_store.store_vcon_dict.assert_called_once()
+    args, kwargs = mock_store.store_vcon_dict.call_args
+    saved_vcon = args[0]
 
     # Check that dialog bodies were removed due to failure
     assert saved_vcon["dialog"][0]["body"] == ""
@@ -458,7 +438,7 @@ def test_run_with_s3_storage_failure_removes_body(mock_boto3, mock_redis, sample
 @patch('links.diet.boto3')
 def test_s3_takes_precedence_over_post_url(mock_boto3, mock_redis, sample_vcon):
     # Test that S3 storage takes precedence over post_media_to_url
-    mock_json = _bridge_vcon_redis(mock_redis, sample_vcon)
+    mock_store = _stub_vcon_redis(mock_redis, sample_vcon)
 
     mock_s3 = MagicMock()
     mock_boto3.client.return_value = mock_s3
@@ -484,7 +464,7 @@ def test_s3_takes_precedence_over_post_url(mock_boto3, mock_redis, sample_vcon):
 @patch('links.diet.VconRedis')
 def test_options_logging_redacts_aws_secret_access_key(mock_redis, sample_vcon, caplog):
     # Ensure secrets are not written to logs
-    mock_json = _bridge_vcon_redis(mock_redis, sample_vcon)
+    mock_store = _stub_vcon_redis(mock_redis, sample_vcon)
 
     secret = "test-secret-key"
     caplog.set_level(logging.INFO)

@@ -31,6 +31,19 @@ jobs:
       run: |
         docker-compose up --build --detach
 
+    - name: Require ordinary Redis storage integration tests
+      run: |
+        docker-compose run --rm conserver pytest -q tests/core/test_plain_redis.py tests/core/test_redis_json_migration.py tests/core/test_vcon_redis_ttl.py common/tests/test_api.py
+
+    - name: Rehearse legacy RedisJSON migration
+      run: |
+        docker run -d --name redisjson-migration-source --network conserver --health-cmd 'redis-cli ping' --health-interval 1s --health-retries 30 redis/redis-stack@sha256:5d5154123426693540ea6c1d9e638eae2bf2024879c839db6fcfdd7717e817c7
+        for i in $(seq 1 30); do
+          if docker exec redisjson-migration-source redis-cli ping; then break; fi
+          sleep 1
+        done
+        docker-compose run --rm -e REDISJSON_TEST_SOURCE_URL=redis://redisjson-migration-source:6379/15 -e REDISJSON_TEST_TARGET_URL=redis://redis:6379/15 conserver pytest -q tests/core/test_redis_json_migration.py::test_redisjson_copy_to_ordinary_redis
+
     - name: Run tests inside Docker container
       run: |
         docker-compose run --rm conserver bash -c "
@@ -48,4 +61,6 @@ jobs:
 
     - name: Clean up
       if: always()
-      run: docker-compose down
+      run: |
+        docker-compose down
+        docker rm -f redisjson-migration-source || true
