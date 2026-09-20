@@ -6,6 +6,7 @@ The ``conserver/main.py`` link resolver automatically reroutes
 emits a one-time deprecation warning.
 """
 
+from lib.redaction import safe_opts
 import re
 from urllib.parse import unquote, urlparse
 from lib.logging_utils import init_logger
@@ -331,9 +332,9 @@ def combine_transcription_results(results: list) -> dict:
     combined_text = " ".join([result.get("text", "") for result in results if result.get("text")])
     
     # Combine usage statistics
-    total_input_tokens = sum([result.get("usage", {}).get("input_tokens", 0) for result in results])
-    total_output_tokens = sum([result.get("usage", {}).get("output_tokens", 0) for result in results])
-    total_tokens = sum([result.get("usage", {}).get("total_tokens", 0) for result in results])
+    total_input_tokens = sum([(result.get("usage") or {}).get("input_tokens", 0) for result in results])
+    total_output_tokens = sum([(result.get("usage") or {}).get("output_tokens", 0) for result in results])
+    total_tokens = sum([(result.get("usage") or {}).get("total_tokens", 0) for result in results])
     
     # Use the first result as base and update with combined data
     combined_result = results[0].copy()
@@ -448,7 +449,7 @@ def transcribe_openai(url: str, opts: dict = None, vcon_uuid: str = None) -> dic
             ai_usage_api_token = opts.get("ai_usage_api_token", "")
             
             if vcon_uuid:
-                usage_info = result.get("usage", {})
+                usage_info = result.get("usage") or {}  # providers such as Telnyx Inference return usage: null
                 input_units = usage_info.get("input_tokens", 0)
                 output_units = usage_info.get("output_tokens", 0)
                 
@@ -575,8 +576,7 @@ def run(
 
         # Prepare vendor schema, omitting credentials
         vendor_schema = {}
-        sensitive_keys = {"OPENAI_API_KEY", "AZURE_OPENAI_API_KEY", "ai_usage_api_token", "send_ai_usage_data_to_url"}
-        vendor_schema["opts"] = {k: v for k, v in opts.items() if k not in sensitive_keys}
+        vendor_schema["opts"] = safe_opts(opts)
 
         # Add the transcript analysis to the vCon
         vCon.add_analysis(
