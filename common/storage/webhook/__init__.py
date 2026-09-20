@@ -11,6 +11,7 @@ logger = init_logger(__name__)
 default_options = {
     "webhook-urls": [],
     "headers": {},
+    "timeout": 30,
 }
 
 
@@ -37,10 +38,16 @@ def save(vcon_uuid, opts=default_options):
             f"webhook storage: posting vcon {vcon_uuid} to webhook url: {url}"
         )
         webhook_start = time.time()
-        resp = requests.post(url, json=json_dict, headers=headers)
+        resp = requests.post(
+            url, json=json_dict, headers=headers,
+            timeout=opts.get("timeout", default_options["timeout"]),
+        )
         webhook_duration = round(time.time() - webhook_start, 3)
         logger.info(
             f"webhook storage response for {vcon_uuid}: {resp.status_code} {resp.text}"
         )
         record_histogram("conserver.webhook.duration", webhook_duration,
                          attributes={"status_code": str(resp.status_code)})
+
+        # Propagate HTTP failures so the conserver retains this write in its storage DLQ.
+        resp.raise_for_status()

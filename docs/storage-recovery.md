@@ -51,3 +51,11 @@ update both base images; updating only workers queues failures without providing
 the recovery endpoint. Preserve the previous images for rollback. Rolling back
 must not clear `DLQ:storage:*`; old images cannot replay these queues. After rollout,
 verify versions, health, storage-error alerts, and queue depth before a small replay.
+
+## Generic webhook backends
+
+`storage.webhook` propagates HTTP 4xx/5xx and transport failures to the same storage
+DLQ. Its `timeout` option defaults to 30 seconds per request. It does not automatically
+retry arbitrary POST receivers because their idempotency contracts are unknown.
+Before replaying a backend with multiple webhook URLs, confirm every receiver can
+tolerate duplicate writes: an earlier URL may have succeeded before a later one failed.
