@@ -52,7 +52,7 @@ async def get_async_client():
 
 def json_set(client, key, value, ttl=None):
     """Store a whole document, retaining an existing expiry unless overridden."""
-    payload = json.dumps(value)
+    payload = json.dumps(value, allow_nan=False)
     if ttl is None:
         return client.set(key, payload, keepttl=True)
     if ttl > 0:
@@ -69,7 +69,7 @@ def json_get(client, key):
 
 async def json_set_async(client, key, value, ttl=None):
     """Async counterpart of json_set using the caller's client/event loop."""
-    payload = json.dumps(value)
+    payload = json.dumps(value, allow_nan=False)
     if ttl is None:
         return await client.set(key, payload, keepttl=True)
     if ttl > 0:

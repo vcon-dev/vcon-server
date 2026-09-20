@@ -2,6 +2,7 @@
 
 Start a private Unix-socket server, never use the configured REDIS_URL.
 """
+
 import json
 import shutil
 import subprocess
@@ -26,9 +27,9 @@ def plain_redis(tmp_path_factory):
     directory = tempfile.TemporaryDirectory(prefix="redis-", dir="/tmp")
     socket = directory.name + "/redis.sock"
     process = subprocess.Popen(
-        [executable, "--port", "0", "--unixsocket", socket,
-         "--save", "", "--appendonly", "no"],
-        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+        [executable, "--port", "0", "--unixsocket", socket, "--save", "", "--appendonly", "no"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
     )
     client = Redis(unix_socket_path=socket, decode_responses=True)
     try:
@@ -146,5 +147,22 @@ async def test_async_explicit_ttl(client, plain_redis, ttl):
             assert client.exists(key) == 0
         else:
             assert 0 < client.ttl(key) <= ttl
+    finally:
+        await async_client.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('number', [float('nan'), float('inf'), -float('inf')])
+async def test_nonfinite_json_is_rejected_before_overwriting(client, plain_redis, number):
+    _, socket = plain_redis
+    async_client = AsyncRedis(unix_socket_path=socket, decode_responses=True)
+    key = f'test:{uuid4()}'
+    redis_mgr.set_key(key, {'original': True})
+    try:
+        with pytest.raises(ValueError):
+            redis_mgr.json_set(client, key, {'invalid': number})
+        with pytest.raises(ValueError):
+            await redis_mgr.json_set_async(async_client, key, {'invalid': number})
+        assert redis_mgr.get_key(key) == {'original': True}
     finally:
         await async_client.close()
