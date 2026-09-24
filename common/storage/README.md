@@ -20,6 +20,7 @@ The following storage backends are supported:
 - **Redis** (`redis_storage/`): In-memory data structure store
 - **SFTP** (`sftp/`): Secure file transfer protocol storage
 - **File** (`file/`): Local file system storage
+- **Utopia** (`utopia/`): Bitemporal knowledge graph, vCons rendered as dated documents
 
 ## Configuration
 
