@@ -14,17 +14,17 @@ Utopia reads prose, not JSON, and it dates a document only from a leading `YYYY-
 +15085550100 took part.
 On 2026-09-18 at 14:02, +15085550100 and Support had a recorded call lasting 240 seconds.
 
-Summary: ...
+On 2026-09-18, the conversation was summarised: ...
 
 Transcript of the conversation on 2026-09-18 at 14:02:
 
-Speaker 0: ...
+On 2026-09-18, Speaker 0: ...
 
 Lawful basis: consent, granted for recording, analysis, expires 2027-01-01.
 Source: vCon 8f752fc9-d6d8-4d2c-a9d0-d859f61d7c51, created 2026-09-18T14:02:00Z.
 ```
 
-Sentences rather than key-value pairs, because `On 2026-09-18, X called Y` extracts as a fact with a start date, and `created_at: 2026-09-18` leaves the model guessing.
+Sentences rather than key-value pairs, because `On 2026-09-18, X called Y` extracts as a fact with a start date, and `created_at: 2026-09-18` leaves the model guessing. Utopia extracts chunk by chunk, so every summary and transcript paragraph repeats the date rather than relying on a heading in another chunk.
 
 The renderer reads `wtf_transcription`, OpenAI, Deepgram and legacy `transcript` bodies, `summary` analysis, the `tags` attachment and the `lawful_basis` attachment. It accepts legacy records (`vcon: "0.0.1"`, attachment `type` instead of `purpose`, dict bodies).
 

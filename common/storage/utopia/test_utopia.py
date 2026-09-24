@@ -30,7 +30,7 @@ LEGACY = {
     ],
     "dialog": [{"type": "text", "start": "2025-02-27T16:44:59.773035", "parties": [1, 0]}],
     "analysis": [
-        {"type": "transcript", "dialog": 0, "body": {"transcript": "Hello, how can I help?"}},
+        {"type": "transcript", "dialog": 0, "body": {"transcript": "Hello, how can I help?\n\nI need a pickup."}},
         {"type": "summary", "dialog": 0, "body": "The agent answered a question.", "encoding": "none"},
     ],
     "attachments": [{"type": "tags", "body": ["disposition:VM Left"]}],
@@ -68,8 +68,9 @@ def test_render_legacy_record():
     assert lines[0] == "2025-02-27"  # Utopia takes the document date from line one
     assert "Jane Doe took part as customer, reachable by phone +15085550199." in lines
     assert "On 2025-02-27 at 16:44, John Roe and Jane Doe had a text conversation." in lines
-    assert "Hello, how can I help?" in lines
-    assert "Summary: The agent answered a question." in lines
+    assert "On 2025-02-27, Hello, how can I help?" in lines
+    assert "On 2025-02-27, I need a pickup." in lines  # each paragraph dated
+    assert "On 2025-02-27, the conversation was summarised: The agent answered a question." in lines
     assert "Tagged disposition:VM Left." in lines
     assert "Lawful basis: none recorded." in lines
     assert granted is False
@@ -80,7 +81,7 @@ def test_render_current_record_with_lawful_basis():
     assert text.startswith("2026-09-18\n")
     assert "On 2026-09-18 at 14:02, +15085550100 and Support had a recorded call lasting 240 seconds." in text
     assert "+15085550100 took part.\n" in text
-    assert "Speaker 0: Hello there.\nSpeaker 1: Hi." in text
+    assert "On 2026-09-18, Speaker 0: Hello there.\nOn 2026-09-18, Speaker 1: Hi." in text
     assert "Lawful basis: consent, granted for recording, analysis, expires 2999-01-01." in text
     assert granted is True
 

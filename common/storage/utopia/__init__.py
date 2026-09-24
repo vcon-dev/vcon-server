@@ -220,19 +220,30 @@ def render(vcon: dict) -> Tuple[str, bool]:
     lines += [_party_sentence(p or {}) for p in parties]
     lines += [_dialog_sentence(d or {}, parties) for d in dialogs]
 
+    def dialog_of(a: dict) -> dict:
+        i = a.get("dialog")
+        return (dialogs[i] or {}) if isinstance(i, int) and 0 <= i < len(dialogs) else {}
+
+    # Utopia extracts chunk by chunk, so a date in a heading does not reach facts
+    # drawn from later paragraphs. Every summary and transcript paragraph carries
+    # its own "On <date>," so the facts in it get a world time.
     for a in analysis:
         if a.get("type") == "summary":
             text = _transcript_lines(_body(a))
+            on = _date(dialog_of(a).get("start")) or day
             if text:
-                lines += ["", "Summary: " + " ".join(text)]
+                lines += ["", (f"On {on}, the conversation was summarised: " if on else "Summary: ")
+                          + " ".join(text)]
     for a in analysis:
         if a.get("type") in TRANSCRIPT_TYPES:
             text = _transcript_lines(_body(a))
             if not text:
                 continue
-            d = dialogs[a["dialog"]] if isinstance(a.get("dialog"), int) and a["dialog"] < len(dialogs) else {}
+            d = dialog_of(a)
+            on = _date(d.get("start")) or day
             heading = f"Transcript of the conversation on {_when(d.get('start'))}:" if d.get("start") else "Transcript:"
-            lines += ["", heading, ""] + text
+            paragraphs = [p.strip() for t in text for p in t.split("\n\n") if p.strip()]
+            lines += ["", heading, ""] + [f"On {on}, {p}" if on else p for p in paragraphs]
 
     tags = _tags(attachments)
     if tags:
