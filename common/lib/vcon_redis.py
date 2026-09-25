@@ -1,4 +1,3 @@
-import json
 from datetime import datetime
 from typing import Any, Optional
 from config import Configuration
@@ -36,20 +35,26 @@ class VconRedis:
     DEFAULT_TTL = VCON_REDIS_EXPIRY
 
     @staticmethod
-    def _stringify_json_body(entry: Any) -> None:
-        """Force ``body`` to be a string + correct ``encoding`` per speckit.
+    def _normalize_json_body_encoding(entry: Any) -> None:
+        """Fix a mismatched ``encoding`` on a dict/list ``body`` per -04.
 
-        The speckit non-negotiable: analysis/attachment bodies are
-        strings. JSON content pairs ``body: json.dumps(...)`` with
-        ``encoding: "json"``. vcon-lib's ``add_analysis`` currently
-        emits dict/list bodies with ``encoding: "none"``, which we
-        normalize on the way out so storage is spec-correct.
+        Per draft-ietf-vcon-vcon-core-04 §2.3.2, with ``encoding: "json"``
+        the ``body`` is the JSON value itself (object/array), not a
+        stringified copy. A dict/list body should therefore carry
+        ``encoding: "json"`` as-is; we no longer ``json.dumps`` it away.
+        The only thing to fix here is a real mismatch: a dict/list body
+        that arrived with ``encoding: "none"`` (or no encoding at all,
+        e.g. from vcon-lib's ``add_analysis``) is stamped to ``"json"``
+        without touching the value.
+
+        A ``str`` body with ``encoding: "json"`` is left untouched — that's
+        the legacy -02 stringified shape, which readers (``Vcon.decoded_body``)
+        still decode.
         """
         if not isinstance(entry, dict):
             return
         body = entry.get("body")
-        if isinstance(body, (dict, list)):
-            entry["body"] = json.dumps(body)
+        if isinstance(body, (dict, list)) and entry.get("encoding") != "json":
             entry["encoding"] = "json"
 
     @classmethod
@@ -81,11 +86,13 @@ class VconRedis:
         # speckit: empty ``redacted: {}`` should be omitted.
         if vcon_dict.get("redacted") == {}:
             vcon_dict.pop("redacted", None)
-        # speckit: analysis/attachment bodies are strings.
+        # draft-ietf-vcon-vcon-core-04 §2.3.2: with encoding "json" the body
+        # is the JSON value itself; only fix a real dict/list-vs-encoding
+        # mismatch, never stringify.
         for entry in vcon_dict.get("analysis", []) or []:
-            cls._stringify_json_body(entry)
+            cls._normalize_json_body_encoding(entry)
         for entry in vcon_dict.get("attachments", []) or []:
-            cls._stringify_json_body(entry)
+            cls._normalize_json_body_encoding(entry)
         return vcon_dict
 
     def store_vcon(self, vCon: vcon.Vcon, ttl: Optional[int] = None) -> None:

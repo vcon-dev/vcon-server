@@ -51,7 +51,10 @@ def test_returns_same_dict():
     assert VconRedis._enforce_spec_on_write(d) is d
 
 
-def test_stringifies_dict_analysis_body():
+def test_keeps_dict_analysis_body_raw_and_fixes_encoding():
+    # draft-ietf-vcon-vcon-core-04 §2.3.2: encoding "json" bodies are the
+    # JSON value itself. A dict body that arrived with encoding "none" is a
+    # real mismatch — fix the encoding, but never stringify the value.
     d = {
         "uuid": "u",
         "analysis": [
@@ -65,12 +68,11 @@ def test_stringifies_dict_analysis_body():
     }
     VconRedis._enforce_spec_on_write(d)
     a = d["analysis"][0]
-    assert isinstance(a["body"], str)
-    assert a["body"] == '{"k": "v"}'
+    assert a["body"] == {"k": "v"}
     assert a["encoding"] == "json"
 
 
-def test_stringifies_list_analysis_body():
+def test_keeps_list_analysis_body_raw_and_fixes_encoding():
     d = {
         "uuid": "u",
         "analysis": [
@@ -84,7 +86,27 @@ def test_stringifies_list_analysis_body():
     }
     VconRedis._enforce_spec_on_write(d)
     a = d["analysis"][0]
-    assert isinstance(a["body"], str)
+    assert a["body"] == [{"entry_id": "abc"}]
+    assert a["encoding"] == "json"
+
+
+def test_keeps_dict_body_raw_when_encoding_already_json():
+    # Adapters now emit raw values directly with encoding already "json" —
+    # no mismatch to fix, value must be untouched.
+    d = {
+        "uuid": "u",
+        "analysis": [
+            {
+                "type": "summary",
+                "vendor": "openai",
+                "body": {"k": "v"},
+                "encoding": "json",
+            }
+        ],
+    }
+    VconRedis._enforce_spec_on_write(d)
+    a = d["analysis"][0]
+    assert a["body"] == {"k": "v"}
     assert a["encoding"] == "json"
 
 
@@ -106,7 +128,27 @@ def test_leaves_string_body_alone():
     assert a["encoding"] == "none"
 
 
-def test_stringifies_dict_attachment_body():
+def test_leaves_legacy_stringified_json_body_alone():
+    # A str body already carrying encoding "json" is the legacy -02 shape.
+    # It must not be re-parsed or otherwise mutated on write.
+    d = {
+        "uuid": "u",
+        "analysis": [
+            {
+                "type": "summary",
+                "vendor": "openai",
+                "body": '{"k": "v"}',
+                "encoding": "json",
+            }
+        ],
+    }
+    VconRedis._enforce_spec_on_write(d)
+    a = d["analysis"][0]
+    assert a["body"] == '{"k": "v"}'
+    assert a["encoding"] == "json"
+
+
+def test_keeps_dict_attachment_body_raw_and_fixes_encoding():
     d = {
         "uuid": "u",
         "attachments": [
@@ -115,7 +157,7 @@ def test_stringifies_dict_attachment_body():
     }
     VconRedis._enforce_spec_on_write(d)
     att = d["attachments"][0]
-    assert isinstance(att["body"], str)
+    assert att["body"] == {"tag": "x"}
     assert att["encoding"] == "json"
 
 

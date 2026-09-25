@@ -5,11 +5,13 @@ This is the inverse of :func:`lib.vcon_compat.normalize_legacy_fields`.
 The conserver normalizes every vCon *up* to the current spec (``vcon: "0.4.0"``)
 on read and write. Downstream consumers built against an older schema (e.g.
 ``0.0.1``) break on the canonical shape — notably the ``type`` → ``purpose``
-attachment rename and the write-path serialization of dict/list analysis and
-attachment bodies into JSON strings (``encoding: "json"``). This module converts
-an *outgoing* payload back to a legacy version — reversing the field renames and
-re-inflating those JSON-string bodies to native objects with ``encoding: "none"``
-— so those consumers keep working while a migration is planned.
+attachment rename and, per draft-ietf-vcon-vcon-core-04 §2.3.2, dict/list
+analysis/attachment bodies carried as native JSON values under
+``encoding: "json"`` rather than stringified. This module converts an
+*outgoing* payload back to a legacy version — reversing the field renames and
+turning those native/stringified JSON bodies into legacy-shape native objects
+with ``encoding: "none"`` — so those consumers keep working while a migration
+is planned.
 
 It never mutates the canonical in-pipeline copy: callers pass ``vcon.to_dict()``
 and receive a new, deep-copied, downgraded dict. Enable it per egress point via
@@ -68,22 +70,30 @@ def _entry_to_legacy(entry: Dict[str, Any]) -> None:
 
 
 def _body_to_legacy(entry: Dict[str, Any]) -> None:
-    """Inverse of ``VconRedis._stringify_json_body``.
+    """Inverse of the -04 write path's ``encoding: "json"`` shape.
 
-    The spec write-path serializes dict/list ``body`` values to a JSON string
-    and sets ``encoding: "json"``. The legacy 0.0.1 shape carries the native
-    object/array with ``encoding: "none"``, so parse it back. Applied to
-    analysis and attachment entries only — dialog bodies are not stringified on
-    write. Left untouched if the body isn't valid JSON.
+    Per draft-ietf-vcon-vcon-core-04 §2.3.2, a spec-current ``encoding: "json"``
+    body is the JSON value itself (dict/list) — no parsing needed, just flip
+    ``encoding`` to the legacy 0.0.1 ``"none"``. A str body under
+    ``encoding: "json"`` is the older -02 stringified shape (still seen in
+    storage rows written before this change, or from writers that pass a
+    pre-serialized string); parse it back to a native value. Applied to
+    analysis and attachment entries only — dialog bodies are not touched on
+    write. Left untouched if a str body isn't valid JSON.
     """
     if not isinstance(entry, dict):
         return
-    if entry.get("encoding") == "json" and isinstance(entry.get("body"), str):
+    if entry.get("encoding") != "json":
+        return
+    body = entry.get("body")
+    if isinstance(body, str):
         try:
-            entry["body"] = json.loads(entry["body"])
+            entry["body"] = json.loads(body)
         except (ValueError, TypeError):
             return
-        entry["encoding"] = "none"
+    elif not isinstance(body, (dict, list)):
+        return
+    entry["encoding"] = "none"
 
 
 def _attachment_to_legacy(att: Dict[str, Any]) -> None:

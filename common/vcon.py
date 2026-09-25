@@ -70,19 +70,21 @@ class Vcon:
     def decoded_body(entry):
         """Return an attachment/analysis ``body`` as a live Python value.
 
-        Per draft-ietf-vcon-vcon-core-02 §2.3.2 ``body`` is *always* a String;
-        the ``encoding`` tells you how to interpret it:
+        Per draft-ietf-vcon-vcon-core-04 §2.3.2, with ``encoding: "json"``
+        the ``body`` is the JSON value itself (object/array) — that's the
+        common case now and is returned as-is. A JSON-decoded value never
+        needs to be str-decoded, so this only parses when ``encoding`` is
+        ``"json"`` *and* ``body`` is still a ``str`` — the legacy -02
+        stringified shape that older producers or storage rows may still
+        carry.
 
-        - ``json`` → body is a JSON-encoded object/array, parse with ``json.loads``.
+        - ``json`` + dict/list body → returned as-is (current spec shape).
+        - ``json`` + str body → parsed with ``json.loads`` (legacy shape).
         - ``base64url`` → body is base64url-encoded bytes, returned verbatim
           (binary decoding is caller-specific).
-        - ``none`` → body is a freeform string, returned verbatim.
-
-        For backwards compatibility with legacy writers that placed a raw
-        dict/list under ``body`` with ``encoding: none``, the dict/list is
-        returned as-is. ``VconRedis._enforce_spec_on_write`` later normalises
-        that to spec-correct ``encoding: json`` + stringified body, after
-        which this helper still returns the same Python value on reload.
+        - ``none`` → body is a freeform string, returned verbatim. A raw
+          dict/list under ``body`` with ``encoding: none`` (a real writer
+          mismatch) is likewise returned as-is.
 
         Returns ``None`` if ``entry`` is falsy.
         """
@@ -176,15 +178,14 @@ class Vcon:
         if encoding not in ['json', 'none', 'base64url']:
             raise Exception("Invalid encoding")
 
-        # Per draft-ietf-vcon-vcon-core-02 §2.3.2 ``body`` is always a String.
-        # If a caller hands us a dict/list as a convenience, JSON-encode it
-        # immediately so any reader that touches the attachment between now
-        # and storage sees the spec-correct shape.
+        # Per draft-ietf-vcon-vcon-core-04 §2.3.2, with encoding "json" the
+        # body is the JSON value itself (object/array), not a stringified
+        # copy. A dict/list body is stored as-is with encoding forced to
+        # "json"; a str body is only validated as JSON when it claims to be
+        # encoded that way (the legacy -02 stringified shape).
         if isinstance(body, (dict, list)):
-            body = json.dumps(body)
             encoding = "json"
-
-        if encoding == "json":
+        elif encoding == "json":
             try:
                 json.loads(body)
             except Exception as e:
@@ -209,15 +210,14 @@ class Vcon:
         if encoding not in ['json', 'none', 'base64url']:
             raise Exception("Invalid encoding")
 
-        # Per draft-ietf-vcon-vcon-core-02 §2.3.2 ``body`` is always a String.
-        # If a caller hands us a dict/list as a convenience, JSON-encode it
-        # immediately so any reader that touches the analysis between now
-        # and storage sees the spec-correct shape.
+        # Per draft-ietf-vcon-vcon-core-04 §2.3.2, with encoding "json" the
+        # body is the JSON value itself (object/array), not a stringified
+        # copy. A dict/list body is stored as-is with encoding forced to
+        # "json"; a str body is only validated as JSON when it claims to be
+        # encoded that way (the legacy -02 stringified shape).
         if isinstance(body, (dict, list)):
-            body = json.dumps(body)
             encoding = "json"
-
-        if encoding == "json":
+        elif encoding == "json":
             try:
                 json.loads(body)
             except Exception as e:
