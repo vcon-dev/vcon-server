@@ -101,3 +101,19 @@ def test_empty_or_missing_fields_safe():
 def test_returns_same_dict():
     v = {"uuid": "u"}
     assert normalize_legacy_fields(v) is v
+
+
+def test_legacy_text_encoding_to_none():
+    v = {
+        "uuid": "u",
+        "attachments": [
+            {"type": "searchable_text", "encoding": "text", "body": "2024 Impreza"},
+            {"type": "tags", "encoding": "json", "body": "[]"},
+        ],
+        "analysis": [{"type": "summary", "encoding": "text", "body": "s"}],
+    }
+    normalize_legacy_fields(v)
+    assert v["attachments"][0]["encoding"] == "none"
+    assert v["attachments"][0]["body"] == "2024 Impreza"
+    assert v["attachments"][1]["encoding"] == "json"
+    assert v["analysis"][0]["encoding"] == "none"
