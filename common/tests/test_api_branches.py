@@ -75,7 +75,12 @@ async def test_sync_vcon_from_storage_canonicalizes_legacy_payload(redis_async):
     """A storage backend may hold a legacy / egress-converted 0.0.1 payload
     (see egress_format_version). The fallback must canonicalize it before
     caching to Redis or returning to the client, so downstream links/clients
-    never see legacy field names or native (non-stringified) bodies."""
+    never see legacy field names or a body/encoding mismatch.
+
+    Per draft-ietf-vcon-vcon-core-04 §2.3.2, canonicalizing a dict/list body
+    no longer stringifies it — encoding "json" now means the body IS that
+    dict/list, so the fallback only needs to fix the mismatched "none"
+    encoding on the way in, keeping the value native."""
     vcon_uuid = uuid4()
     legacy = {
         "uuid": str(vcon_uuid),
@@ -94,9 +99,9 @@ async def test_sync_vcon_from_storage_canonicalizes_legacy_payload(redis_async):
     # Returned payload is canonical.
     att = result["attachments"][0]
     assert att.get("purpose") == "tags" and "type" not in att
-    assert isinstance(att["body"], str) and att["encoding"] == "json"
+    assert att["body"] == ["a", "b"] and att["encoding"] == "json"
     an = result["analysis"][0]
-    assert isinstance(an["body"], str) and an["encoding"] == "json"
+    assert an["body"] == {"k": "v"} and an["encoding"] == "json"
 
     # The copy cached back into Redis is canonical too (not the raw legacy dict).
     cached = json.loads(redis_async.set.await_args.args[1])

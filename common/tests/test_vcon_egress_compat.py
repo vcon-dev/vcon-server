@@ -114,6 +114,27 @@ def test_json_string_body_inflated_to_native():
     assert out["analysis"][0]["encoding"] == "none"
 
 
+def test_raw_dict_and_list_json_body_flipped_to_legacy_encoding():
+    """The -04 write path (spec-current): encoding 'json' body is already a
+    native dict/list. No parsing needed — just flip encoding to 'none' to
+    match the legacy 0.0.1 shape, leaving the value itself untouched."""
+    canonical = _canonical_vcon()
+    canonical["attachments"] = [
+        {"purpose": "tags", "body": ["source:crexendo", "direction:out"], "encoding": "json"},
+        {"purpose": "tenant", "body": {"id": 385}, "encoding": "json"},
+    ]
+    canonical["analysis"] = [
+        {"type": "transcript", "dialog": 0, "vendor": "x", "body": {"transcript": "hi"}, "encoding": "json"},
+    ]
+    out = to_legacy(canonical, "0.0.1")
+    assert out["attachments"][0]["body"] == ["source:crexendo", "direction:out"]
+    assert out["attachments"][0]["encoding"] == "none"
+    assert out["attachments"][1]["body"] == {"id": 385}
+    assert out["attachments"][1]["encoding"] == "none"
+    assert out["analysis"][0]["body"] == {"transcript": "hi"}
+    assert out["analysis"][0]["encoding"] == "none"
+
+
 def test_plain_string_body_untouched():
     """A non-JSON body (encoding != 'json') is left exactly as-is."""
     canonical = _canonical_vcon()

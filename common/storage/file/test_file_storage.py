@@ -255,6 +255,34 @@ class TestGet:
         assert result["marker"] == "uncompressed"
 
 
+class TestRawJsonBodyRoundtrip:
+    """CON-1111: an encoding='json' dict/list body (draft-ietf-vcon-vcon-
+    core-04 §2.3.2) must survive save()+get() unchanged. File storage writes
+    the whole vcon.dumps() JSON text, so this guards against anything
+    upstream re-stringifying it."""
+
+    def test_save_then_get_preserves_raw_dict_and_list_body(self, temp_storage_dir):
+        vcon = Vcon.build_new()
+        vcon.add_attachment(body={"lawful_basis": "consent"}, type="lawful_basis")
+        vcon.add_attachment(body=["source:test"], type="tags")
+
+        opts = {"path": temp_storage_dir, "compression": False, "organize_by_date": False}
+
+        with patch("storage.file.VconRedis") as MockVconRedis:
+            mock_redis = MagicMock()
+            mock_redis.get_vcon.return_value = vcon
+            MockVconRedis.return_value = mock_redis
+            save(vcon.uuid, opts)
+
+        result = get(vcon.uuid, opts)
+        lawful_basis = next(a for a in result["attachments"] if a["type"] == "lawful_basis")
+        tags = next(a for a in result["attachments"] if a["type"] == "tags")
+        assert lawful_basis["body"] == {"lawful_basis": "consent"}
+        assert lawful_basis["encoding"] == "json"
+        assert tags["body"] == ["source:test"]
+        assert tags["encoding"] == "json"
+
+
 class TestDelete:
     """Tests for delete function."""
 

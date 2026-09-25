@@ -99,6 +99,49 @@ def test_create_vcon_with_extra_attribute():
         assert response.json()["meta"] == {"foo": "bar"}
 
 
+@pytest.mark.anyio
+def test_post_and_get_vcon_round_trips_raw_json_bodies():
+    """CON-1111: draft-ietf-vcon-vcon-core-04 §2.3.2 — with encoding "json"
+    the body is the JSON value itself (object/array), not a stringified
+    copy. A dict lawful_basis attachment body and a list tags attachment
+    body must round-trip through POST /vcon + GET /vcon/{uuid} as a dict
+    and a list, not JSON strings.
+    """
+    test_vcon = generate_mock_vcon()
+    test_vcon["attachments"] = [
+        {
+            "purpose": "lawful_basis",
+            "body": {
+                "lawful_basis": "consent",
+                "purpose_grants": [{"purpose": "analysis", "granted": True}],
+            },
+            "encoding": "json",
+        },
+        {
+            "purpose": "tags",
+            "body": ["source:test", "direction:out"],
+            "encoding": "json",
+        },
+    ]
+    post_vcon(test_vcon)
+
+    with TestClient(api.app, headers={CONSERVER_HEADER_NAME: CONSERVER_API_TOKEN}) as client:
+        response = client.get("/vcon/{}".format(test_vcon["uuid"]))
+        assert response.status_code == 200
+        body = response.json()
+
+    lawful_basis = next(a for a in body["attachments"] if a["purpose"] == "lawful_basis")
+    tags = next(a for a in body["attachments"] if a["purpose"] == "tags")
+
+    assert isinstance(lawful_basis["body"], dict)
+    assert lawful_basis["body"]["lawful_basis"] == "consent"
+    assert lawful_basis["encoding"] == "json"
+
+    assert isinstance(tags["body"], list)
+    assert tags["body"] == ["source:test", "direction:out"]
+    assert tags["encoding"] == "json"
+
+
 _INVALID_FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "invalid_fixtures")
 
 

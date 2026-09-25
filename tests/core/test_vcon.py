@@ -44,10 +44,10 @@ def test_add_attachment():
     vcon = Vcon.build_new()
     vcon.add_attachment(body={"key": "value"}, type="test_type")
     attachment = vcon.find_attachment_by_purpose("test_type")
-    # Per spec body is always String — a dict input is JSON-encoded at the
-    # boundary and ``encoding`` is forced to ``json``. The original Python
-    # value round-trips via Vcon.decoded_body.
-    assert attachment["body"] == json.dumps({"key": "value"})
+    # Per draft-ietf-vcon-vcon-core-04 §2.3.2, with encoding "json" body is
+    # the JSON value itself — a dict input is kept as-is and ``encoding`` is
+    # forced to ``json``, no stringification.
+    assert attachment["body"] == {"key": "value"}
     assert attachment["encoding"] == "json"
     assert Vcon.decoded_body(attachment) == {"key": "value"}
 
@@ -59,15 +59,42 @@ def test_add_attachment_keeps_freeform_string_body_unchanged():
     assert attachment == {"type": "note", "body": "just text", "encoding": "none"}
 
 
+def test_add_attachment_keeps_list_body_raw():
+    vcon = Vcon.build_new()
+    vcon.add_attachment(body=["category:1", "category:2"], type="tags")
+    attachment = vcon.find_attachment_by_purpose("tags")
+    assert attachment["body"] == ["category:1", "category:2"]
+    assert attachment["encoding"] == "json"
+
+
+def test_add_attachment_only_validates_json_for_str_body():
+    # A dict/list body is never JSON-validated (it's already a Python
+    # value); only a str body claiming encoding="json" is checked.
+    vcon = Vcon.build_new()
+    with pytest.raises(Exception):
+        vcon.add_attachment(body="not-valid-json", type="bad", encoding="json")
+    # A dict body never raises — it's stored as-is, no JSON validation.
+    vcon.add_attachment(body={"k": "v"}, type="ok")
+    assert vcon.find_attachment_by_purpose("ok")["body"] == {"k": "v"}
+
+
 def test_add_analysis():
     vcon = Vcon.build_new()
     vcon.add_analysis(type="test_type", dialog=[1, 2], vendor="test_vendor", body={"key": "value"})
     analysis = vcon.find_analysis_by_type("test_type")
-    assert analysis["body"] == json.dumps({"key": "value"})
+    assert analysis["body"] == {"key": "value"}
     assert analysis["encoding"] == "json"
     assert analysis["dialog"] == [1, 2]
     assert analysis["vendor"] == "test_vendor"
     assert Vcon.decoded_body(analysis) == {"key": "value"}
+
+
+def test_add_analysis_keeps_list_body_raw():
+    vcon = Vcon.build_new()
+    vcon.add_analysis(type="scitt_receipt", dialog=0, vendor="scittles", body=[{"entry_id": "abc"}])
+    analysis = vcon.find_analysis_by_type("scitt_receipt")
+    assert analysis["body"] == [{"entry_id": "abc"}]
+    assert analysis["encoding"] == "json"
 
 
 def test_add_party():
@@ -109,7 +136,7 @@ def test_find_attachment_by_type():
         warnings.simplefilter("ignore", DeprecationWarning)
         assert vcon.find_attachment_by_type("test_type") == {
             "type": "test_type",
-            "body": json.dumps({"key": "value"}),
+            "body": {"key": "value"},
             "encoding": "json",
         }
         assert vcon.find_attachment_by_type("nonexistent_type") is None
@@ -210,7 +237,7 @@ def test_find_analysis_by_type():
         "type": "test_type",
         "dialog": [1, 2],
         "vendor": "test_vendor",
-        "body": json.dumps({"key": "value"}),
+        "body": {"key": "value"},
         "encoding": "json",
     }
     assert vcon.find_analysis_by_type("nonexistent_type") is None
@@ -264,11 +291,13 @@ def test_error_handling():
 
 
 # ---------------------------------------------------------------------------
-# Body decoding regression coverage. The Redis store path
-# (VconRedis._enforce_spec_on_write) stringifies dict/list bodies to JSON and
-# rewrites encoding to "json" per draft-ietf-vcon-vcon-core-02. Read-side
-# callers must round-trip through Vcon.decoded_body so they don't see a string
-# where they used to see a dict/list.
+# Body decoding regression coverage. Per draft-ietf-vcon-vcon-core-04 §2.3.2,
+# an ``encoding: "json"`` body is the JSON value itself (dict/list); the
+# Redis store path (VconRedis._enforce_spec_on_write) only fixes a mismatched
+# encoding, never stringifies. Some rows may still carry the legacy -02
+# stringified shape (a str body under encoding "json"). Read-side callers
+# must round-trip through Vcon.decoded_body so they see the same Python value
+# regardless of which shape is on disk.
 # ---------------------------------------------------------------------------
 
 

@@ -376,6 +376,41 @@ class TestSave:
                 region_name="us-east-2",
             )
 
+    def test_save_preserves_raw_dict_and_list_body(self, base_opts):
+        """CON-1111: an encoding='json' dict/list body (draft-ietf-vcon-vcon-
+        core-04 §2.3.2) must survive the json.dumps/put_object round trip
+        unchanged — s3 stores the whole vcon dict, so this is really a
+        regression guard against something upstream re-stringifying it."""
+        canonical = {
+            "uuid": "test-uuid",
+            "vcon": "0.4.0",
+            "attachments": [
+                {"purpose": "lawful_basis", "body": {"lawful_basis": "consent"}, "encoding": "json"},
+                {"purpose": "tags", "body": ["source:test"], "encoding": "json"},
+            ],
+        }
+        mock = MagicMock()
+        mock.to_dict.return_value = canonical
+        mock.created_at = "2025-12-10T15:30:00Z"
+
+        with patch("storage.s3.VconRedis") as mock_redis_class, \
+             patch("storage.s3.boto3.client") as mock_boto_client:
+            mock_redis = MagicMock()
+            mock_redis.get_vcon.return_value = mock
+            mock_redis_class.return_value = mock_redis
+
+            mock_s3 = MagicMock()
+            mock_boto_client.return_value = mock_s3
+
+            save("test-uuid", base_opts)
+
+            body_call = next(c for c in mock_s3.put_object.call_args_list if c.kwargs["Key"].endswith(".vcon"))
+            stored = json.loads(body_call.kwargs["Body"])
+            lawful_basis = next(a for a in stored["attachments"] if a["purpose"] == "lawful_basis")
+            tags = next(a for a in stored["attachments"] if a["purpose"] == "tags")
+            assert lawful_basis["body"] == {"lawful_basis": "consent"}
+            assert tags["body"] == ["source:test"]
+
     def test_save_raises_exception_on_error(self, mock_vcon, base_opts):
         """Test that save raises exception on S3 error."""
         with patch("storage.s3.VconRedis") as mock_redis_class, \

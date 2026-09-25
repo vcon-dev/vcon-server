@@ -72,3 +72,56 @@ async def test_is_included():
         },
         _vcon,
     )
+
+
+@pytest.mark.asyncio
+async def test_is_included_matches_raw_dict_body():
+    # draft-ietf-vcon-vcon-core-04 §2.3.2: with encoding "json" the body is
+    # the JSON value itself (a dict here), not a string. The substring match
+    # must still find tokens inside it via its JSON-serialized form.
+    _vcon = vcon.Vcon.build_new()
+    _vcon.add_analysis(
+        type="customer_frustration",
+        body={"verdict": "NEEDS REVIEW", "score": 0.9},
+        dialog=0,
+        vendor="FooBar Inc.",
+    )
+    assert is_included(
+        {
+            "only_if": {
+                "section": "analysis",
+                "type": "customer_frustration",
+                "includes": "NEEDS REVIEW",
+            }
+        },
+        _vcon,
+    )
+    assert not is_included(
+        {
+            "only_if": {
+                "section": "analysis",
+                "type": "customer_frustration",
+                "includes": "ALL CLEAR",
+            }
+        },
+        _vcon,
+    )
+
+
+@pytest.mark.asyncio
+async def test_is_included_matches_raw_list_attachment_body():
+    _vcon = vcon.Vcon.build_new()
+    _vcon.add_attachment(
+        body=["category:12", "category:99"],
+        type="tags2",
+    )
+    assert is_included(
+        {
+            "only_if": {
+                "section": "attachments",
+                "type": "tags2",
+                "includes": "category:99",
+            }
+        },
+        _vcon,
+    )

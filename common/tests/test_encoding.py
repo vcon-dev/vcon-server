@@ -10,9 +10,9 @@ def test_encoding():
     print("test_vcon:", _vcon)
     test_vcon = vcon.Vcon(_vcon)
 
-    # Spec (draft-ietf-vcon-vcon-core-02 §2.3.2): body is always a String. A
-    # dict/list passed in for convenience is JSON-encoded at the boundary and
-    # the encoding is forced to "json".
+    # Spec (draft-ietf-vcon-vcon-core-04 §2.3.2): with encoding "json" body is
+    # the JSON value itself. A dict/list passed in is kept as-is and the
+    # encoding is forced to "json" (no stringification).
     test_vcon.add_attachment(
         type="test_encoding_dict_coerced",
         body={"key": "value"},
@@ -20,7 +20,7 @@ def test_encoding():
     )
     assert test_vcon.find_attachment_by_purpose("test_encoding_dict_coerced") == {
         "type": "test_encoding_dict_coerced",
-        "body": json.dumps({"key": "value"}),
+        "body": {"key": "value"},
         "encoding": "json",
     }
 
@@ -31,7 +31,7 @@ def test_encoding():
     )
     assert test_vcon.find_attachment_by_purpose("test_encoding_list_coerced") == {
         "type": "test_encoding_list_coerced",
-        "body": json.dumps(["key", "value"]),
+        "body": ["key", "value"],
         "encoding": "json",
     }
 
