@@ -327,7 +327,8 @@ class DialogEntry(BaseModel):
     @field_validator("url")
     @classmethod
     def url_valid(cls, v):
-        if v is not None and not _URL_RE.match(v):
+        # Empty string means "no recording"; producers send it, treat it as absent.
+        if v and not _URL_RE.match(v):
             raise ValueError(f"url does not look like a valid URL: {v!r}")
         return v
 
@@ -355,7 +356,8 @@ class PartyEntry(BaseModel):
     @field_validator("tel")
     @classmethod
     def tel_valid(cls, v):
-        if v is not None and not _TEL_RE.match(v):
+        # Empty string means "no number"; treat it as absent. "Anonymous" etc. still fail.
+        if v and not _TEL_RE.match(v):
             raise ValueError(f"tel has invalid format: {v!r}")
         return v
 
