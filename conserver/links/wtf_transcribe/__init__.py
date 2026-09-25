@@ -23,7 +23,6 @@ Example configuration in config.yml:
         url-timeout: 300
 """
 
-import base64
 import json
 import logging
 import requests
@@ -32,6 +31,7 @@ from typing import Optional, Dict, Any
 from lib.vcon_redis import VconRedis
 from lib.logging_utils import init_logger
 from lib.error_tracking import init_error_tracker
+from lib.dialog_body import decode_inline_dialog_body
 
 init_error_tracker()
 logger = init_logger(__name__)
@@ -111,13 +111,13 @@ def is_base64url_dialog(dialog):
     return has_base64url_encoding(dialog) and has_body(dialog)
 
 def base64url_dialog_to_binary(dialog):
-    return base64.urlsafe_b64decode(dialog["body"])
+    return decode_inline_dialog_body(dialog)
 
 def is_base64_dialog(dialog):
     return has_body(dialog)
 
 def base64_dialog_to_binary(dialog):
-    return base64.b64decode(dialog["body"])
+    return decode_inline_dialog_body(dialog)
 
 def dialog_to_binary(dialog, url_timeout=60):
     if is_url_dialog(dialog):

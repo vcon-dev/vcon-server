@@ -451,6 +451,17 @@ def test_get_file_content_from_body():
     content = get_file_content(dialog)
     assert content == b"test audio content"
 
+def test_get_file_content_from_base64url_body_without_padding():
+    """base64url dialogs (no padding, per draft-ietf-vcon-vcon-core-04) decode
+    to the original bytes, not the corrupted/raised result plain b64decode gives."""
+    raw = b"test audio content, base64url, no padding"
+    dialog = {
+        "encoding": "base64url",
+        "body": base64.urlsafe_b64encode(raw).decode('utf-8').rstrip('='),
+    }
+    content = get_file_content(dialog)
+    assert content == raw
+
 @patch('links.groq_whisper.requests.get')
 def test_get_file_content_from_url(mock_get):
     """Test extracting file content from URL reference"""

@@ -12,6 +12,7 @@ transcription results.
 """
 
 from lib.redaction import safe_opts
+from lib.dialog_body import decode_inline_dialog_body
 import base64
 import hashlib
 import logging
@@ -139,8 +140,9 @@ def get_file_content(dialog: dict) -> bytes:
         Exception: If file cannot be retrieved or verified
     """
     if "body" in dialog:
-        # body contains the base64 encoded content. Decode and return
-        return base64.b64decode(dialog["body"])
+        # body contains the base64/base64url encoded content. Decode per
+        # the dialog's own encoding and return.
+        return decode_inline_dialog_body(dialog)
 
     elif "url" in dialog:
         # Handle external file
