@@ -50,6 +50,11 @@ def decode_inline_dialog_body(dialog: Dict[str, Any]) -> bytes:
     """
     body = dialog["body"]
     encoding = dialog.get("encoding")
+    if isinstance(body, str):
+        # Some producers wrap base64 at 76 columns (MIME style). The old
+        # non-validating decode skipped the line breaks; keep accepting them
+        # while still rejecting any other out-of-alphabet character.
+        body = "".join(body.split())
 
     if encoding == "base64url":
         if not isinstance(body, str):

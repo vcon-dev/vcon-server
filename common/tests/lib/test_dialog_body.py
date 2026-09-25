@@ -68,3 +68,13 @@ def test_invalid_base64url_body_raises():
 def test_invalid_legacy_base64_body_raises():
     with pytest.raises(ValueError):
         decode_inline_dialog_body({"body": "not valid base64!!"})
+
+
+def test_line_wrapped_bodies_decode():
+    raw = bytes(range(256)) * 2
+    std = base64.b64encode(raw).decode()
+    wrapped = "\n".join(std[i : i + 76] for i in range(0, len(std), 76))
+    assert decode_inline_dialog_body({"body": wrapped, "encoding": "base64"}) == raw
+    url = base64.urlsafe_b64encode(raw).decode().rstrip("=")
+    wrapped_url = "\r\n".join(url[i : i + 76] for i in range(0, len(url), 76))
+    assert decode_inline_dialog_body({"body": wrapped_url, "encoding": "base64url"}) == raw
