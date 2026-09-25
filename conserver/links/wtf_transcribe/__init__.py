@@ -25,6 +25,7 @@ Example configuration in config.yml:
 
 import json
 import logging
+import mimetypes
 import requests
 from typing import Optional, Dict, Any
 
@@ -180,8 +181,33 @@ def dialog_to_audio_binary(dialog, url_timeout):
 def dialog_filename(dialog, dialog_index):
     return dialog.get("filename", f"audio_{dialog_index}.wav")
 
-def dialog_mimetype(dialog):
-    return dialog.get("mimetype", "audio/wav")
+def dialog_mediatype(dialog):
+    """Resolve a dialog's media type.
+
+    Prefers the modern ``mediatype`` field, then falls back to the legacy
+    ``mimetype`` field (in case a caller passes a pre-compat dialog), then
+    derives it from the dialog's filename extension, and finally defaults
+    to audio/wav.
+    """
+    mediatype = dialog.get("mediatype")
+    if mediatype:
+        return mediatype
+
+    mimetype = dialog.get("mimetype")
+    if mimetype:
+        return mimetype
+
+    filename = dialog.get("filename")
+    if filename:
+        guessed_type, _ = mimetypes.guess_type(filename)
+        if guessed_type and (guessed_type.startswith("audio/") or guessed_type.startswith("video/")):
+            return guessed_type
+
+    return "audio/wav"
+
+
+# Backwards-compatible alias; prefer dialog_mediatype for new code.
+dialog_mimetype = dialog_mediatype
 
 def build_vfun_headers(api_key):
     headers = {}
@@ -202,8 +228,8 @@ def maybe_decode_double_encoded_json(response_json):
 
 def send_audio_to_vfun(audio_binary, dialog, dialog_index, vfun_server_url, api_key, diarize, language, vfun_timeout):
     filename = dialog_filename(dialog, dialog_index)
-    mimetype = dialog_mimetype(dialog)
-    files = {"file-binary": (filename, audio_binary, mimetype)}
+    mediatype = dialog_mediatype(dialog)
+    files = {"file-binary": (filename, audio_binary, mediatype)}
     headers = build_vfun_headers(api_key)
     data = build_vfun_data(diarize, language)
     response = requests.post(

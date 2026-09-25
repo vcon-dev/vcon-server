@@ -10,7 +10,7 @@ from links.wtf_transcribe import (
     analysis_dialog_index,
     analysis_is_wtf_transcription,
     dialog_filename,
-    dialog_mimetype,
+    dialog_mediatype,
     dialog_to_audio_binary,
     dialog_to_binary,
     dialog_to_index,
@@ -63,7 +63,27 @@ def test_analysis_and_dialog_helpers_cover_transcribed_and_recording_checks():
 def test_file_and_remote_loaders_handle_success_and_failure():
     assert is_file_url("file:///tmp/audio.wav") is True
     assert dialog_filename({}, 3) == "audio_3.wav"
-    assert dialog_mimetype({}) == "audio/wav"
+    assert dialog_mediatype({}) == "audio/wav"
+
+
+def test_dialog_mediatype_resolution_order():
+    # Modern adapters write "mediatype"; it takes priority.
+    assert dialog_mediatype({"mediatype": "audio/mpeg"}) == "audio/mpeg"
+
+    # Legacy "mimetype" is honoured when "mediatype" is absent.
+    assert dialog_mediatype({"mimetype": "audio/mpeg"}) == "audio/mpeg"
+
+    # "mediatype" wins over a legacy "mimetype" when both are present.
+    assert dialog_mediatype({"mediatype": "audio/mpeg", "mimetype": "audio/wav"}) == "audio/mpeg"
+
+    # Neither field present: derive from the filename extension.
+    assert dialog_mediatype({"filename": "clip.ogg"}) == "audio/ogg"
+
+    # A non-audio/video guess from the filename doesn't count; fall through to default.
+    assert dialog_mediatype({"filename": "clip.txt"}) == "audio/wav"
+
+    # Nothing at all gives the audio/wav default.
+    assert dialog_mediatype({}) == "audio/wav"
 
     with patch("builtins.open", mock_open(read_data=b"file-bytes")):
         assert maybe_load_file_url("file:///tmp/audio.wav") == b"file-bytes"
