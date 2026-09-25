@@ -1,3 +1,4 @@
+import json
 import random
 from typing import Literal, Optional, TypedDict
 from lib.logging_utils import init_logger
@@ -68,11 +69,19 @@ def is_included(options: Optional[FilterOptions], _vcon) -> bool:
                 if isinstance(tags, list) and includes in tags:
                     return True
                 continue
-            # Per spec §2.3.2 ``body`` is always a String regardless of
-            # encoding, so substring-match directly without any decode.
+            # Per draft-ietf-vcon-vcon-core-04 §2.3.2, an ``encoding: "json"``
+            # body is the JSON value itself (dict/list), not a string — so a
+            # plain substring match only works directly for str bodies (the
+            # legacy -02 stringified shape, or encoding "none"/"base64url").
+            # For a dict/list body, match against its JSON-serialized form so
+            # ``includes`` still finds tokens inside it.
             body = element.get("body")
-            if isinstance(body, str) and includes in body:
-                return True
+            if isinstance(body, str):
+                if includes in body:
+                    return True
+            elif isinstance(body, (dict, list)):
+                if includes in json.dumps(body):
+                    return True
     except Exception as e:
         logger.error(f"Error checking inclusion: {e}")
     return False

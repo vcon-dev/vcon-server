@@ -1,3 +1,5 @@
+import json
+
 from lib.vcon_redis import VconRedis
 from lib.logging_utils import init_logger
 from lib.metrics import increment_counter
@@ -122,9 +124,14 @@ def run(vcon_id, link_name, opts=default_options):
         # we need to skip first one an only post the second one to slack
         if a["type"] != opts["only_if"]["analysis_type"]:
             continue
-        # Per draft-ietf-vcon-vcon-core-02 §2.3.2 body is always a String —
-        # substring-match directly without decoding.
-        if opts["only_if"]["includes"] not in a["body"]:
+        # Per draft-ietf-vcon-vcon-core-04 §2.3.2, an ``encoding: "json"``
+        # body is the JSON value itself (dict/list) rather than a string, so
+        # substring-match its JSON-serialized form in that case; a str body
+        # (the common case for this analysis type, and the legacy -02
+        # stringified shape) is matched directly.
+        body = a["body"]
+        haystack = body if isinstance(body, str) else json.dumps(body)
+        if opts["only_if"]["includes"] not in haystack:
             continue
         if a.get("was_posted_to_slack"):
             continue
@@ -140,7 +147,13 @@ def run(vcon_id, link_name, opts=default_options):
         team_name = get_team(vcon)
         dealer_name = get_dealer(vcon)
         summary = get_summary(vcon, a["dialog"])
+        # The summary body is posted as Slack message text, which must be a
+        # string. It's normally already one (encoding "none"/legacy -02
+        # stringified "json"); a raw dict/list body (spec-current -04
+        # "json" encoding) is serialized for display.
         abstract = summary["body"]
+        if not isinstance(abstract, str):
+            abstract = json.dumps(abstract)
 
         if team_name and team_name != "strolid":
             channel_name = f"team-{team_name}-alerts"
