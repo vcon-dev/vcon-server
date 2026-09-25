@@ -92,6 +92,11 @@ def test_dialog_to_binary_handles_url_base64url_base64_and_invalid_inputs():
     base64url_body = base64.urlsafe_b64encode(b"url-safe").decode("ascii")
     assert dialog_to_binary({"encoding": "base64url", "body": base64url_body}) == b"url-safe"
 
+    # Telephony adapters emit base64url WITHOUT padding (draft-ietf-vcon-vcon-core-04);
+    # plain base64.urlsafe_b64decode raises on that, so this must still round-trip.
+    unpadded_base64url_body = base64.urlsafe_b64encode(b"url-safe, unpadded").decode("ascii").rstrip("=")
+    assert dialog_to_binary({"encoding": "base64url", "body": unpadded_base64url_body}) == b"url-safe, unpadded"
+
     base64_body = base64.b64encode(b"plain").decode("ascii")
     assert dialog_to_binary({"body": base64_body}) == b"plain"
 
