@@ -22,6 +22,9 @@ Mappings applied:
 - attachment / dialog ``mimetype`` → ``mediatype``
 - extension/critical: ``must_support`` (top-level or in entries) →
   ``critical``
+- dialog / analysis / attachment ``encoding: "text"`` → ``"none"``. Not a
+  spec value (``base64url``, ``json``, ``none``); legacy producers use it for
+  a plain-string body, which is exactly what ``none`` means.
 
 The function is conservative: if both the legacy and the spec field are
 present, the spec field wins and the legacy field is dropped.
@@ -53,6 +56,8 @@ def _normalize_entry(entry: Dict[str, Any]) -> None:
     _rename(entry, "schema_version", "schema")
     _rename(entry, "mimetype", "mediatype")
     _rename(entry, "must_support", "critical")
+    if entry.get("encoding") == "text":
+        entry["encoding"] = "none"
 
 
 def _normalize_attachment(att: Dict[str, Any]) -> None:
