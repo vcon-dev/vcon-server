@@ -26,6 +26,7 @@ Example configuration in config.yml:
 import json
 import logging
 import mimetypes
+import os
 import requests
 from typing import Optional, Dict, Any
 
@@ -181,6 +182,23 @@ def dialog_to_audio_binary(dialog, url_timeout):
 def dialog_filename(dialog, dialog_index):
     return dialog.get("filename", f"audio_{dialog_index}.wav")
 
+# Common audio/video extensions, checked before the OS MIME table: slim Linux
+# images ship without /etc/mime.types, where mimetypes.guess_type("x.ogg")
+# returns None even though macOS resolves it.
+_MEDIA_EXTENSIONS = {
+    ".wav": "audio/wav",
+    ".mp3": "audio/mpeg",
+    ".ogg": "audio/ogg",
+    ".oga": "audio/ogg",
+    ".opus": "audio/opus",
+    ".m4a": "audio/mp4",
+    ".aac": "audio/aac",
+    ".flac": "audio/flac",
+    ".webm": "audio/webm",
+    ".mp4": "video/mp4",
+}
+
+
 def dialog_mediatype(dialog):
     """Resolve a dialog's media type.
 
@@ -199,6 +217,9 @@ def dialog_mediatype(dialog):
 
     filename = dialog.get("filename")
     if filename:
+        known = _MEDIA_EXTENSIONS.get(os.path.splitext(filename)[1].lower())
+        if known:
+            return known
         guessed_type, _ = mimetypes.guess_type(filename)
         if guessed_type and (guessed_type.startswith("audio/") or guessed_type.startswith("video/")):
             return guessed_type

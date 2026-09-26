@@ -239,3 +239,15 @@ def test_run_happy_path_installs_defaults_and_saves(
         url_timeout=60,
     )
     mock_save_vcon.assert_called_once_with(vcon, redis)
+
+
+def test_dialog_mediatype_extension_table_without_os_mime_table(monkeypatch):
+    # Slim Linux images have no /etc/mime.types, so guess_type() knows little.
+    # The built-in extension table must still resolve common audio types.
+    import links.wtf_transcribe as wtf
+
+    monkeypatch.setattr(wtf.mimetypes, "guess_type", lambda *_a, **_k: (None, None))
+    assert wtf.dialog_mediatype({"filename": "clip.ogg"}) == "audio/ogg"
+    assert wtf.dialog_mediatype({"filename": "CALL.MP3"}) == "audio/mpeg"
+    assert wtf.dialog_mediatype({"filename": "x.opus"}) == "audio/opus"
+    assert wtf.dialog_mediatype({"filename": "notes.txt"}) == "audio/wav"
