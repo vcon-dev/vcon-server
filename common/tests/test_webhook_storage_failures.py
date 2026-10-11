@@ -21,11 +21,12 @@ def test_http_failure_reaches_storage_dlq(status):
     )
     with (
         patch.object(webhook, "VconRedis") as bodies,
-        patch.object(webhook.requests, "post", return_value=response),
+        patch.object(webhook, "_get_session") as session,
         patch("main.Storage") as storage,
         patch("main.queue") as queue,
     ):
         bodies.return_value.get_vcon.return_value.to_dict.return_value = {"synthetic_retry_probe": True}
+        session.return_value.post.return_value = response
         storage.return_value.save.side_effect = lambda vid: webhook.save(vid, {"webhook-urls": [response.url]})
         request._process_storage("test_webhook")
         queue.enqueue_storage_dlq.assert_called_once_with("test_webhook", "synthetic-id", retention_seconds=604800)
@@ -38,8 +39,9 @@ def test_success_has_bounded_request_timeout(options, expected):
     response._content = b"{}"
     with (
         patch.object(webhook, "VconRedis") as bodies,
-        patch.object(webhook.requests, "post", return_value=response) as post,
+        patch.object(webhook, "_get_session") as session,
     ):
         bodies.return_value.get_vcon.return_value.to_dict.return_value = {"synthetic_retry_probe": True}
+        session.return_value.post.return_value = response
         webhook.save("synthetic-id", {"webhook-urls": ["https://receiver.invalid/probe"], **options})
-        assert post.call_args.kwargs["timeout"] == expected
+        assert session.return_value.post.call_args.kwargs["timeout"] == expected
