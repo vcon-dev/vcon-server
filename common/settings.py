@@ -80,6 +80,42 @@ EGRESS_FORMAT_VERSION = os.getenv("EGRESS_FORMAT_VERSION") or None
 # (LLM, transcription, webhook, storage writes).
 CONSERVER_VCON_CONCURRENCY = max(1, int(os.getenv("CONSERVER_VCON_CONCURRENCY", 1)))
 
+# Ingress list filters (comma-separated list names). They let two conserver
+# deployments share one chain config while serving different chains, so cheap
+# chains cannot crowd a slow one out of the worker slots. Unset include means
+# every ingress list in the config; exclude is applied after include. None means
+# unset. A variable that is set but names no list (empty, ",") is a config error
+# and fails closed at startup rather than serving every list.
+CONSERVER_INGRESS_INCLUDE = os.environ.get("CONSERVER_INGRESS_INCLUDE")
+CONSERVER_INGRESS_EXCLUDE = os.environ.get("CONSERVER_INGRESS_EXCLUDE")
+# Strict boolean parsing for the two flags below. Unset gives the default;
+# 1/true/yes/on and 0/false/no/off (any case) are accepted; anything else,
+# including an empty string, is recorded in CONSERVER_BOOL_ERRORS and makes
+# startup exit non-zero (see main.validate_ingress_filter) rather than guessing.
+CONSERVER_BOOL_ERRORS = []
+
+
+def _strict_bool(name, default):
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    value = raw.strip().lower()
+    if value in ("1", "true", "yes", "on"):
+        return True
+    if value in ("0", "false", "no", "off"):
+        return False
+    CONSERVER_BOOL_ERRORS.append(
+        f"{name}={raw!r} is not a boolean (use 1/true/yes/on or 0/false/no/off)"
+    )
+    return default
+
+
+# When true, startup exits unless INCLUDE or EXCLUDE is set and valid.
+CONSERVER_INGRESS_REQUIRE_FILTER = _strict_bool("CONSERVER_INGRESS_REQUIRE_FILTER", False)
+# Set false on all but one process when several share a chain config, so the
+# followers do not double-enqueue.
+CONSERVER_FOLLOWERS_ENABLED = _strict_bool("CONSERVER_FOLLOWERS_ENABLED", True)
+
 # Multiprocessing start method: "fork", "spawn", or "forkserver"
 # - "fork" (default on Unix): Copy-on-write memory, fastest startup, but can cause
 #   issues with threads and some libraries (OpenSSL, CUDA, etc.)

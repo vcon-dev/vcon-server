@@ -40,6 +40,47 @@ def get_vcon_concurrency() -> int:
     return max(1, settings.CONSERVER_VCON_CONCURRENCY)
 
 
+def _parse_list_names(name: str, raw: str | None) -> set[str] | None:
+    """Parse a comma-separated filter variable.
+
+    None (unset) means no filter. A set variable that yields no names raises,
+    because treating it as "no filter" would serve every list.
+    """
+    if raw is None:
+        return None
+    names = {n.strip() for n in raw.split(",") if n.strip()}
+    if not names:
+        raise ValueError(
+            f"{name} is set but names no ingress list (value {raw!r}); "
+            "unset it to disable the filter"
+        )
+    return names
+
+
+def get_ingress_filters() -> tuple[set[str] | None, set[str] | None]:
+    """Return the parsed (include, exclude) sets, None where unset.
+
+    Raises:
+        ValueError: If a filter variable is set but names no list.
+    """
+    return (
+        _parse_list_names("CONSERVER_INGRESS_INCLUDE", settings.CONSERVER_INGRESS_INCLUDE),
+        _parse_list_names("CONSERVER_INGRESS_EXCLUDE", settings.CONSERVER_INGRESS_EXCLUDE),
+    )
+
+
+def filter_ingress_lists(ingress_lists: list[str]) -> list[str]:
+    """Apply CONSERVER_INGRESS_INCLUDE / CONSERVER_INGRESS_EXCLUDE.
+
+    Keeps the config order, which is the order BLPOP checks the lists in.
+    """
+    include, exclude = get_ingress_filters()
+    return [
+        name for name in ingress_lists
+        if (include is None or name in include) and (exclude is None or name not in exclude)
+    ]
+
+
 def get_start_method() -> str | None:
     """Get the multiprocessing start method.
     

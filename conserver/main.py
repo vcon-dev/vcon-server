@@ -28,12 +28,19 @@ from config import (
     is_parallel_storage_enabled,
     get_start_method,
     get_vcon_concurrency,
+    filter_ingress_lists,
+    get_ingress_filters,
 )
 from version import get_version_string, get_version_info
 import hook
 import after_link_hook
 from lib.vcon_redis import VconRedis
-from settings import VCON_DLQ_EXPIRY
+from settings import (
+    VCON_DLQ_EXPIRY,
+    CONSERVER_INGRESS_REQUIRE_FILTER,
+    CONSERVER_FOLLOWERS_ENABLED,
+    CONSERVER_BOOL_ERRORS,
+)
 from lib.context_utils import retrieve_context, store_context_sync, extract_otel_trace_context
 from lib.queue import VconQueue
 from lib.tracing import init_tracing
@@ -863,11 +870,15 @@ def worker_loop(worker_id: int) -> None:
         logger.debug("[%s] Refreshed configuration", worker_name)
         
         ingress_chain_map = get_ingress_chain_map()
-        all_ingress_lists = list(ingress_chain_map.keys())
+        all_ingress_lists = filter_ingress_lists(list(ingress_chain_map.keys()))
         logger.debug("[%s] Monitoring ingress lists: %s", worker_name, all_ingress_lists)
 
         if not all_ingress_lists:
-            logger.warning("[%s] No ingress lists configured, retrying in 15s", worker_name)
+            logger.error(
+                "[%s] No ingress lists to serve (after CONSERVER_INGRESS_INCLUDE/EXCLUDE), retrying in 15s",
+                worker_name,
+            )
+            increment_counter("conserver.main_loop.no_ingress_lists")
             time.sleep(15)
             continue
 
@@ -920,6 +931,63 @@ def worker_loop(worker_id: int) -> None:
         executor.shutdown(wait=True)
 
     logger.info("%s exiting", worker_name)
+
+
+def validate_ingress_filter() -> List[str]:
+    """Check the ingress filter against the loaded config and return the lists served.
+
+    Fails closed: any filter that would leave this process serving nothing, or
+    that is missing when CONSERVER_INGRESS_REQUIRE_FILTER is set, exits non-zero
+    instead of falling back to every list.
+    """
+    if CONSERVER_BOOL_ERRORS:
+        for msg in CONSERVER_BOOL_ERRORS:
+            logger.error("Invalid configuration: %s", msg)
+        sys.exit(1)
+
+    try:
+        include, exclude = get_ingress_filters()
+    except ValueError as e:
+        logger.error("Invalid ingress filter: %s", e)
+        sys.exit(1)
+
+    if CONSERVER_INGRESS_REQUIRE_FILTER and include is None and exclude is None:
+        logger.error(
+            "CONSERVER_INGRESS_REQUIRE_FILTER is set but neither "
+            "CONSERVER_INGRESS_INCLUDE nor CONSERVER_INGRESS_EXCLUDE is"
+        )
+        sys.exit(1)
+
+    configured = list(get_ingress_chain_map().keys())
+    for var, names in (
+        ("CONSERVER_INGRESS_INCLUDE", include),
+        ("CONSERVER_INGRESS_EXCLUDE", exclude),
+    ):
+        unknown = sorted(names - set(configured)) if names is not None else []
+        if unknown:
+            logger.error(
+                "%s names unknown ingress lists: %s (configured: %s)",
+                var, unknown, configured,
+            )
+            sys.exit(1)
+
+    served = filter_ingress_lists(configured)
+    if (include is not None or exclude is not None) and not served:
+        logger.error(
+            "Ingress filter leaves no lists to serve: include=%s exclude=%s configured=%s",
+            sorted(include) if include is not None else None,
+            sorted(exclude) if exclude is not None else None,
+            configured,
+        )
+        sys.exit(1)
+
+    logger.info(
+        "Ingress filter: include=%s exclude=%s serving=%s",
+        sorted(include) if include is not None else "<all>",
+        sorted(exclude) if exclude is not None else "<none>",
+        served,
+    )
+    return served
 
 
 def main() -> None:
@@ -977,7 +1045,6 @@ def main() -> None:
         parallel_storage,
         current_start_method,
     )
-    
     logger.info("Initializing vCon server")
     global config
     config = get_config()
@@ -986,7 +1053,12 @@ def main() -> None:
         {k: v for k, v in config.items() if k not in ['links', 'chains']}
     )
 
-    follower.start_followers()
+    validate_ingress_filter()
+
+    if CONSERVER_FOLLOWERS_ENABLED:
+        follower.start_followers()
+    else:
+        logger.info("Followers disabled (CONSERVER_FOLLOWERS_ENABLED=false)")
     
     if worker_count > 1:
         # Multi-worker mode: spawn worker processes
