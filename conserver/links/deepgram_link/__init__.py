@@ -255,7 +255,7 @@ def run(
             logger.info("Dialog %s already transcribed on vCon: %s", index, vCon.uuid)
             continue
 
-        attrs = {"link.name": link_name, "vcon.uuid": vcon_uuid}
+        attrs = {"link.name": link_name}
         start = time.time()
         try:
             if opts.get("LITELLM_PROXY_URL") and opts.get("LITELLM_MASTER_KEY"):

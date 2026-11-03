@@ -196,7 +196,7 @@ def run(
                 logger.info(f"Applied tag: {opts['tag_name']}:{opts['tag_value']} (evaluation: {applies})")
                 increment_counter(
                     "conserver.link.openai.tags_applied",
-                    attributes={"analysis_type": opts['analysis_type'], "tag_name": opts['tag_name'], "tag_value": opts['tag_value'], "link.name": link_name, "vcon.uuid": vcon_uuid},
+                    attributes={"analysis_type": opts['analysis_type'], "tag_name": opts['tag_name'], "tag_value": opts['tag_value'], "link.name": link_name},
                 )
             else:
                 logger.info(f"Tag not applied: {opts['tag_name']}:{opts['tag_value']} (evaluation: {applies})")
@@ -208,14 +208,14 @@ def run(
             )
             increment_counter(
                 "conserver.link.openai.evaluation_failures",
-                attributes={"analysis_type": opts['analysis_type'], "tag_name": opts['tag_name'], "tag_value": opts['tag_value'], "link.name": link_name, "vcon.uuid": vcon_uuid},
+                attributes={"analysis_type": opts['analysis_type'], "tag_name": opts['tag_name'], "tag_value": opts['tag_value'], "link.name": link_name},
             )
             raise e
 
         record_histogram(
             "conserver.link.openai.evaluation_time",
             time.time() - start,
-            attributes={"analysis_type": opts['analysis_type'], "tag_name": opts['tag_name'], "tag_value": opts['tag_value'], "link.name": link_name, "vcon.uuid": vcon_uuid},
+            attributes={"analysis_type": opts['analysis_type'], "tag_name": opts['tag_name'], "tag_value": opts['tag_value'], "link.name": link_name},
         )
 
     vcon_redis.store_vcon(vCon)

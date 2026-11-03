@@ -201,7 +201,7 @@ def run(
             logger.info("Dialog %s already transcribed on vCon: %s", index, vCon.uuid)
             continue
 
-        attrs = {"link.name": link_name, "vcon.uuid": vcon_uuid}
+        attrs = {"link.name": link_name}
         try:
             # Attempt transcription with timing metrics
             start = time.time()

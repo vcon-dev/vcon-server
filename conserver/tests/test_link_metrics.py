@@ -61,10 +61,16 @@ def make_transcript_vcon():
     return vcon
 
 
+PER_VCON_KEYS = {"vcon.uuid", "vcon_uuid", "vcon_id", "vcon.id"}
+
+
 def assert_metric_has_attrs(metrics, metric_name, expected_attrs):
-    """Assert metric_name exists and at least one data point matches expected_attrs."""
+    """Assert metric_name exists, carries no per-vCon attribute, and a data point matches expected_attrs."""
     assert metric_name in metrics, f"Metric '{metric_name}' not found. Got: {list(metrics)}"
     points = metrics[metric_name]
+    for point in points:
+        leaked = PER_VCON_KEYS.intersection(point["attributes"])
+        assert not leaked, f"'{metric_name}' carries per-vCon attribute(s) {leaked}: unbounded cardinality"
     for point in points:
         if all(point["attributes"].get(k) == v for k, v in expected_attrs.items()):
             return
@@ -105,7 +111,7 @@ class TestDeepgramMetrics:
         self._run(vcon, mock_result=result)
         metrics = extract_metrics(metric_reader)
         assert_metric_has_attrs(metrics, "conserver.link.deepgram.transcription_time",
-                                 {"link.name": self.LINK_NAME, "vcon.uuid": self.UUID})
+                                 {"link.name": self.LINK_NAME})
 
     def test_success_records_confidence(self, metric_reader):
         vcon = make_recording_vcon()
@@ -113,14 +119,14 @@ class TestDeepgramMetrics:
         self._run(vcon, mock_result=result)
         metrics = extract_metrics(metric_reader)
         assert_metric_has_attrs(metrics, "conserver.link.deepgram.confidence",
-                                 {"link.name": self.LINK_NAME, "vcon.uuid": self.UUID})
+                                 {"link.name": self.LINK_NAME})
 
     def test_failure_increments_counter(self, metric_reader):
         vcon = make_recording_vcon()
         self._run(vcon, side_effect=Exception("API error"))
         metrics = extract_metrics(metric_reader)
         assert_metric_has_attrs(metrics, "conserver.link.deepgram.transcription_failures",
-                                 {"link.name": self.LINK_NAME, "vcon.uuid": self.UUID})
+                                 {"link.name": self.LINK_NAME})
 
 
 # ---------------------------------------------------------------------------
@@ -155,14 +161,14 @@ class TestGroqWhisperMetrics:
         self._run(vcon)
         metrics = extract_metrics(metric_reader)
         assert_metric_has_attrs(metrics, "conserver.link.groq_whisper.transcription_time",
-                                 {"link.name": self.LINK_NAME, "vcon.uuid": self.UUID})
+                                 {"link.name": self.LINK_NAME})
 
     def test_failure_increments_counter(self, metric_reader):
         vcon = make_recording_vcon()
         self._run(vcon, side_effect=RetryError(last_attempt=MagicMock()))
         metrics = extract_metrics(metric_reader)
         assert_metric_has_attrs(metrics, "conserver.link.groq_whisper.transcription_failures",
-                                 {"link.name": self.LINK_NAME, "vcon.uuid": self.UUID})
+                                 {"link.name": self.LINK_NAME})
 
 
 # ---------------------------------------------------------------------------
@@ -195,14 +201,14 @@ class TestHuggingFaceWhisperMetrics:
         self._run(vcon)
         metrics = extract_metrics(metric_reader)
         assert_metric_has_attrs(metrics, "conserver.link.hugging_face_whisper.transcription_time",
-                                 {"link.name": self.LINK_NAME, "vcon.uuid": self.UUID})
+                                 {"link.name": self.LINK_NAME})
 
     def test_failure_increments_counter(self, metric_reader):
         vcon = make_recording_vcon()
         self._run(vcon, side_effect=Exception("HF API error"))
         metrics = extract_metrics(metric_reader)
         assert_metric_has_attrs(metrics, "conserver.link.hugging_face_whisper.transcription_failures",
-                                 {"link.name": self.LINK_NAME, "vcon.uuid": self.UUID})
+                                 {"link.name": self.LINK_NAME})
 
 
 # ---------------------------------------------------------------------------
@@ -235,14 +241,14 @@ class TestOpenAITranscribeMetrics:
         self._run(vcon)
         metrics = extract_metrics(metric_reader)
         assert_metric_has_attrs(metrics, "conserver.link.openai.transcription_time",
-                                 {"link.name": self.LINK_NAME, "vcon.uuid": self.UUID})
+                                 {"link.name": self.LINK_NAME})
 
     def test_failure_increments_counter(self, metric_reader):
         vcon = make_recording_vcon()
         self._run(vcon, side_effect=Exception("OpenAI error"))
         metrics = extract_metrics(metric_reader)
         assert_metric_has_attrs(metrics, "conserver.link.openai.transcription_failures",
-                                 {"link.name": self.LINK_NAME, "vcon.uuid": self.UUID})
+                                 {"link.name": self.LINK_NAME})
 
 
 # ---------------------------------------------------------------------------
@@ -280,7 +286,7 @@ class TestAnalyzeMetrics:
         self._run(vcon)
         metrics = extract_metrics(metric_reader)
         assert_metric_has_attrs(metrics, "conserver.link.openai.analysis_time",
-                                 {"link.name": self.LINK_NAME, "vcon.uuid": self.UUID,
+                                 {"link.name": self.LINK_NAME,
                                   "analysis_type": self.OPTS["analysis_type"]})
 
     def test_failure_increments_counter(self, metric_reader):
@@ -288,7 +294,7 @@ class TestAnalyzeMetrics:
         self._run(vcon, side_effect=Exception("OpenAI error"))
         metrics = extract_metrics(metric_reader)
         assert_metric_has_attrs(metrics, "conserver.link.openai.analysis_failures",
-                                 {"link.name": self.LINK_NAME, "vcon.uuid": self.UUID,
+                                 {"link.name": self.LINK_NAME,
                                   "analysis_type": self.OPTS["analysis_type"]})
 
 
@@ -327,7 +333,7 @@ class TestAnalyzeAndLabelMetrics:
         self._run(vcon)
         metrics = extract_metrics(metric_reader)
         assert_metric_has_attrs(metrics, "conserver.link.openai.labels_added",
-                                 {"link.name": self.LINK_NAME, "vcon.uuid": self.UUID,
+                                 {"link.name": self.LINK_NAME,
                                   "analysis_type": self.OPTS["analysis_type"]})
 
     def test_success_records_analysis_time(self, metric_reader):
@@ -335,7 +341,7 @@ class TestAnalyzeAndLabelMetrics:
         self._run(vcon)
         metrics = extract_metrics(metric_reader)
         assert_metric_has_attrs(metrics, "conserver.link.openai.analysis_time",
-                                 {"link.name": self.LINK_NAME, "vcon.uuid": self.UUID,
+                                 {"link.name": self.LINK_NAME,
                                   "analysis_type": self.OPTS["analysis_type"]})
 
     def test_failure_increments_counter(self, metric_reader):
@@ -343,7 +349,7 @@ class TestAnalyzeAndLabelMetrics:
         self._run(vcon, side_effect=Exception("OpenAI error"))
         metrics = extract_metrics(metric_reader)
         assert_metric_has_attrs(metrics, "conserver.link.openai.analysis_failures",
-                                 {"link.name": self.LINK_NAME, "vcon.uuid": self.UUID,
+                                 {"link.name": self.LINK_NAME,
                                   "analysis_type": self.OPTS["analysis_type"]})
 
 
@@ -385,14 +391,14 @@ class TestAnalyzeVconMetrics:
         self._run(None)
         metrics = extract_metrics(metric_reader)
         assert_metric_has_attrs(metrics, "conserver.link.openai.analysis_time",
-                                 {"link.name": self.LINK_NAME, "vcon.uuid": self.UUID,
+                                 {"link.name": self.LINK_NAME,
                                   "analysis_type": self.OPTS["analysis_type"]})
 
     def test_failure_increments_counter(self, metric_reader):
         self._run(None, side_effect=Exception("OpenAI error"))
         metrics = extract_metrics(metric_reader)
         assert_metric_has_attrs(metrics, "conserver.link.openai.analysis_failures",
-                                 {"link.name": self.LINK_NAME, "vcon.uuid": self.UUID,
+                                 {"link.name": self.LINK_NAME,
                                   "analysis_type": self.OPTS["analysis_type"]})
 
 
@@ -435,7 +441,7 @@ class TestCheckAndTagMetrics:
         self._run(vcon, applies=True)
         metrics = extract_metrics(metric_reader)
         assert_metric_has_attrs(metrics, "conserver.link.openai.tags_applied",
-                                 {"link.name": self.LINK_NAME, "vcon.uuid": self.UUID,
+                                 {"link.name": self.LINK_NAME,
                                   "analysis_type": self.OPTS["analysis_type"],
                                   "tag_name": self.OPTS["tag_name"]})
 
@@ -446,7 +452,7 @@ class TestCheckAndTagMetrics:
         self._run(vcon, applies=True)
         metrics = extract_metrics(metric_reader)
         assert_metric_has_attrs(metrics, "conserver.link.openai.evaluation_time",
-                                 {"link.name": self.LINK_NAME, "vcon.uuid": self.UUID,
+                                 {"link.name": self.LINK_NAME,
                                   "analysis_type": self.OPTS["analysis_type"]})
 
     def test_failure_increments_counter(self, metric_reader):
@@ -456,7 +462,7 @@ class TestCheckAndTagMetrics:
         self._run(vcon, side_effect=Exception("OpenAI error"))
         metrics = extract_metrics(metric_reader)
         assert_metric_has_attrs(metrics, "conserver.link.openai.evaluation_failures",
-                                 {"link.name": self.LINK_NAME, "vcon.uuid": self.UUID,
+                                 {"link.name": self.LINK_NAME,
                                   "analysis_type": self.OPTS["analysis_type"]})
 
 
@@ -495,7 +501,7 @@ class TestDetectEngagementMetrics:
         self._run(vcon, engaged=True)
         metrics = extract_metrics(metric_reader)
         assert_metric_has_attrs(metrics, "conserver.link.openai.engagement_detected",
-                                 {"link.name": self.LINK_NAME, "vcon.uuid": self.UUID,
+                                 {"link.name": self.LINK_NAME,
                                   "analysis_type": self.OPTS["analysis_type"]})
 
     def test_success_records_analysis_time(self, metric_reader):
@@ -503,7 +509,7 @@ class TestDetectEngagementMetrics:
         self._run(vcon, engaged=True)
         metrics = extract_metrics(metric_reader)
         assert_metric_has_attrs(metrics, "conserver.link.openai.engagement_analysis_time",
-                                 {"link.name": self.LINK_NAME, "vcon.uuid": self.UUID,
+                                 {"link.name": self.LINK_NAME,
                                   "analysis_type": self.OPTS["analysis_type"]})
 
     def test_failure_increments_counter(self, metric_reader):
@@ -511,7 +517,7 @@ class TestDetectEngagementMetrics:
         self._run(vcon, side_effect=Exception("OpenAI error"))
         metrics = extract_metrics(metric_reader)
         assert_metric_has_attrs(metrics, "conserver.link.openai.engagement_analysis_failures",
-                                 {"link.name": self.LINK_NAME, "vcon.uuid": self.UUID,
+                                 {"link.name": self.LINK_NAME,
                                   "analysis_type": self.OPTS["analysis_type"]})
 
 
@@ -551,7 +557,7 @@ class TestHuggingLLMMetrics:
         self._run(vcon)
         metrics = extract_metrics(metric_reader)
         assert_metric_has_attrs(metrics, "conserver.link.huggingface.llm_time",
-                                 {"link.name": self.LINK_NAME, "vcon.uuid": self.UUID})
+                                 {"link.name": self.LINK_NAME})
 
     def test_failure_increments_counter(self, metric_reader):
         vcon = make_transcript_vcon()
@@ -559,7 +565,7 @@ class TestHuggingLLMMetrics:
         self._run(vcon, side_effect=Exception("HF API error"))
         metrics = extract_metrics(metric_reader)
         assert_metric_has_attrs(metrics, "conserver.link.huggingface.llm_failures",
-                                 {"link.name": self.LINK_NAME, "vcon.uuid": self.UUID})
+                                 {"link.name": self.LINK_NAME})
 
 
 # ---------------------------------------------------------------------------
@@ -668,3 +674,30 @@ class TestJqLinkMetrics:
         points = extract_metrics(metric_reader)["conserver.link.jq.filter_errors"]
         assert len(points) == 1, points
         assert points[0]["attributes"] == {"link.name": self.LINK_NAME}
+
+
+# ---------------------------------------------------------------------------
+# lib.metrics guard: per-vCon attributes never reach a metric
+# ---------------------------------------------------------------------------
+
+class TestPerVconAttributeGuard:
+    def test_counter_drops_per_vcon_keys(self, metric_reader):
+        from lib.metrics import increment_counter
+        for i in range(3):
+            increment_counter("test.guard.counter", attributes={"link.name": "x", "vcon.uuid": f"u{i}", "vcon_id": f"u{i}"})
+        points = extract_metrics(metric_reader)["test.guard.counter"]
+        assert points == [{"attributes": {"link.name": "x"}, "value": 3}]
+
+    def test_histogram_drops_per_vcon_keys(self, metric_reader):
+        from lib.metrics import record_histogram
+        for i in range(3):
+            record_histogram("test.guard.histogram", 1.0, attributes={"link.name": "x", "vcon.uuid": f"u{i}"})
+        points = extract_metrics(metric_reader)["test.guard.histogram"]
+        assert len(points) == 1 and points[0]["attributes"] == {"link.name": "x"}
+
+    def test_updown_drops_per_vcon_keys(self, metric_reader):
+        from lib.metrics import add_updown_counter
+        for i in range(3):
+            add_updown_counter("test.guard.updown", 1, attributes={"chain.name": "c", "vcon_uuid": f"u{i}"})
+        points = extract_metrics(metric_reader)["test.guard.updown"]
+        assert points == [{"attributes": {"chain.name": "c"}, "value": 3}]
