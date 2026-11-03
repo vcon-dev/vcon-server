@@ -171,7 +171,7 @@ def test_run_uses_inline_signing_key_and_handles_failure_counters():
             scitt_module.run("vc-1", "scitt_created", opts)
     mock_counter.assert_called_once_with(
         "conserver.link.scitt.statement_creation_failures",
-        attributes={"link.name": "scitt_created", "vcon.uuid": "vc-1"},
+        attributes={"link.name": "scitt_created"},
     )
 
     with patch("links.scitt.VconRedis", return_value=redis), patch.object(
@@ -184,5 +184,5 @@ def test_run_uses_inline_signing_key_and_handles_failure_counters():
             scitt_module.run("vc-1", "scitt_created", opts)
     mock_counter.assert_called_once_with(
         "conserver.link.scitt.registration_failures",
-        attributes={"link.name": "scitt_created", "vcon.uuid": "vc-1"},
+        attributes={"link.name": "scitt_created"},
     )
