@@ -70,7 +70,11 @@ def run(vcon_uuid, link_name, opts=default_options):
 
     # Convert vCon to dict for jq
     vcon_dict = vcon.to_dict()
-    attrs = {"link.name": link_name, "vcon.uuid": vcon_uuid}
+    # Metric attributes must stay low-cardinality. A per-vCon attribute such as the vCon uuid makes
+    # every filtered vCon its own time series, and with cumulative temporality each series is
+    # re-exported on every interval for the life of the worker, so sample volume grows without bound
+    # until the process restarts. The uuid is already in the log lines below.
+    attrs = {"link.name": link_name}
 
     try:
         # Apply the jq filter

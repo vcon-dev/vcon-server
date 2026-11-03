@@ -634,3 +634,37 @@ class TestMainLoopMetrics:
         metrics = extract_metrics(metric_reader)
         assert_metric_has_attrs(metrics, "conserver.link.count",
                                  {"link_name": "mock_link", "outcome": "halt"})
+
+
+# ---------------------------------------------------------------------------
+# jq_link
+# ---------------------------------------------------------------------------
+
+class TestJqLinkMetrics:
+    LINK_NAME = "jq_filter"
+    UUIDS = ["jq-test-uuid-1", "jq-test-uuid-2", "jq-test-uuid-3"]
+
+    def _run(self, uuid, filter_expr):
+        from links.jq_link import run
+        vcon = make_recording_vcon()
+        with patch("links.jq_link.VconRedis") as mock_redis_cls:
+            mock_redis = MagicMock()
+            mock_redis_cls.return_value = mock_redis
+            mock_redis.get_vcon.return_value = vcon
+            return run(uuid, self.LINK_NAME, {"filter": filter_expr, "forward_matches": True})
+
+    def test_filtered_out_is_one_series_per_link(self, metric_reader):
+        """Filtering many vCons must not create a time series per vCon."""
+        for uuid in self.UUIDS:
+            assert self._run(uuid, "false") is None
+        points = extract_metrics(metric_reader)["conserver.link.jq.vcon_filtered_out"]
+        assert len(points) == 1, points
+        assert points[0]["attributes"] == {"link.name": self.LINK_NAME}
+        assert points[0]["value"] == len(self.UUIDS)
+
+    def test_filter_errors_carry_no_vcon_uuid(self, metric_reader):
+        for uuid in self.UUIDS:
+            assert self._run(uuid, "this is not jq (") is None
+        points = extract_metrics(metric_reader)["conserver.link.jq.filter_errors"]
+        assert len(points) == 1, points
+        assert points[0]["attributes"] == {"link.name": self.LINK_NAME}
