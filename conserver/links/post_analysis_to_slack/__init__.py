@@ -113,7 +113,7 @@ def run(vcon_id, link_name, opts=default_options):
     vcon_redis = VconRedis()
     vcon = vcon_redis.get_vcon(vcon_id)
 
-    attrs = {"link.name": link_name, "vcon.uuid": vcon_id}
+    attrs = {"link.name": link_name}
 
     for a in vcon.analysis:
         # we still need to run this check give the following scenario:

@@ -383,7 +383,7 @@ def run(vcon_uuid: str, link_name: str, opts: dict = default_options) -> str:
     #     }
     # )
 
-    attrs = {"link.name": link_name, "vcon.uuid": vcon_uuid}
+    attrs = {"link.name": link_name}
 
     try:
         event = create_asset_event(opts, asset_id, auth, event_attributes)
