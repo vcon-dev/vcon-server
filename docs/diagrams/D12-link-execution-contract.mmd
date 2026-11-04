@@ -1,0 +1,46 @@
+%%{init: {'theme':'base','themeVariables':{'fontFamily':'Inter, Helvetica, Arial, sans-serif','fontSize':'14px','background':'#FFFFFF','primaryColor':'#F3F4F6','primaryTextColor':'#292929','primaryBorderColor':'#0A7D18','secondaryColor':'#FFFFFF','secondaryTextColor':'#33363B','secondaryBorderColor':'#8A8A8D','tertiaryColor':'#FFFFFF','tertiaryTextColor':'#33363B','tertiaryBorderColor':'#8A8A8D','lineColor':'#33363B','textColor':'#33363B','mainBkg':'#F3F4F6','nodeBorder':'#0A7D18','clusterBkg':'#FFFFFF','clusterBorder':'#8A8A8D','edgeLabelBackground':'#FFFFFF','actorBkg':'#F3F4F6','actorBorder':'#0A7D18','actorTextColor':'#292929','signalColor':'#33363B','signalTextColor':'#292929','labelBoxBkgColor':'#F3F4F6','labelBoxBorderColor':'#0A7D18','noteBkgColor':'#F3F4F6','noteBorderColor':'#8A8A8D','noteTextColor':'#292929'}}}%%
+%%{init: {'fontFamily':'Inter, Helvetica, Arial, sans-serif'}}%%
+sequenceDiagram
+    autonumber
+    participant W as _handle_vcon
+    participant H as hook
+    participant C as VconChainRequest
+    participant T as Tracers
+    participant L as Link module
+    participant A as after_link_hook
+    participant R as Redis
+
+    W->>H: before_processing(vcon_id, chain_details, context)
+    alt Hook returns a falsy value
+        H-->>W: None, False or empty string
+        Note over W: Skip the chain, no DLQ
+    else Hook returns a truthy value
+        H-->>W: truthy value, used only as a yes
+        W->>C: process()
+        loop Each link in chain_details links
+            C->>C: Resolve module and options, import once
+            C->>R: get_vcon for parties, errors ignored
+            opt First link only
+                C->>T: run(id, id, name, links, -1, options)
+            end
+            C->>L: run(vcon_id, link_name, options)
+            L->>R: get_vcon, returns None when missing
+            L->>R: store_vcon when the link changes the vCon
+            alt Link returns
+                L-->>C: same id, new id, or falsy to halt
+                C->>A: after_link(..., "success", None, parties)
+                C->>T: run(..., link_index, options)
+                Note over C: Falsy ends the loop, new id replaces vcon_id
+            else Link raises
+                L--xC: exception
+                C->>A: after_link(..., "error", exception, parties)
+                Note over C,A: Hook errors ignored on this path
+                C--xW: exception raised again
+                W->>R: RPUSH DLQ:ingress_list, EXPIRE VCON_DLQ_EXPIRY
+            end
+        end
+        opt No link halted or raised
+            C->>C: _wrap_up runs egress, then storage
+        end
+    end
+    W->>H: after_processing(vcon_id, chain_details, context, error)

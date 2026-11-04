@@ -1,5 +1,7 @@
 # Diet Link
 
+Reference: [`links.diet`](../../../docs/reference/links/diet.md)
+
 The Diet link is a specialized plugin that helps reduce the size and content of vCon objects by selectively removing or modifying specific elements. It's particularly useful for data minimization, privacy protection, and optimizing storage.
 
 ## Features

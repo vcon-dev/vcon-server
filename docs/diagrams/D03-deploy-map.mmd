@@ -1,0 +1,58 @@
+%%{init: {'theme':'base','themeVariables':{'fontFamily':'Inter, Helvetica, Arial, sans-serif','fontSize':'14px','background':'#FFFFFF','primaryColor':'#F3F4F6','primaryTextColor':'#292929','primaryBorderColor':'#0A7D18','secondaryColor':'#FFFFFF','secondaryTextColor':'#33363B','secondaryBorderColor':'#8A8A8D','tertiaryColor':'#FFFFFF','tertiaryTextColor':'#33363B','tertiaryBorderColor':'#8A8A8D','lineColor':'#33363B','textColor':'#33363B','mainBkg':'#F3F4F6','nodeBorder':'#0A7D18','clusterBkg':'#FFFFFF','clusterBorder':'#8A8A8D','edgeLabelBackground':'#FFFFFF','actorBkg':'#F3F4F6','actorBorder':'#0A7D18','actorTextColor':'#292929','signalColor':'#33363B','signalTextColor':'#292929','labelBoxBkgColor':'#F3F4F6','labelBoxBorderColor':'#0A7D18','noteBkgColor':'#F3F4F6','noteBorderColor':'#8A8A8D','noteTextColor':'#292929'}}}%%
+%%{init: {'fontFamily':'Inter, Helvetica, Arial, sans-serif'}}%%
+flowchart TB
+    subgraph compose["Docker Compose, one host"]
+        cimg["docker/Dockerfile<br/>all dependency groups, for dev and tests"]
+        cstack["api, conserver, redis<br/>plus COMPOSE_PROFILES services"]
+        cimg --> cstack
+    end
+
+    subgraph script["Automated script, Ubuntu"]
+        inst["scripts/install_conserver.sh<br/>installs Docker, creates network conserver"]
+        sadmin["/opt/vcon-admin<br/>clone, then docker compose up"]
+        sserver["/opt/vcon-server<br/>clone, write .env and config.yml,<br/>then docker compose up"]
+        inst --> sadmin
+        inst --> sserver
+    end
+
+    subgraph manual["Manual, no containers"]
+        uvsync["uv sync --group api --group conserver"]
+        procs["uvicorn api:app<br/>python conserver/main.py"]
+        localredis[("Redis you run<br/>REDIS_URL")]
+        uvsync --> procs
+        procs --> localredis
+    end
+
+    subgraph published["Published images"]
+        dapi["docker/Dockerfile.api"]
+        dcon["docker/Dockerfile.conserver"]
+        wf["docker-publish.yml<br/>push to main or v* tag"]
+        ecrapi["ECR vcon-server-api"]
+        ecrcon["ECR vcon-server-conserver"]
+        dapi --> wf
+        dcon --> wf
+        wf --> ecrapi
+        wf --> ecrcon
+    end
+
+    subgraph k8s["Kubernetes, example manifests in the docs, none in the repo"]
+        ing["Ingress<br/>path /api"]
+        apidep["api Deployment<br/>2 replicas, port 8000"]
+        workerdep["worker Deployment<br/>4 replicas, CONSERVER_WORKERS=2"]
+        hpa["worker HPA<br/>2 to 10 on CPU"]
+        rsts[("redis StatefulSet<br/>1 replica, 10Gi claim")]
+        cfg[/"ConfigMap, Secret"/]
+        ing --> apidep
+        hpa --> workerdep
+        apidep --> rsts
+        workerdep --> rsts
+        cfg --> apidep
+        cfg --> workerdep
+    end
+
+    sserver -->|"same compose file"| cstack
+    ecrapi -.->|"image to set"| apidep
+    ecrcon -.->|"image to set"| workerdep
+
+    classDef accent stroke:#0BB81E,stroke-width:3px
+    class cstack accent

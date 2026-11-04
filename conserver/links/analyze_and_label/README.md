@@ -1,5 +1,7 @@
 # Analyze and Label Link
 
+Reference: [`links.analyze_and_label`](../../../docs/reference/links/analyze-and-label.md)
+
 ## Overview
 
 The `analyze_and_label` link is a powerful component of the vCon server that automatically analyzes dialog content and generates relevant labels/tags for categorization. It uses OpenAI's language models to process various dialog formats (transcripts, messages, chats, emails) and extract meaningful labels that are then applied as tags to the vCon.
@@ -44,7 +46,7 @@ The link accepts the following configuration options:
 ## Usage Example
 
 ```python
-from server.links.analyze_and_label import run
+from links.analyze_and_label import run
 
 # Run with default options (requires OPENAI_API_KEY in the options)
 run(
@@ -71,7 +73,7 @@ Example specialized prompts:
 
 ## Error Handling
 
-The link includes robust error handling:
+The link handles errors as follows:
 
 - Exponential backoff retry mechanism for API calls
 - JSON parsing error handling
@@ -79,7 +81,7 @@ The link includes robust error handling:
 
 ## Testing
 
-The link includes comprehensive tests for all functionality. To run the tests with actual OpenAI API calls (optional):
+The link has tests for all functionality. To run the tests with actual OpenAI API calls (optional):
 
 ```bash
 # Set environment variables
@@ -87,7 +89,7 @@ export OPENAI_API_KEY="your-api-key"
 export RUN_OPENAI_ANALYZE_LABEL_TESTS=1
 
 # Run the tests
-pytest server/links/analyze_and_label/tests/test_analyze_and_label.py
+pytest conserver/links/analyze_and_label/tests/test_analyze_and_label.py
 ```
 
 Without setting `RUN_OPENAI_ANALYZE_LABEL_TESTS=1`, tests will run with mocked API responses.

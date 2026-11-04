@@ -1,71 +1,70 @@
 # analyze
 
-Analyzes vCon content using AI (OpenAI GPT models).
+Sends each dialog's transcript to an LLM and stores the reply as analysis.
 
-## Configuration
+Module: `links.analyze`
+
+## Set the options
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `prompt` | string | `""` | Placed before the transcript in the user message |
+| `analysis_type` | string | `summary` | The `type` of the analysis entry |
+| `model` | string | `gpt-3.5-turbo-16k` | Model name |
+| `sampling_rate` | float | `1` | See [filter options](index.md#set-the-shared-filter-options) |
+| `temperature` | float | `0` | Sampling temperature |
+| `system_prompt` | string | `You are a helpful assistant.` | System message |
+| `source.analysis_type` | string | `transcript` | Analysis entry to read |
+| `source.text_location` | string | `body.paragraphs.transcript` | Path to the text. See [transcript text](index.md#point-analysis-at-the-transcript-text) |
+| `only_if` | dict | none | See [filter options](index.md#set-the-shared-filter-options) |
+| `send_ai_usage_data_to_url` | string | `""` | See [AI usage](index.md#report-ai-usage-to-an-endpoint) |
+| `ai_usage_api_token` | string | `""` | See [AI usage](index.md#report-ai-usage-to-an-endpoint) |
+
+The link also takes the [LLM client options](index.md#set-the-llm-client-options). One of those groups is required.
+
+## Follow the processing steps
+
+1. Merge the options over `default_options` and load the vCon.
+2. Apply `only_if` and `sampling_rate`.
+3. For each dialog, read the source text. Skip the dialog if the text is missing or if it already has an entry of this `analysis_type`.
+4. Call the model, with up to 6 attempts.
+5. Save the vCon after the last dialog.
+
+A second `analyze` link needs its own `analysis_type`. With the same value it skips every dialog.
+
+## Read the return value
+
+Returns the uuid, including when the vCon is skipped. A model failure after all retries raises, and the vCon goes to the dead letter queue. A missing vCon raises `AttributeError`, unless `only_if` is set, which then skips it and returns the uuid.
+
+## Inspect the vCon changes
+
+One analysis entry per processed dialog.
+
+| Field | Value |
+|---|---|
+| `type` | `analysis_type` |
+| `dialog` | Dialog index |
+| `vendor` | Derived from the client options: `openai`, `azure`, or with LiteLLM the provider inferred from the model name |
+| `body` | The model's reply as a string |
+| `encoding` | `none` |
+| `vendor_schema` | `model` and `prompt` |
+
+## Copy a configuration example
 
 ```yaml
 links:
-  analyze:
+  summarize:
     module: links.analyze
     options:
-      model: gpt-4
-      temperature: 0.3
-      prompt: "Analyze this conversation..."
+      OPENAI_API_KEY: your-openai-key
+      model: gpt-4.1
+      analysis_type: summary
+      prompt: Summarize this conversation in two sentences.
+      source:
+        analysis_type: transcript
+        text_location: body.text
 ```
 
-## Options
+## Track the metrics
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `model` | string | `gpt-4` | OpenAI model |
-| `temperature` | float | `0.3` | Response randomness (0-1) |
-| `prompt` | string | Default | Analysis prompt |
-| `max_tokens` | int | `1000` | Maximum response tokens |
-| `timeout` | int | `60` | Request timeout in seconds |
-
-## Requirements
-
-- `OPENAI_API_KEY` environment variable
-
-## Example
-
-```yaml
-chains:
-  analysis:
-    links:
-      - analyze:
-          model: gpt-4
-          prompt: |
-            Analyze this conversation and provide:
-            1. Summary (2-3 sentences)
-            2. Key topics discussed
-            3. Action items
-            4. Overall sentiment
-    storages:
-      - postgres
-    ingress_lists:
-      - transcribed
-    enabled: 1
-```
-
-## Output
-
-Adds analysis to vCon:
-
-```json
-{
-  "analysis": [
-    {
-      "type": "summary",
-      "vendor": "openai",
-      "body": {
-        "summary": "Customer called about billing issue...",
-        "topics": ["billing", "refund"],
-        "action_items": ["Process refund"],
-        "sentiment": "negative"
-      }
-    }
-  ]
-}
-```
+`conserver.link.openai.analysis_time` and `conserver.link.openai.analysis_failures`. See [Metrics](../metrics.md).

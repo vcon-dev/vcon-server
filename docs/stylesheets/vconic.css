@@ -1,0 +1,105 @@
+/* Brand colours and type for the MkDocs Material theme. */
+@import url("https://fonts.googleapis.com/css2?family=Anton&display=swap");
+
+:root {
+  --vconic-green: #0BB81E;
+  --vconic-deep-green: #0A7D18;
+  --vconic-ink: #292929;
+  --vconic-body: #33363B;
+  --vconic-muted: #8A8A8D;
+  --vconic-surface: #F3F4F6;
+  --vconic-display: "Anton", "Inter", Helvetica, Arial, sans-serif;
+}
+
+/* White text on #0BB81E fails contrast, so primary uses the deep green. */
+[data-md-color-scheme="default"][data-md-color-primary="custom"],
+[data-md-color-scheme="slate"][data-md-color-primary="custom"] {
+  --md-primary-fg-color: var(--vconic-deep-green);
+  --md-primary-fg-color--light: var(--vconic-green);
+  --md-primary-fg-color--dark: var(--vconic-deep-green);
+  --md-primary-bg-color: #FFFFFF;
+  --md-primary-bg-color--light: #FFFFFFB3;
+}
+
+[data-md-color-scheme="default"][data-md-color-accent="custom"],
+[data-md-color-scheme="slate"][data-md-color-accent="custom"] {
+  --md-accent-fg-color: var(--vconic-green);
+  --md-accent-fg-color--transparent: #0BB81E1A;
+  --md-accent-bg-color: #FFFFFF;
+  --md-accent-bg-color--light: #FFFFFFB3;
+}
+
+[data-md-color-scheme="default"] {
+  --md-default-fg-color: var(--vconic-ink);
+  --md-default-fg-color--light: var(--vconic-body);
+  --md-typeset-color: var(--vconic-body);
+  --md-typeset-a-color: var(--vconic-deep-green);
+  --md-code-bg-color: var(--vconic-surface);
+  --md-code-fg-color: var(--vconic-ink);
+}
+
+/* Deep green is too dark on the slate background, so links use the bright green. */
+[data-md-color-scheme="slate"] {
+  --md-typeset-a-color: var(--vconic-green);
+}
+
+.md-header,
+.md-tabs {
+  background-color: var(--vconic-ink);
+}
+
+.md-header__button.md-logo {
+  display: none;
+}
+
+.md-header__title,
+.md-typeset h1 {
+  font-family: var(--vconic-display);
+  font-weight: 400;
+  letter-spacing: 0.01em;
+}
+
+.md-typeset h1 {
+  color: var(--md-default-fg-color);
+}
+
+.md-typeset h2,
+.md-typeset h3 {
+  color: var(--md-default-fg-color);
+  font-weight: 600;
+}
+
+.md-typeset table:not([class]) th {
+  background-color: var(--md-code-bg-color);
+}
+
+/* Rendered diagrams have a white background, so give them an edge in dark mode. */
+.md-typeset img[src$=".svg"] {
+  border-radius: 0.2rem;
+}
+
+/* Inline Mermaid blocks follow the same palette as the rendered SVGs. */
+:root > * {
+  --md-mermaid-font-family: "Inter", Helvetica, Arial, sans-serif;
+  --md-mermaid-node-fg-color: var(--vconic-deep-green);
+}
+
+/* A green rule under the header and on notes carries the brand colour. */
+.md-tabs {
+  border-bottom: 0.1rem solid var(--vconic-green);
+}
+
+.md-typeset .admonition.note,
+.md-typeset details.note {
+  border-color: var(--vconic-deep-green);
+}
+
+.md-typeset .note > .admonition-title,
+.md-typeset .note > summary {
+  background-color: var(--md-accent-fg-color--transparent);
+}
+
+.md-typeset .note > .admonition-title::before,
+.md-typeset .note > summary::before {
+  background-color: var(--vconic-deep-green);
+}

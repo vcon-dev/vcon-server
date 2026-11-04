@@ -1,145 +1,48 @@
-# vCon Server Documentation
+# vCon Server documentation
 
-Welcome to the official documentation for **vCon Server** (Conserver), a high-performance server for processing, storing, and managing vCon (Voice Conversation) data.
+vCon Server, also called the Conserver, takes in [vCon](https://datatracker.ietf.org/doc/draft-ietf-vcon-vcon-core/) conversation records, runs them through configurable chains of processing steps and writes the results to the storage backends you choose.
 
-## What is vCon Server?
+These pages cover the open source server and match the code in this repository.
 
-vCon Server is a pipeline-based processing system designed to handle voice conversation data at scale. It provides:
+![API and conserver services around Redis, with storage backends and link services outside](diagrams/D01-system-context.svg)
 
-- **Flexible Processing Pipelines**: Chain-based architecture with modular processing links
-- **Multi-Storage Support**: 10+ backend storage options with parallel write support
-- **AI Integration**: Built-in transcription (Deepgram, Whisper) and analysis (OpenAI, Groq)
-- **Scalable Architecture**: Multi-worker processing with configurable parallelism
-- **Enterprise Ready**: Authentication, monitoring, and dead letter queue handling
+## See the main functions
 
-## Quick Links
+- **Takes in vCons.** The REST API accepts them from your systems, and scoped API keys let third parties post to one ingress list.
+- **Queues work in Redis.** Plain Redis holds the vCons, the ingress and egress lists, and the dead letter queues.
+- **Runs chains.** A chain names its ingress lists, its links, its storage backends and its egress lists.
+- **Runs links.** A link is one step: transcription, AI analysis, tagging, routing, a webhook. Returning nothing stops the chain for that vCon.
+- **Stores results.** Writes go to every backend in the chain, in parallel by default.
+- **Scales by worker.** Set worker processes and per-worker concurrency with environment variables.
+- **Reports on itself.** OpenTelemetry tracing and metrics, plus dead letter queues for failed vCons and failed storage writes.
 
-<div class="grid cards" markdown>
+The server carries `lawful_basis` attachments through the pipeline. It does not create, validate or enforce consent. See [lawful basis](concepts/lawful-basis.md) and [editions](concepts/editions.md).
 
--   :material-rocket-launch:{ .lg .middle } **Getting Started**
+## Choose a starting point
 
-    ---
+| You want to | Read |
+|---|---|
+| Run the server for the first time | [Quick start](getting-started/quick-start.md) |
+| Learn the moving parts | [Architecture](concepts/architecture.md), [chains, links and storage](concepts/chains-links-storage.md) |
+| Follow one vCon from start to finish | [vCon lifecycle](concepts/vcon-lifecycle.md) |
+| Deploy it | [Installation](installation/index.md) |
+| Set it up | [Configuration](configuration/index.md) |
+| Run it day to day | [Operations](operations/index.md) |
+| Write a link, adapter or tracer | [Extending](extending/index.md) |
+| Look up a name | [Reference](reference/index.md) |
+| Change the code or the docs | [Contributing](contributing.md) |
 
-    New to vCon Server? Start here for system requirements and a 5-minute quick start guide.
+## Find the catalogues
 
-    [:octicons-arrow-right-24: Getting Started](getting-started/index.md)
+- [Links](reference/links/index.md) lists every link module and its status.
+- [Storage adapters](reference/storage-adapters/index.md) lists every backend.
+- [API reference](reference/api.md) describes every REST endpoint.
+- [Environment variables](reference/environment.md), [ports](reference/ports.md) and [metrics](reference/metrics.md) are generated from the code.
 
--   :material-download:{ .lg .middle } **Installation**
+## Check the running version
 
-    ---
+The repository has no product version: `pyproject.toml` holds a placeholder. Each image carries the version it was built with, and `GET /version` reports it. See the [API reference](reference/api.md).
 
-    Multiple installation options: Docker, automated scripts, manual setup, or Kubernetes.
+## Report a problem
 
-    [:octicons-arrow-right-24: Installation Guide](installation/index.md)
-
--   :material-cog:{ .lg .middle } **Configuration**
-
-    ---
-
-    Configure environment variables, YAML settings, processing chains, and authentication.
-
-    [:octicons-arrow-right-24: Configuration](configuration/index.md)
-
--   :material-tools:{ .lg .middle } **Operations**
-
-    ---
-
-    API reference, monitoring, logging, troubleshooting, and maintenance procedures.
-
-    [:octicons-arrow-right-24: Operations](operations/index.md)
-
--   :material-puzzle:{ .lg .middle } **Extending**
-
-    ---
-
-    Create custom processing links, storage adapters, and tracers.
-
-    [:octicons-arrow-right-24: Extending](extending/index.md)
-
--   :material-book-open-variant:{ .lg .middle } **Reference**
-
-    ---
-
-    Complete reference for all links, storage adapters, and CLI options.
-
-    [:octicons-arrow-right-24: Reference](reference/index.md)
-
-</div>
-
-## Architecture Overview
-
-```mermaid
-flowchart TB
-    subgraph ingress [Ingress Layer]
-        API[REST API]
-        EXT[External Ingress]
-    end
-
-    subgraph processing [Processing Pipeline]
-        QUEUE[Redis Queues]
-        W1[Worker 1]
-        W2[Worker 2]
-        WN[Worker N]
-        LINKS[Processing Links]
-    end
-
-    subgraph storage [Storage Layer]
-        PG[PostgreSQL]
-        S3[S3]
-        MONGO[MongoDB]
-        MILVUS[Milvus]
-    end
-
-    API --> QUEUE
-    EXT --> QUEUE
-    QUEUE --> W1
-    QUEUE --> W2
-    QUEUE --> WN
-    W1 --> LINKS
-    W2 --> LINKS
-    WN --> LINKS
-    LINKS --> PG
-    LINKS --> S3
-    LINKS --> MONGO
-    LINKS --> MILVUS
-```
-
-## Key Features
-
-### Processing Pipeline
-
-- **Chains**: Define processing workflows with ingress lists, links, storage, and egress
-- **Links**: Modular processors for transcription, analysis, tagging, routing, and more
-- **Filtering**: Links can filter vCons from the pipeline by returning `None`
-- **Parallel Execution**: Multiple workers process vCons concurrently
-
-### Storage Options
-
-| Storage | Use Case |
-|---------|----------|
-| PostgreSQL | Relational queries, ACID compliance |
-| MongoDB | Document storage, flexible schema |
-| S3 | Archive storage, cost-effective |
-| Elasticsearch | Full-text search |
-| Milvus | Vector similarity search |
-| File | Local development, simple deployments |
-
-### AI Integrations
-
-- **Transcription**: Deepgram, OpenAI Whisper, Groq Whisper, Hugging Face
-- **Analysis**: OpenAI GPT models, custom analysis links
-- **Embeddings**: OpenAI embeddings for vector storage
-
-## Version Information
-
-This documentation covers vCon Server v1.1, which includes:
-
-- Multi-worker support with configurable worker processes
-- Parallel storage writes for improved throughput
-- Graceful shutdown handling
-- Worker auto-restart capabilities
-
-## Support
-
-- **GitHub Issues**: [Report bugs or request features](https://github.com/vcon-dev/vcon-server/issues)
-- **GitHub Discussions**: [Ask questions and share ideas](https://github.com/vcon-dev/vcon-server/discussions)
+Report bugs and request features in [GitHub issues](https://github.com/vcon-dev/vcon-server/issues).

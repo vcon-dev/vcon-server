@@ -1,0 +1,75 @@
+%%{init: {'theme':'base','themeVariables':{'fontFamily':'Inter, Helvetica, Arial, sans-serif','fontSize':'14px','background':'#FFFFFF','primaryColor':'#F3F4F6','primaryTextColor':'#292929','primaryBorderColor':'#0A7D18','secondaryColor':'#FFFFFF','secondaryTextColor':'#33363B','secondaryBorderColor':'#8A8A8D','tertiaryColor':'#FFFFFF','tertiaryTextColor':'#33363B','tertiaryBorderColor':'#8A8A8D','lineColor':'#33363B','textColor':'#33363B','mainBkg':'#F3F4F6','nodeBorder':'#0A7D18','clusterBkg':'#FFFFFF','clusterBorder':'#8A8A8D','edgeLabelBackground':'#FFFFFF','actorBkg':'#F3F4F6','actorBorder':'#0A7D18','actorTextColor':'#292929','signalColor':'#33363B','signalTextColor':'#292929','labelBoxBkgColor':'#F3F4F6','labelBoxBorderColor':'#0A7D18','noteBkgColor':'#F3F4F6','noteBorderColor':'#8A8A8D','noteTextColor':'#292929'}}}%%
+%%{init: {'fontFamily':'Inter, Helvetica, Arial, sans-serif'}}%%
+flowchart TB
+    MON["Monitoring client"]
+
+    subgraph procs ["Server processes"]
+        API["API process<br/>opentelemetry-instrument uvicorn"]
+        WRK["Conserver worker process<br/>opentelemetry-instrument python"]
+    end
+
+    REDIS[("Redis")]
+
+    subgraph metrics ["Metrics path, common/lib"]
+        HELP["lib.metrics helpers<br/>increment_counter, record_histogram,<br/>add_updown_counter"]
+        GAUGE["lib.queue_metrics gauges<br/>ingress_list.length,<br/>redis.memory_used_bytes"]
+        GATE{"OTEL_EXPORTER_<br/>OTLP_ENDPOINT<br/>set?"}
+        NOOP["No metrics published"]
+        PROV["MeterProvider per process<br/>service.instance.id is host-pid-pid"]
+        READ["PeriodicExportingMetricReader<br/>tick is OTEL_METRIC_<br/>EXPORT_INTERVAL,<br/>default 5000 ms"]
+        GRPC["OTLPMetricExporter, gRPC only"]
+    end
+
+    subgraph traces ["Trace path"]
+        CTX["Redis key<br/>context:{list}:{uuid}"]
+        SPANS["Worker spans<br/>vcon_processing.{chain},<br/>link.{name}, storage.{name}"]
+        LLM["init_tracing<br/>OpenAI LLM spans"]
+        AUTO["Auto-instrumentation<br/>global OTel pipeline"]
+    end
+
+    subgraph errors ["Error path"]
+        ERR["init_error_tracker<br/>runs when SENTRY_DSN is set,<br/>conserver side only"]
+    end
+
+    subgraph chain ["Chain tracers, separate from OTel"]
+        TRC["_process_tracers<br/>every entry in config tracers,<br/>before link 0 and after each link"]
+        JL["tracers.jlinc"]
+    end
+
+    OTLP["OTLP endpoint<br/>usually an OTel Collector"]:::focus
+    SENTRY["Sentry"]
+    JAPI["JLINC API"]
+
+    MON -->|"GET /health, /version, /stats/queue, no key"| API
+    API -->|"/stats/queue reads list length"| REDIS
+
+    API -->|"counters"| HELP
+    WRK -->|"counters, histograms, inflight"| HELP
+    WRK -->|"registers at worker start"| GAUGE
+    GAUGE -->|"LLEN and INFO memory each tick"| REDIS
+    HELP --> GATE
+    GAUGE --> GATE
+    GATE -->|"no"| NOOP
+    GATE -->|"yes, first call in each pid"| PROV
+    PROV --> READ
+    READ --> GRPC
+    GRPC -->|"metrics"| OTLP
+
+    API -->|"store_context_async before enqueue"| CTX
+    WRK -->|"store_context_sync for egress lists"| CTX
+    CTX -->|"retrieve_context, becomes a span link"| SPANS
+    WRK -->|"opens per vCon"| SPANS
+    WRK -->|"calls at startup"| LLM
+    API -->|"request spans"| AUTO
+    SPANS --> AUTO
+    LLM --> AUTO
+    AUTO -->|"traces and auto metrics"| OTLP
+
+    WRK --> ERR
+    ERR -->|"logger.error events"| SENTRY
+
+    WRK --> TRC
+    TRC --> JL
+    JL -->|"HTTP POST to the data store API"| JAPI
+
+    classDef focus fill:#0BB81E,stroke:#0A7D18,color:#292929

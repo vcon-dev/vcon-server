@@ -1,235 +1,170 @@
-# Logging
+# Read and configure logs
 
-This guide covers logging configuration, log analysis, and debugging with logs.
+This page covers the logging configuration, how to search the logs and how to turn on debug output.
 
-## Logging Configuration
+## Choose the log format
 
-### Configuration Files
+Python's `logging.config.fileConfig` loads one file at import, named by `LOGGING_CONFIG_FILE`. Two files ship in the repo:
 
-vCon Server includes two logging configurations:
-
-| File | Format | Use Case |
-|------|--------|----------|
-| `server/logging.conf` | JSON | Production |
-| `server/logging_dev.conf` | Simple text | Development |
-
-### Selecting Configuration
+| File | Format | Use |
+|------|--------|-----|
+| `common/logging.conf` | JSON | The default |
+| `common/logging_dev.conf` | Plain text | Development |
 
 ```bash
-# Production (default)
-LOGGING_CONFIG_FILE=server/logging.conf
-
-# Development
-LOGGING_CONFIG_FILE=server/logging_dev.conf
+# Plain text in a container
+LOGGING_CONFIG_FILE=/app/common/logging_dev.conf
 ```
 
-### Log Level
+Apply a change with `docker compose up -d conserver api`, since `docker compose restart` keeps the old environment.
 
-```bash
-# Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
-LOG_LEVEL=INFO
-```
+!!! warning "The example path does not exist"
+    `.env.example` sets `LOGGING_CONFIG_FILE=server/logging_dev.conf`, and the repo has no `server/` folder. A process with that value fails at import. Use the path above, or remove the line to use the default.
 
-## Production Logging (JSON)
+Both files write everything to stdout. A `custom_error` handler for stderr is defined, but no logger uses it.
 
-Production logging outputs structured JSON for easy parsing.
+## Set the log level
 
-### Configuration
+Levels live in the config file. `LOG_LEVEL` is read into `settings`, but no code uses it, so setting it changes nothing.
 
-```ini
-# server/logging.conf
-[loggers]
-keys=root,vcon,uvicorn,main,api
+Both shipped files stop at `INFO`, including `logging_dev.conf`, because the root logger and the `custom_info` handler are both at `INFO`. Its `DEBUG` loggers have no handler that passes `DEBUG`. To see debug output, see [Turn on debug output](#turn-on-debug-output).
 
-[handlers]
-keys=custom_info,custom_error
+## Read the JSON output
 
-[formatters]
-keys=json
-
-[logger_root]
-level=INFO
-handlers=custom_info,custom_error
-
-[logger_vcon]
-level=INFO
-handlers=custom_info,custom_error
-qualname=vcon
-propagate=0
-
-[handler_custom_info]
-class=StreamHandler
-level=INFO
-formatter=json
-args=(sys.stdout,)
-
-[handler_custom_error]
-class=StreamHandler
-level=WARNING
-formatter=json
-args=(sys.stderr,)
-
-[formatter_json]
-format={"timestamp": "%(asctime)s", "level": "%(levelname)s", "logger": "%(name)s", "message": "%(message)s"}
-```
-
-### Sample Output
+The JSON formatter is `pythonjsonlogger`. Fields passed through `extra` become top-level keys.
 
 ```json
-{"timestamp": "2024-01-15 10:30:00,123", "level": "INFO", "logger": "vcon", "message": "Processing vCon abc-123"}
-{"timestamp": "2024-01-15 10:30:01,456", "level": "INFO", "logger": "vcon", "message": "Completed processing abc-123"}
+{"asctime": "2026-11-03 17:46:27,793", "levelname": "INFO", "name": "storage.base", "message": "Finished storage postgres module storage.postgres save for vCon: 018f0000-0000-8000-8000-000000000001 in 0.12 seconds.", "taskName": null, "storage_processing_time": 0.12}
 ```
 
-## Development Logging (Text)
-
-Development logging uses human-readable format.
-
-### Configuration
-
-```ini
-# server/logging_dev.conf
-[loggers]
-keys=root,vcon,uvicorn,main,api
-
-[handlers]
-keys=console
-
-[formatters]
-keys=simple
-
-[logger_root]
-level=DEBUG
-handlers=console
-
-[logger_vcon]
-level=DEBUG
-handlers=console
-qualname=vcon
-propagate=0
-
-[handler_console]
-class=StreamHandler
-level=DEBUG
-formatter=simple
-args=(sys.stdout,)
-
-[formatter_simple]
-format=%(asctime)s - %(name)s - %(levelname)s - %(message)s
-```
-
-### Sample Output
+The plain text format is `%(asctime)s - %(name)s - %(levelname)s - %(message)s`.
 
 ```
-2024-01-15 10:30:00,123 - vcon - DEBUG - Processing vCon abc-123
-2024-01-15 10:30:00,456 - vcon - DEBUG - Running link: transcribe
-2024-01-15 10:30:01,789 - vcon - INFO - Completed processing abc-123
+2026-11-03 17:46:27 - main - INFO - Worker-1 started (PID 12)
 ```
 
-## Logger Hierarchy
+## Identify the loggers
 
-| Logger | Purpose |
-|--------|---------|
-| `root` | Catch-all for unhandled loggers |
-| `vcon` | Core vCon processing |
-| `api` | API endpoint handling |
-| `main` | Main worker process |
-| `uvicorn` | Web server |
+| Logger | Source |
+|--------|--------|
+| `main` | `conserver/main.py` |
+| `api` | `api/api.py` |
+| `vcon` | `common/vcon.py` |
+| `uvicorn` | The web server |
+| `root` | Everything else. Modules log under their own names, such as `links.tag`, `storage.base` and `lib.vcon_redis`, and pass up to `root` |
 
-### Using Loggers in Code
+Use the helper in your own code:
 
 ```python
 from lib.logging_utils import init_logger
 
 logger = init_logger(__name__)
-
-def process():
-    logger.debug("Starting process")
-    logger.info("Process completed")
-    logger.warning("Something unusual")
-    logger.error("Something failed", exc_info=True)
 ```
 
-## Viewing Logs
+## View the logs
 
-### Docker Compose
+### Use Docker Compose
 
 ```bash
-# All logs
-docker compose logs
-
-# Follow logs
 docker compose logs -f
-
-# Specific service
-docker compose logs conserver
-
-# Last N lines
 docker compose logs --tail=100 conserver
-
-# Since time
 docker compose logs --since="1h" conserver
-
-# Filter by time range
-docker compose logs --since="2024-01-15T10:00:00" --until="2024-01-15T11:00:00"
+docker compose logs --since="2026-01-15T10:00:00" --until="2026-01-15T11:00:00"
 ```
 
-### Kubernetes
+### Use Kubernetes
 
 ```bash
-# Pod logs
 kubectl logs -f deployment/worker -n vcon-server
-
-# All pods with label
 kubectl logs -f -l app=worker -n vcon-server
 
-# Previous container (after crash)
+# The previous container, after a crash
 kubectl logs --previous deployment/worker -n vcon-server
 ```
 
-### Container Logs
+## Search the logs
+
+These lines mark the events you will look for most.
+
+| Search for | Meaning |
+|---|---|
+| `Completed processing vCon` | A chain finished |
+| `halted chain processing` | A link returned a falsy value, so egress and storage were skipped |
+| `Moving to DLQ` | A chain failed and the vCon went to the ingress DLQ |
+| `Moving to storage DLQ` | A write to one backend failed |
+| `manual recovery required` | A failed write could not reach the storage DLQ |
+| `Deprecated link module` | A chain uses a legacy transcribe module |
 
 ```bash
-# Docker logs
-docker logs -f vcon-server-conserver-1
+# Find one vCon
+docker compose logs conserver | grep "<uuid>"
 
-# With timestamps
-docker logs -t vcon-server-conserver-1
+# Count the log levels
+docker compose logs conserver | grep -oE '"levelname": "[A-Z]+"' | sort | uniq -c
+
+# Parse JSON and skip any line that is not JSON
+docker compose logs conserver --no-log-prefix | jq -R 'fromjson? | select(.levelname == "ERROR")'
 ```
 
-## Log Analysis
+Some output, such as library messages, is not JSON. The `fromjson?` filter skips those lines.
 
-### Common Patterns
+## Turn on debug output
 
-**Find errors:**
+Make your own copy of a config file and lower two levels. `docker-compose.yml` mounts the repo at `/app`, so a file in the repo root is visible in the containers.
 
 ```bash
-docker compose logs conserver | grep -i error
+cp common/logging_dev.conf logging_debug.conf
 ```
 
-**Find specific vCon:**
+In `logging_debug.conf`, set `level = DEBUG` under `[logger_root]` and under `[handler_custom_info]`. The `main` and `api` loggers are already at `DEBUG`.
 
 ```bash
-docker compose logs conserver | grep "abc-123"
+# In .env
+LOGGING_CONFIG_FILE=/app/logging_debug.conf
 ```
-
-**Count log levels:**
 
 ```bash
-docker compose logs conserver | grep -oE '"level": "[A-Z]+"' | sort | uniq -c
+docker compose up -d conserver api
 ```
 
-**Parse JSON logs with jq:**
+To debug one area, keep `[handler_custom_info]` at `DEBUG`, put `[logger_root]` back to `INFO` and add a logger. Add its name to `keys` under `[loggers]` first.
 
-```bash
-docker compose logs conserver --no-log-prefix | jq -r 'select(.level == "ERROR")'
+```ini
+[loggers]
+keys = root, vcon, uvicorn, main, api, links
+
+[logger_links]
+level = DEBUG
+handlers = custom_info
+propagate = 0
+qualname = links
 ```
 
-### Log Aggregation
+Debug output is heavy. The worker logs each link of each vCon at `DEBUG`, so turn it off when you finish.
 
-#### Fluentd
+## Limit the log size
+
+`docker-compose.yml` sets no log limits, so the default driver can fill a disk. Add a limit for each service:
 
 ```yaml
-# docker-compose.yml
+services:
+  conserver:
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+```
+
+The server writes no log files of its own, so there is nothing to rotate inside the containers.
+
+## Forward logs to an aggregator
+
+The server logs to stdout, so forwarding is a Docker or platform setting. In Kubernetes, use your cluster's log agent.
+
+### Use Fluentd
+
+```yaml
 services:
   fluentd:
     image: fluent/fluentd:v1.16
@@ -246,7 +181,7 @@ services:
         tag: vcon.conserver
 ```
 
-#### Loki
+### Use Loki
 
 ```yaml
 services:
@@ -262,170 +197,62 @@ services:
       - ./promtail.yml:/etc/promtail/promtail.yml
 ```
 
-### Elasticsearch/Kibana
+### Use CloudWatch
 
 ```yaml
-services:
-  elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
-    environment:
-      - discovery.type=single-node
-
-  kibana:
-    image: docker.elastic.co/kibana/kibana:8.11.0
-    ports:
-      - "5601:5601"
-
-  filebeat:
-    image: docker.elastic.co/beats/filebeat:8.11.0
-    volumes:
-      - /var/lib/docker/containers:/var/lib/docker/containers:ro
-```
-
-## Debugging with Logs
-
-### Enable Debug Logging
-
-```bash
-# Environment variable
-LOG_LEVEL=DEBUG
-LOGGING_CONFIG_FILE=server/logging_dev.conf
-
-# Restart services
-docker compose restart conserver
-```
-
-### Debug Specific Components
-
-In `logging_dev.conf`:
-
-```ini
-[logger_links]
-level=DEBUG
-handlers=console
-qualname=links
-propagate=0
-
-[logger_storage]
-level=DEBUG
-handlers=console
-qualname=storage
-propagate=0
-```
-
-### Trace Processing
-
-```bash
-# Watch for specific vCon
-docker compose logs -f conserver | grep "uuid-to-trace"
-
-# Watch processing steps
-docker compose logs -f conserver | grep -E "(Starting|Completed|Error)"
-```
-
-## Log Rotation
-
-### Docker Log Rotation
-
-```yaml
-# docker-compose.yml
 services:
   conserver:
     logging:
-      driver: "json-file"
+      driver: "awslogs"
       options:
-        max-size: "10m"
-        max-file: "5"
+        awslogs-region: us-east-1
+        awslogs-group: vcon-server
+        awslogs-stream: "{{.Name}}"
 ```
 
-### Logrotate (Manual Installation)
+### Use Elasticsearch and Kibana
 
-```
-# /etc/logrotate.d/vcon-server
-/var/log/vcon-server/*.log {
-    daily
-    rotate 7
-    compress
-    delaycompress
-    missingok
-    notifempty
-    create 644 vcon vcon
-    postrotate
-        systemctl reload vcon-server
-    endscript
-}
-```
+Run Filebeat against `/var/lib/docker/containers`, read-only, and send to your Elasticsearch cluster. The JSON format needs no parsing rules.
 
-## Structured Logging Best Practices
+## Write good log lines
 
-### Include Context
+Pass context through `extra`, so it reaches the JSON output as fields:
 
 ```python
-logger.info("Processing vCon", extra={
-    "vcon_uuid": uuid,
-    "chain": chain_name,
-    "link": link_name
-})
+logger.info("Saved vCon", extra={"chain": chain_name, "link": link_name})
 ```
 
-### Use Appropriate Levels
-
-| Level | Use For |
+| Level | Use for |
 |-------|---------|
-| DEBUG | Detailed diagnostic info |
+| DEBUG | Detailed diagnostic information |
 | INFO | General operational events |
 | WARNING | Unexpected but handled situations |
-| ERROR | Failures requiring attention |
+| ERROR | Failures that need attention. With Sentry on, these become events |
 | CRITICAL | System-wide failures |
 
-### Avoid Sensitive Data
+Never log secrets or conversation content. Log the vCon UUID instead.
 
 ```python
 # Bad
 logger.info(f"Processing vCon with API key {api_key}")
 
 # Good
-logger.info(f"Processing vCon {uuid}")
+logger.info("Processing vCon %s", vcon_uuid)
 ```
 
-## Troubleshooting
+## Fix the common logging problems
 
-### No Logs Appearing
-
-Check logging configuration:
+**A process exits at import with a logging error.** Check the path in `LOGGING_CONFIG_FILE`:
 
 ```bash
-# Verify environment
-docker compose exec conserver env | grep LOG
-
-# Check file exists
-docker compose exec conserver cat /app/server/logging.conf
+docker compose exec conserver env | grep LOGGING_CONFIG_FILE
+docker compose exec conserver ls /app/common/logging.conf
 ```
 
-### Too Many Logs
+If the container exits too fast for `exec`, read `docker compose logs conserver` and check `.env`.
 
-Increase log level:
+**Too many logs.** Raise a level in your config file. `LOG_LEVEL` does nothing.
 
-```bash
-LOG_LEVEL=WARNING
-```
+**No debug lines appear.** Lower both the logger and the handler. See [Turn on debug output](#turn-on-debug-output).
 
-### JSON Parse Errors
-
-Some logs may not be JSON (e.g., library output):
-
-```bash
-# Filter valid JSON only
-docker compose logs conserver --no-log-prefix 2>/dev/null | while read line; do
-  echo "$line" | jq . 2>/dev/null || true
-done
-```
-
-### Logs Missing Timestamps
-
-Ensure formatter includes timestamps:
-
-```ini
-[formatter_json]
-format={"timestamp": "%(asctime)s", ...}
-```
+**jq fails on some lines.** Use `jq -R 'fromjson?'` as shown in [Search the logs](#search-the-logs).

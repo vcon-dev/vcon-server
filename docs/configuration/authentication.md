@@ -1,305 +1,139 @@
 # Authentication
 
-vCon Server supports multiple authentication mechanisms for securing API access.
+The API checks a key on most routes. This page shows how to set those keys, how to give an outside system a key for one ingress list, and what stays public.
 
-## Authentication Overview
+![Sequence of the three authentication paths: public routes, main API routes and external ingress](../diagrams/D13-authentication-paths.svg)
 
-```mermaid
-flowchart TB
-    subgraph clients [Clients]
-        INTERNAL[Internal Systems]
-        EXTERNAL[External Partners]
-    end
+## Know the three paths
 
-    subgraph auth [Authentication Layer]
-        GLOBAL[Global API Token]
-        INGRESS[Ingress-Specific Keys]
-    end
+| Path | Routes | Check |
+|---|---|---|
+| Public | `GET /version`, `GET /health`, `GET /stats/queue`, `/docs`, `/redoc`, `/openapi.json` | None |
+| Main API | Every other route | The key must be in the global list |
+| External ingress | `POST /vcon/external-ingress` | The key must be listed for that ingress list. Global keys do not work here |
 
-    subgraph endpoints [API Endpoints]
-        STANDARD[Standard Endpoints<br/>/vcon, /vcons, etc.]
-        EXT_INGRESS[External Ingress<br/>/vcon/external-ingress]
-    end
+The [API routes](../reference/api-routes.md) page gives the rule for each route.
 
-    INTERNAL --> GLOBAL
-    EXTERNAL --> INGRESS
-    GLOBAL --> STANDARD
-    GLOBAL --> EXT_INGRESS
-    INGRESS --> EXT_INGRESS
-```
+## Set the global API keys
 
-## Global API Token
-
-The global API token provides full access to all endpoints.
-
-### Configuration
-
-**Environment Variable:**
+Set one key with an environment variable, several with a file, or both. The API joins them into one list.
 
 ```bash
 CONSERVER_API_TOKEN=your-secure-token-here
-```
-
-**Token File (multiple tokens):**
-
-```bash
 CONSERVER_API_TOKEN_FILE=/etc/vcon/api_tokens.txt
 ```
 
-Token file format (one token per line):
+The file holds one key per line:
 
 ```
-admin-token-abc123
 service-token-def456
-readonly-token-ghi789
+admin-token-abc123
 ```
 
-### Usage
+The API reads both when it starts, so a change needs a restart. If the file cannot be opened, the API does not start. Keep blank lines out of the file: each line becomes a key, and a file of blank lines leaves the list non-empty, so every request fails.
 
-Include the token in requests:
+!!! warning "No keys means no check"
+    With neither setting in place, or with an empty file, every main API route is open. The API logs `No API keys found, skipping authentication`. External ingress stays closed.
+
+## Send the key
+
+Put the key in the `x-conserver-api-token` header:
 
 ```bash
-curl http://api/vcon \
+curl http://localhost:8000/api/vcon \
   -H "x-conserver-api-token: your-secure-token-here"
 ```
 
-### Custom Header Name
+`CONSERVER_HEADER_NAME` changes the header name. The API compares the whole header value with each key and does not strip a scheme, so with `Authorization` as the header, a `Bearer ` prefix must also be part of the stored key.
 
-Change the header name if needed:
+A missing or wrong key returns `403` with `Invalid API Key`.
 
-```bash
-CONSERVER_HEADER_NAME=Authorization
-```
+## Scope a key to an ingress list
 
-Then use:
-
-```bash
-curl http://api/vcon \
-  -H "Authorization: Bearer your-token"
-```
-
-## Ingress-Specific Authentication
-
-For external integrations, use scoped API keys that only allow access to specific ingress lists.
-
-### Configuration
-
-In `config.yml`:
+Give each outside system its own key under `ingress_auth` in `config.yml`. A key works for its listed ingress lists, on `POST /vcon/external-ingress`, and nowhere else. With no main API keys set, the main routes are open to everyone, so the scoping protects nothing there.
 
 ```yaml
 ingress_auth:
-  # Single key for an ingress list
-  partner_a_input: "partner-a-api-key-12345"
-  
-  # Multiple keys for an ingress list
-  partner_b_input:
-    - "partner-b-primary-key"
-    - "partner-b-backup-key"
-    - "partner-b-dev-key"
+  # One key
+  customer_data: "customer-api-key-12345"
+
+  # Several keys for one list
+  support_calls:
+    - "support-api-key-67890"
+    - "support-vendor-key-xyz"
 ```
 
-### Usage
+The API reads this section on every request, so changes need no restart.
 
-External partners use the `/vcon/external-ingress` endpoint:
+The caller sends the key in the same header and names the list in the query:
 
 ```bash
-curl -X POST "http://api/vcon/external-ingress?ingress_list=partner_a_input" \
-  -H "x-conserver-api-token: partner-a-api-key-12345" \
+curl -X POST "http://localhost:8000/api/vcon/external-ingress?ingress_list=customer_data" \
+  -H "x-conserver-api-token: customer-api-key-12345" \
   -H "Content-Type: application/json" \
-  -d '{"vcon": "0.0.1", "uuid": "...", ...}'
+  -d '{"vcon": "0.4.0", "uuid": "018f0f2e-6c1a-8e3b-9a6d-2f4d1c7b9e10", "created_at": "2026-01-15T10:30:00Z", "parties": [], "dialog": []}'
 ```
 
-### Security Benefits
+Success returns `204`. The API validates the query and body first, so bad input returns `422` before any key check. After that, these errors apply:
 
-- Partners can only submit to their assigned ingress list
-- Key compromise affects only that partner's access
-- Easy to rotate individual keys without affecting others
-- Audit trail per partner
+| Status | Detail | Cause |
+|---|---|---|
+| 403 | `API Key required` | No header value |
+| 403 | `No ingress authentication configured` | `ingress_auth` is empty or missing |
+| 403 | `Ingress list '<name>' not configured` | The list is not in `ingress_auth` |
+| 403 | `Invalid configuration for ingress list '<name>'` | The value is neither a string nor a list |
+| 403 | `Invalid API Key for ingress list '<name>'` | The key is not allowed for this list |
+| 500 | `Failed to store vCon` | The API could not store or enqueue the vCon |
+| 500 | `Internal Server Error` | The configuration file cannot be read. The body is plain text |
 
-## Authentication Flow
+Giving each system its own key means you can rotate or revoke one without touching the others.
 
-### Standard Endpoints
+## Rotate the keys
 
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant A as API Server
-    participant R as Redis
+### Rotate a global key
 
-    C->>A: Request with token
-    A->>A: Validate against global token(s)
-    alt Valid token
-        A->>R: Process request
-        R->>A: Response
-        A->>C: 200 OK
-    else Invalid token
-        A->>C: 403 Forbidden
-    end
-```
+1. Add the new key to the token file.
+2. Restart the API. Both keys now work.
+3. Move your clients to the new key.
+4. Remove the old key from the file and restart the API again.
 
-### External Ingress
+With Compose, `docker compose restart api` rereads a token file. A change to `CONSERVER_API_TOKEN` in `.env` needs `docker compose up -d api`. `CONSERVER_API_TOKEN` holds only one key, so a change to it has no overlap period.
 
-```mermaid
-sequenceDiagram
-    participant P as Partner
-    participant A as API Server
-    participant C as Config
-    participant R as Redis
+### Rotate an ingress key
 
-    P->>A: POST /external-ingress?ingress_list=partner_a
-    A->>C: Check ingress_auth[partner_a]
-    alt Key matches
-        A->>R: Push to ingress list
-        A->>P: 200 OK
-    else Key mismatch
-        A->>P: 403 Forbidden
-    end
-```
-
-## Token Management
-
-### Generating Secure Tokens
-
-```bash
-# Generate a 32-byte (256-bit) hex token
-openssl rand -hex 32
-
-# Generate a base64 token
-openssl rand -base64 32
-
-# Generate using Python
-python -c "import secrets; print(secrets.token_hex(32))"
-```
-
-### Token Rotation
-
-**Step 1: Add New Token**
-
-Add the new token to the token file:
-
-```bash
-echo "new-token-xyz789" >> /etc/vcon/api_tokens.txt
-```
-
-Or add to environment:
-
-```bash
-# In .env, you can only have one token via env var
-# Use CONSERVER_API_TOKEN_FILE for multiple tokens
-```
-
-**Step 2: Update Clients**
-
-Update clients to use the new token.
-
-**Step 3: Remove Old Token**
-
-Remove the old token from the file:
-
-```bash
-# Edit the file and remove the old token
-nano /etc/vcon/api_tokens.txt
-```
-
-**Step 4: Restart (if using env var)**
-
-If using `CONSERVER_API_TOKEN`, restart the service:
-
-```bash
-docker compose restart api
-```
-
-### Key Rotation for Ingress Auth
-
-Update `config.yml`:
+List both keys, wait for the client to move, then remove the old one. Neither step needs a restart.
 
 ```yaml
 ingress_auth:
-  partner_a_input:
-    - "new-partner-a-key"      # New key
-    - "old-partner-a-key"      # Keep old key temporarily
+  customer_data:
+    - "new-customer-key"
+    - "old-customer-key"
 ```
 
-After partner updates:
-
-```yaml
-ingress_auth:
-  partner_a_input: "new-partner-a-key"  # Remove old key
-```
-
-## Security Best Practices
-
-### 1. Use Strong Tokens
+## Generate strong tokens
 
 ```bash
-# Minimum 32 bytes (256 bits)
 openssl rand -hex 32
 ```
 
-### 2. Separate Environments
+## Protect the keys
 
-```bash
-# Development
-CONSERVER_API_TOKEN=dev-token-not-secure
+- Use different keys in each environment.
+- Prefer a token file, readable only by the API's user, to a key in `.env`. In a container, mount the file and set the path.
+- `ingress_auth` keys sit in plain text in `config.yml`, and `GET /config` returns them to anyone with a global key. Treat a global key as an admin key.
+- Keep `/stats/queue` and the generated API pages behind your proxy if you do not want them public.
+- `CORSMiddleware` allows every origin. Restrict origins at your proxy if browsers reach the API.
 
-# Production
-CONSERVER_API_TOKEN=prod-token-very-secure-random-string
-```
+Serve the API over TLS. The API has no TLS or rate limiting of its own, so add both at a reverse proxy:
 
-### 3. Use Token Files in Production
+```nginx
+limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;
 
-```bash
-# Better than environment variables
-CONSERVER_API_TOKEN_FILE=/etc/vcon/api_tokens.txt
-
-# Secure the file
-chmod 600 /etc/vcon/api_tokens.txt
-chown vcon:vcon /etc/vcon/api_tokens.txt
-```
-
-### 4. Use Ingress Auth for Partners
-
-```yaml
-# Give each partner their own key
-ingress_auth:
-  acme_corp: "acme-unique-key"
-  globex: "globex-unique-key"
-```
-
-### 5. Monitor Authentication Failures
-
-Check logs for failed authentication attempts:
-
-```bash
-docker compose logs api | grep -i "403\|forbidden\|unauthorized"
-```
-
-### 6. Use HTTPS
-
-Always use HTTPS in production:
-
-```yaml
-# nginx.conf
 server {
     listen 443 ssl;
     ssl_certificate /etc/ssl/certs/vcon.crt;
     ssl_certificate_key /etc/ssl/private/vcon.key;
-    
-    location /api {
-        proxy_pass http://api:8000;
-    }
-}
-```
 
-### 7. Rate Limiting
-
-Add rate limiting at the reverse proxy level:
-
-```yaml
-# nginx rate limiting
-limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;
-
-server {
     location /api {
         limit_req zone=api burst=20 nodelay;
         proxy_pass http://api:8000;
@@ -307,62 +141,39 @@ server {
 }
 ```
 
-## Troubleshooting
-
-### 403 Forbidden
-
-**Check token is set:**
+To watch for failures, look for 403 responses in the API log:
 
 ```bash
-# In container
-docker compose exec api env | grep CONSERVER_API_TOKEN
+docker compose logs api | grep " 403"
 ```
 
-**Check header name:**
+## Troubleshoot a rejected request
+
+### The main API returns 403
+
+Check that the running API has the key you expect. The API reads keys only at startup.
 
 ```bash
-# Default header
-curl -H "x-conserver-api-token: $TOKEN" ...
-
-# Custom header
-curl -H "$CUSTOM_HEADER: $TOKEN" ...
+docker compose exec api env | grep CONSERVER_
 ```
 
-**Check ingress auth:**
+Then check the header name, and check that the value matches the stored key in full.
 
-```bash
-# View current config
-curl http://api/config -H "x-conserver-api-token: $ADMIN_TOKEN" | jq .ingress_auth
-```
-
-### Token File Not Loading
-
-**Check file exists and readable:**
+### Diagnose a token file failure
 
 ```bash
 ls -la /etc/vcon/api_tokens.txt
-cat /etc/vcon/api_tokens.txt
 ```
 
-**Check file format:**
+The path must exist inside the container, not only on the host. A bad path stops the API, so read its log first.
 
-- One token per line
-- No trailing spaces
-- No empty lines
+### External ingress returns 403
 
-### External Ingress Rejected
-
-**Verify ingress list name matches:**
+Read the detail in the response and match it to the table in [Scope a key to an ingress list](#scope-a-key-to-an-ingress-list). To see the loaded section:
 
 ```bash
-# Request must match config exactly
-curl "...?ingress_list=partner_a_input"  # Must match key in ingress_auth
+curl -s http://localhost:8000/api/config \
+  -H "x-conserver-api-token: $ADMIN_TOKEN" | jq .ingress_auth
 ```
 
-**Check key is in list:**
-
-```yaml
-ingress_auth:
-  partner_a_input:
-    - "the-key-you-are-using"  # Must be in this list
-```
+A global key returns `Invalid API Key for ingress list`, because this route does not read the global list.

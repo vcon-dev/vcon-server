@@ -1,5 +1,7 @@
 # SCITT Link
 
+Reference: [`links.scitt`](../../../docs/reference/links/scitt.md)
+
 The SCITT (Supply Chain Integrity, Transparency, and Trust) link is a specialized plugin that provides integrity and inclusion protection for vCon objects by creating and registering signed statements on a SCITT Transparency Service. It ensures that vCons can be verified as authentic and complete, protecting against tampering and deletion.
 
 ## Features
@@ -103,7 +105,7 @@ With the SCITT capabilities, the integrity and inclusion of all vCons are record
 If you're in possession of a vCon that's not recorded on a SCITT ledger, how do you know it's a valid vCon, or the latest version of that vCon?
 
 The SCITT Conserver Link is designed to integrate vCon (virtual conversation) data with a SCITT Reference API (SCRAPI) implementation.
-The SCITT Link creates Signed Statements based on vCon information, enabling seamless tracking and management of conversation-related assets.
+The SCITT Link creates Signed Statements based on vCon information, for tracking and managing conversation-related assets.
 Setting the `vcon_operation` chain configuration, log different types of Events, based on which chain is executed.
 
 ## Prerequisites

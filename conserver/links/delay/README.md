@@ -1,11 +1,13 @@
 # Delay Link
 
+Reference: [`links.delay`](../../../docs/reference/links/delay.md)
+
 The Delay link is a lightweight **testing fixture**. It sleeps for a configurable
 number of seconds and then passes the vCon through the chain unchanged. It does
 not read or modify the vCon.
 
 Its purpose is to make a chain take a predictable amount of wall-clock time so
-that concurrent processing behaviour can be observed during QA — for example,
+that concurrent processing behaviour can be observed during QA, for example
 verifying that per-worker in-flight concurrency (`CONSERVER_VCON_CONCURRENCY`)
 actually processes multiple vCons in parallel rather than serially.
 

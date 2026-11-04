@@ -1,0 +1,47 @@
+%%{init: {'theme':'base','themeVariables':{'fontFamily':'Inter, Helvetica, Arial, sans-serif','fontSize':'14px','background':'#FFFFFF','primaryColor':'#F3F4F6','primaryTextColor':'#292929','primaryBorderColor':'#0A7D18','secondaryColor':'#FFFFFF','secondaryTextColor':'#33363B','secondaryBorderColor':'#8A8A8D','tertiaryColor':'#FFFFFF','tertiaryTextColor':'#33363B','tertiaryBorderColor':'#8A8A8D','lineColor':'#33363B','textColor':'#33363B','mainBkg':'#F3F4F6','nodeBorder':'#0A7D18','clusterBkg':'#FFFFFF','clusterBorder':'#8A8A8D','edgeLabelBackground':'#FFFFFF','actorBkg':'#F3F4F6','actorBorder':'#0A7D18','actorTextColor':'#292929','signalColor':'#33363B','signalTextColor':'#292929','labelBoxBkgColor':'#F3F4F6','labelBoxBorderColor':'#0A7D18','noteBkgColor':'#F3F4F6','noteBorderColor':'#8A8A8D','noteTextColor':'#292929'}}}%%
+%%{init: {'fontFamily':'Inter, Helvetica, Arial, sans-serif'}}%%
+flowchart LR
+    client["API client"]
+    partner["Third-party sender"]
+    upstream["Upstream conserver"]
+
+    subgraph apisvc["api service"]
+        postvcon["POST /vcon<br/>global API key, full vCon"]
+        external["POST /vcon/external-ingress<br/>per-list key from ingress_auth, full vCon"]
+        ingress["POST /vcon/ingress<br/>global API key, list of UUIDs"]
+        store["Cache vcon:uuid for VCON_REDIS_EXPIRY<br/>add to sorted set, index parties"]
+        verify["MGET bodies from Redis<br/>on a miss, load from storage<br/>if still missing, warn and skip"]
+    end
+
+    subgraph follow["conserver main process"]
+        follower["follower.py timer<br/>every pulling_interval"]
+        fset["SET vcon:uuid, keeps any TTL, none on a new key<br/>no sorted set, no party index"]
+    end
+
+    subgraph reentry["Internal re-entry"]
+        egress["Chain egress_lists<br/>when another chain reads that list"]
+        router["tag_router link<br/>tag_routes target lists"]
+        dlq["POST /dlq/reprocess<br/>LPOP DLQ, up to count items"]
+    end
+
+    list[("Redis ingress list<br/>RPUSH vCon UUID")]
+    worker["worker_loop<br/>BLPOP every chain ingress list"]
+
+    client --> postvcon
+    client --> ingress
+    partner --> external
+    postvcon --> store
+    external --> store
+    ingress --> verify
+    store -->|"POST /vcon: only with ingress_lists<br/>external: always, one list"| list
+    verify -->|"found UUIDs, one RPUSH"| list
+    follower -->|"GET /vcon/egress pops UUIDs,<br/>then GET /vcon/{uuid} for each"| upstream
+    follower --> fset
+    fset -->|"follower_ingress_list"| list
+    egress -.-> list
+    router -.-> list
+    dlq -.-> list
+    list -->|"BLPOP, 15 s timeout"| worker
+
+    classDef accent stroke:#0BB81E,stroke-width:3px
+    class list accent

@@ -1,64 +1,20 @@
-# Kubernetes Deployment
+# Deploy on Kubernetes
 
-This guide covers deploying vCon Server on Kubernetes for scalable, production-grade deployments.
+This page gives example manifests for the API, the workers and Redis. The repo ships no manifests and CI does not test these, so treat them as a starting point. The Kubernetes group in the [deploy map](index.md) shows how the pieces connect.
 
-## Overview
+## Prepare the cluster
 
-Kubernetes deployment provides:
+You need:
 
-- Horizontal scaling with multiple replicas
-- Self-healing with automatic restarts
-- Rolling updates with zero downtime
-- Resource management and limits
-- Integration with cloud-native services
+- A cluster with a persistent volume provisioner
+- `kubectl` configured for that cluster
+- Pull access to `public.ecr.aws`
 
-## Architecture
+Use the two published images. `api` runs `vcon-server-api` and `worker` runs `vcon-server-conserver`. See [Run the published images](docker.md#run-the-published-images) for the tags, and pin a version in production. Each image starts its own process and waits for `REDIS_URL`, so the manifests set no `command`.
 
-```mermaid
-flowchart TB
-    subgraph ingress [Ingress]
-        ING[Ingress Controller]
-    end
+## Write the manifests
 
-    subgraph services [Services]
-        API_SVC[API Service]
-        REDIS_SVC[Redis Service]
-    end
-
-    subgraph workloads [Workloads]
-        API[API Deployment<br/>replicas: 2]
-        WORKER[Worker Deployment<br/>replicas: 4]
-        REDIS[Redis StatefulSet<br/>replicas: 1]
-    end
-
-    subgraph storage [Storage]
-        PVC[PersistentVolumeClaim]
-        SECRET[Secrets]
-        CM[ConfigMap]
-    end
-
-    ING --> API_SVC
-    API_SVC --> API
-    API --> REDIS_SVC
-    WORKER --> REDIS_SVC
-    REDIS_SVC --> REDIS
-    REDIS --> PVC
-    API --> SECRET
-    WORKER --> SECRET
-    API --> CM
-    WORKER --> CM
-```
-
-## Prerequisites
-
-- Kubernetes cluster 1.24+
-- kubectl configured
-- Container registry access
-- Persistent volume provisioner
-
-## Deployment Files
-
-Create a `k8s/` directory with the following manifests:
+Create a `k8s/` folder with these files.
 
 ### Namespace
 
@@ -81,30 +37,30 @@ metadata:
   namespace: vcon-server
 data:
   config.yml: |
+    links:
+      tag_processed:
+        module: links.tag
+        options:
+          tags:
+            - processed
+
+    storages:
+      redis_storage:
+        module: storage.redis_storage
+
     chains:
       main_chain:
         links:
-          - transcribe
-          - analyze
-          - tag
+          - tag_processed
         storages:
           - redis_storage
         ingress_lists:
           - default
-        enabled: 1
-    
-    links:
-      transcribe:
-        module: links.transcribe
-      analyze:
-        module: links.analyze
-      tag:
-        module: links.tag
-    
-    storages:
-      redis_storage:
-        module: storage.redis_storage
 ```
+
+Build your own chains with [YAML configuration](../configuration/yaml-configuration.md).
+
+The server does not expand `${VAR}` in this file, so link and storage credentials sit in it as plain values. Once they do, move `config.yml` from the ConfigMap to a Secret. `POST /config` writes to this file, so it fails on a read-only mount.
 
 ### Secrets
 
@@ -118,19 +74,13 @@ metadata:
 type: Opaque
 stringData:
   api-token: "your-secure-api-token"
-  deepgram-key: "your-deepgram-key"
-  openai-key: "your-openai-key"
 ```
 
-!!! warning "Secret Management"
-    In production, use a secrets management solution like:
-    
-    - HashiCorp Vault
-    - AWS Secrets Manager
-    - Azure Key Vault
-    - Sealed Secrets
+In production, fill this Secret from a secrets manager rather than a file in Git.
 
-### Redis StatefulSet
+### Redis
+
+The arguments match the `redis` service in `docker-compose.yml`.
 
 ```yaml
 # k8s/redis.yaml
@@ -164,7 +114,8 @@ spec:
     spec:
       containers:
         - name: redis
-          image: redis:7-alpine
+          image: redis:7.4-alpine
+          args: ["redis-server", "--save", "20", "1", "--notify-keyspace-events", "Ex", "--dir", "/data", "--appendonly", "yes"]
           ports:
             - containerPort: 6379
           resources:
@@ -187,7 +138,7 @@ spec:
             storage: 10Gi
 ```
 
-### API Deployment
+### API
 
 ```yaml
 # k8s/api.yaml
@@ -220,14 +171,7 @@ spec:
     spec:
       containers:
         - name: api
-          image: public.ecr.aws/r4g1k2s3/vcon-dev/vcon-server:latest
-          command:
-            - uvicorn
-            - server.api:app
-            - --host
-            - "0.0.0.0"
-            - --port
-            - "8000"
+          image: public.ecr.aws/r4g1k2s3/vcon-dev/vcon-server-api:latest
           ports:
             - containerPort: 8000
           env:
@@ -268,7 +212,7 @@ spec:
             name: vcon-config
 ```
 
-### Worker Deployment
+### Workers
 
 ```yaml
 # k8s/worker.yaml
@@ -289,10 +233,7 @@ spec:
     spec:
       containers:
         - name: worker
-          image: public.ecr.aws/r4g1k2s3/vcon-dev/vcon-server:latest
-          command:
-            - python
-            - ./server/main.py
+          image: public.ecr.aws/r4g1k2s3/vcon-dev/vcon-server-conserver:latest
           env:
             - name: REDIS_URL
               value: "redis://redis:6379"
@@ -307,18 +248,6 @@ spec:
               value: "2"
             - name: CONSERVER_PARALLEL_STORAGE
               value: "true"
-            - name: DEEPGRAM_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: vcon-secrets
-                  key: deepgram-key
-                  optional: true
-            - name: OPENAI_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: vcon-secrets
-                  key: openai-key
-                  optional: true
           volumeMounts:
             - name: config
               mountPath: /config
@@ -366,7 +295,7 @@ spec:
                   number: 8000
 ```
 
-### Horizontal Pod Autoscaler
+### Autoscaler
 
 ```yaml
 # k8s/hpa.yaml
@@ -391,9 +320,7 @@ spec:
           averageUtilization: 70
 ```
 
-## Deployment Steps
-
-### Step 1: Apply Manifests
+## Apply the manifests
 
 ```bash
 # Create namespace
@@ -415,7 +342,7 @@ kubectl apply -f k8s/ingress.yaml
 kubectl apply -f k8s/hpa.yaml
 ```
 
-### Step 2: Verify Deployment
+## Check the deployment
 
 ```bash
 # Check pod status
@@ -432,66 +359,28 @@ kubectl port-forward svc/api 8000:8000 -n vcon-server
 curl http://localhost:8000/api/health
 ```
 
-## Scaling
-
-### Manual Scaling
+## Scale the deployments
 
 ```bash
-# Scale workers
 kubectl scale deployment/worker --replicas=8 -n vcon-server
-
-# Scale API
 kubectl scale deployment/api --replicas=4 -n vcon-server
 ```
 
-### Automatic Scaling
+The example autoscaler scales workers on CPU. The `conserver.ingress_list.length` metric reports queue depth if you prefer to scale on that. See [Workers](../configuration/workers.md) to balance replicas against `CONSERVER_WORKERS` and `CONSERVER_VCON_CONCURRENCY`.
 
-The HPA automatically scales based on CPU utilization. Customize thresholds:
+## Connect monitoring
 
-```yaml
-metrics:
-  - type: Resource
-    resource:
-      name: cpu
-      target:
-        type: Utilization
-        averageUtilization: 70
-  - type: Resource
-    resource:
-      name: memory
-      target:
-        type: Utilization
-        averageUtilization: 80
-```
-
-## Monitoring
-
-### Prometheus Metrics
-
-Add annotations for Prometheus scraping:
+The server exposes no Prometheus endpoint. It pushes metrics and traces over OTLP when `OTEL_EXPORTER_OTLP_ENDPOINT` is set, so add that variable to both Deployments and point it at your collector:
 
 ```yaml
-metadata:
-  annotations:
-    prometheus.io/scrape: "true"
-    prometheus.io/port: "8000"
-    prometheus.io/path: "/metrics"
+env:
+  - name: OTEL_EXPORTER_OTLP_ENDPOINT
+    value: "http://otel-collector:4317"
 ```
 
-### Logging
+See [Monitoring](../operations/monitoring.md) and the [metric list](../reference/metrics.md). [Logging](../operations/logging.md) covers log format, which `LOGGING_CONFIG_FILE` sets.
 
-Configure centralized logging:
-
-```yaml
-spec:
-  containers:
-    - name: worker
-      env:
-        - name: LOG_FORMAT
-          value: "json"
-```
-
-## Cloud-Specific Configurations
+## Adapt the Ingress to your cloud
 
 ### AWS EKS
 
@@ -523,9 +412,9 @@ metadata:
     kubernetes.io/ingress.class: azure/application-gateway
 ```
 
-## Troubleshooting
+## Troubleshoot the cluster
 
-### Pods Not Starting
+### Diagnose a stuck pod
 
 ```bash
 # Check pod status
@@ -535,7 +424,9 @@ kubectl describe pod <pod-name> -n vcon-server
 kubectl get events -n vcon-server --sort-by='.lastTimestamp'
 ```
 
-### Connection Issues
+A pod that logs `Redis not ready yet. Retrying...` cannot reach `REDIS_URL`.
+
+### Diagnose a failed connection
 
 ```bash
 # Test Redis connectivity
@@ -545,7 +436,7 @@ kubectl exec -it deployment/api -n vcon-server -- redis-cli -h redis ping
 kubectl get endpoints -n vcon-server
 ```
 
-### Resource Issues
+### Check resource usage
 
 ```bash
 # Check resource usage
@@ -555,8 +446,8 @@ kubectl top pods -n vcon-server
 kubectl describe nodes
 ```
 
-## Next Steps
+## Continue with these guides
 
-- [Configuration Guide](../configuration/index.md) - Customize settings
-- [Monitoring](../operations/monitoring.md) - Set up observability
-- [Scaling](../configuration/workers.md) - Optimize performance
+- [Configuration guide](../configuration/index.md)
+- [Monitoring](../operations/monitoring.md)
+- [Workers](../configuration/workers.md)

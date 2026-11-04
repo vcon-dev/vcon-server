@@ -1,544 +1,162 @@
-# Environment Variables
+# Configure the server with environment variables
 
-Complete reference for all environment variables used by vCon Server.
+Environment variables set how the server connects, scales and reports. The [YAML file](yaml-configuration.md) sets what it does to each vCon.
 
-## Core Settings
+This page groups the variables by task. The [environment reference](../reference/environment.md) is generated from the code and lists every variable, with its default, type and the file that reads it.
 
-### REDIS_URL
+## Load variables from a .env file
 
-Redis connection URL for queues and caching.
+`common/settings.py` calls `dotenv.load_dotenv()` on import, so a `.env` file works the same as exported variables. Docker Compose passes the same file to `api` and `conserver` through `env_file`.
 
-| Property | Value |
-|----------|-------|
-| **Required** | Yes |
-| **Default** | `redis://localhost` |
-| **Format** | `redis://[user:password@]host[:port][/database]` |
+Start from the example:
 
 ```bash
-# Local Redis
-REDIS_URL=redis://localhost:6379
-
-# Docker Redis
-REDIS_URL=redis://redis:6379
-
-# Redis with authentication
-REDIS_URL=redis://user:password@redis-host:6379/0
-
-# Redis Cluster
-REDIS_URL=redis://redis-cluster:6379
+cp .env.example .env
 ```
 
-### HOSTNAME
-
-Server hostname used for generating URLs.
-
-| Property | Value |
-|----------|-------|
-| **Required** | No |
-| **Default** | `http://localhost:8000` |
+This set is enough for the Compose stack:
 
 ```bash
-HOSTNAME=https://api.example.com
+REDIS_URL=redis://redis
+CONSERVER_CONFIG_FILE=/app/config.yml
+LOGGING_CONFIG_FILE=common/logging_dev.conf
+CONSERVER_API_TOKEN=replace-with-a-long-random-value
 ```
 
-### ENV
+Watch for these behaviours:
 
-Environment identifier for logging and behavior.
+- Each process reads its variables at startup. After a change, run `docker compose up -d api conserver`. `docker compose restart` does not reread `.env`.
+- An empty value is not the same as unset. `CONSERVER_CONFIG_FILE=` gives an empty path, not the default, and the server fails when it opens the file. `.env.example` ships that line empty, so fill it in.
+- An empty value on an integer variable, such as `CONSERVER_WORKERS=`, raises `ValueError` on import.
+- `.env.example` sets `LOGGING_CONFIG_FILE=server/logging_dev.conf`, and the repo has no `server/` folder. Use `common/logging_dev.conf`, or remove the line to use `common/logging.conf`.
 
-| Property | Value |
-|----------|-------|
-| **Required** | No |
-| **Default** | `dev` |
-| **Options** | `dev`, `staging`, `production` |
+## Connect the server to Redis
+
+`REDIS_URL` is the one connection every process needs. The default is `redis://localhost`.
 
 ```bash
-ENV=production
+# Service on the Compose network
+REDIS_URL=redis://redis
+
+# External Redis with a password and a database number
+REDIS_URL=redis://:password@redis-host:6379/0
 ```
 
-### LOG_LEVEL
+The Docker entrypoint, `docker/wait_for_redis.sh`, pings this URL before it starts the service. With `REDIS_URL` unset or empty it skips the wait.
 
-Logging verbosity level.
+## Point the server at its files
 
-| Property | Value |
-|----------|-------|
-| **Required** | No |
-| **Default** | `DEBUG` |
-| **Options** | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
+| Variable | Use |
+|---|---|
+| `CONSERVER_CONFIG_FILE` | Path to the [YAML configuration](yaml-configuration.md). Compose mounts `./config.yml` at `/app/config.yml`, so use that path there. `POST /config` needs this variable set, because it does not use the `./example_config.yml` default |
+| `LOGGING_CONFIG_FILE` | Path to a Python logging config. See [logging](../operations/logging.md) |
 
-```bash
-LOG_LEVEL=INFO
-```
+`LOG_LEVEL` has no effect. Set levels in the logging config file.
 
-### LOGGING_CONFIG_FILE
+## Protect the API with keys
 
-Path to logging configuration file.
+| Variable | Use |
+|---|---|
+| `CONSERVER_API_TOKEN` | One API key |
+| `CONSERVER_API_TOKEN_FILE` | Path to a file of keys, one per line, added to the key above. The API reads it once at startup |
+| `CONSERVER_HEADER_NAME` | Header that carries the key. The default is `x-conserver-api-token` |
 
-| Property | Value |
-|----------|-------|
-| **Required** | No |
-| **Default** | `server/logging.conf` |
+With no key set, the main API routes are open. Keys for `POST /vcon/external-ingress` live in the `ingress_auth` section of the YAML file. See [authentication](authentication.md).
 
-```bash
-# Production (JSON logging)
-LOGGING_CONFIG_FILE=server/logging.conf
+## Run the API behind a proxy
 
-# Development (simple logging)
-LOGGING_CONFIG_FILE=server/logging_dev.conf
-```
+`API_ROOT_PATH` sets the FastAPI `root_path`, default `/api`, for a proxy that strips that prefix. It does not add the prefix to routes, so the app still serves `/vcon` and `/health`.
 
-### CONSERVER_CONFIG_FILE
+`CONSERVER_EXTERNAL_PORT` sets the host port Compose publishes for the `api` service, default `8000`. See [ports and services](../reference/ports.md).
 
-Path to YAML configuration file.
+## Tune worker throughput
 
-| Property | Value |
-|----------|-------|
-| **Required** | No |
-| **Default** | `./example_config.yml` |
+| Variable | Default | Use |
+|---|---|---|
+| `CONSERVER_WORKERS` | `1` | Worker processes. Suits CPU-bound chains |
+| `CONSERVER_VCON_CONCURRENCY` | `1` | vCons in flight per worker, in a thread pool. Suits chains that wait on the network |
+| `CONSERVER_PARALLEL_STORAGE` | `true` | Writes to a chain's storage backends at the same time when it has more than one |
+| `CONSERVER_START_METHOD` | platform default | `fork`, `spawn` or `forkserver`. Used only when `CONSERVER_WORKERS` is above 1 |
 
-```bash
-CONSERVER_CONFIG_FILE=/etc/vcon/config.yml
-```
+At most `CONSERVER_WORKERS` times `CONSERVER_VCON_CONCURRENCY` vCons run at once. [Workers](workers.md) covers sizing.
 
-### API_ROOT_PATH
+## Set Redis retention
 
-Root path prefix for API endpoints.
+| Variable | Default | Controls |
+|---|---|---|
+| `VCON_REDIS_EXPIRY` | `3600` | TTL on vCons written by `POST /vcon` and `POST /vcon/external-ingress`, and on vCons cached back from storage |
+| `VCON_DLQ_EXPIRY` | `604800` | TTL once a vCon reaches a dead letter queue |
+| `VCON_CONTEXT_EXPIRY` | `86400` | TTL on the ingress context stored beside a queue entry |
+| `VCON_INDEX_EXPIRY` | `86400` | TTL on the party search keys the API writes |
+| `VCON_STORAGE_FALLBACK_ENABLED` | `true` | Whether a Redis miss in `VconRedis.get_vcon` tries the storage backends |
+| `VCON_SORTED_SET_NAME` | `vcons` | Redis sorted set that orders vCons by time |
 
-| Property | Value |
-|----------|-------|
-| **Required** | No |
-| **Default** | `/api` |
+Set `VCON_REDIS_EXPIRY` above your longest queue wait. A vCon that expires in the queue, with no copy in a storage backend, comes back as `None` from `VconRedis.get_vcon`.
 
-```bash
-API_ROOT_PATH=/api/v1
-```
+`VCON_DLQ_EXPIRY` works differently on the two dead letter queues. The ingress DLQ sets the TTL to this value. The storage DLQ only raises a lower TTL. `0` leaves the TTL as it is on both. See the [dead letter queue](../operations/dead-letter-queue.md).
 
-### TICK_INTERVAL
+## Give links their vendor keys
 
-Processing tick interval in milliseconds.
+Most vendor keys belong in link options in the YAML file, not in the environment. The YAML loader does not expand `${VAR}`, so write the value itself. See [links](yaml-configuration.md#add-processing-links).
 
-| Property | Value |
-|----------|-------|
-| **Required** | No |
-| **Default** | `5000` |
+Two variables act as defaults for a link option:
 
-```bash
-TICK_INTERVAL=1000  # Check queues every second
-```
+| Variable | Link | Option it fills |
+|---|---|---|
+| `GROQ_API_KEY` | `groq_whisper`, also through `links.transcribe` with `vendor: groq` | `API_KEY` |
+| `OPENAI_API_KEY` | `detect_engagement` | `OPENAI_API_KEY` |
 
-## Authentication
+The link reads the variable when its module loads. Other links that use OpenAI take the key from their own options. `DEEPGRAM_KEY` in the environment has no effect, so set `DEEPGRAM_KEY` in the link options.
 
-### CONSERVER_API_TOKEN
+## Emit a legacy vCon format
 
-API authentication token for all endpoints.
+Set `EGRESS_FORMAT_VERSION=0.0.1` for downstream consumers that still need the old schema. Set it on both `api` and `conserver`. See [egress format compatibility](egress-compatibility.md).
 
-| Property | Value |
-|----------|-------|
-| **Required** | Yes (for production) |
-| **Default** | None |
+## Export metrics and traces
 
-```bash
-# Single token
-CONSERVER_API_TOKEN=your-secure-token-here
+| Variable | Use |
+|---|---|
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP endpoint. Unset or empty, the metric helpers do nothing |
+| `OTEL_SERVICE_NAME` | `service.name` on metrics. Compose sets `api` and `conserver` |
+| `OTEL_METRIC_EXPORT_INTERVAL` | Metric export interval in milliseconds, default `5000` |
 
-# Generate secure token
-openssl rand -hex 32
-```
+The `api` and `conserver` Compose commands run under `opentelemetry-instrument`, which also takes `OTEL_EXPORTER_OTLP_PROTOCOL`, `OTEL_EXPORTER_OTLP_INSECURE` and `OTEL_EXPORTER_OTLP_HEADERS`.
 
-### CONSERVER_API_TOKEN_FILE
+The server's own metrics always use the OTLP gRPC exporter, and `OTEL_EXPORTER_OTLP_PROTOCOL` does not change that. An endpoint that accepts only `http/protobuf`, such as the Langfuse examples in `.env.example`, suits the auto-instrumented traces and not those metrics.
 
-Path to file containing API tokens (one per line).
+The [metrics reference](../reference/metrics.md) lists the metric names. [Monitoring](../operations/monitoring.md) covers the setup.
 
-| Property | Value |
-|----------|-------|
-| **Required** | No |
-| **Default** | None |
+## Report errors to Sentry
 
-```bash
-CONSERVER_API_TOKEN_FILE=/etc/vcon/api_tokens.txt
-```
+Set `SENTRY_DSN` to turn on Sentry. `ENV` must then be set too, because `common/lib/error_tracking.py` reads it directly and raises `KeyError` without it. The `dev` default in `settings` does not apply there.
 
-File format:
-```
-token-one-here
-token-two-here
-admin-token-here
-```
+`VCON_SERVER_GIT_COMMIT`, when set, becomes the Sentry release.
 
-### CONSERVER_HEADER_NAME
+## Configure the Space and Time adapter
 
-HTTP header name for API token.
+The `spaceandtime` storage adapter reads its settings from the environment, not from YAML options.
 
-| Property | Value |
-|----------|-------|
-| **Required** | No |
-| **Default** | `x-conserver-api-token` |
+| Variable | Use |
+|---|---|
+| `SXT_API_KEY` | API key |
+| `SXT_VCON_TABLENAME` | Table name |
+| `SXT_VCON_TABLE_WRITE_BISCUI` | Write biscuit. The code reads this exact name, with no final `T` |
 
-```bash
-CONSERVER_HEADER_NAME=Authorization
-```
-
-## Worker Configuration
-
-### CONSERVER_WORKERS
-
-Number of worker **processes** to spawn. Each worker is a separate OS process that polls Redis with BLPOP and processes vCons independently.
-
-| Property | Value |
-|----------|-------|
-| **Required** | No |
-| **Default** | `1` |
-| **Minimum** | `1` |
-
-```bash
-# Single worker (default)
-CONSERVER_WORKERS=1
-
-# Multi-worker mode
-CONSERVER_WORKERS=4
-```
-
-!!! tip "Sizing Workers"
-    Scale `CONSERVER_WORKERS` based on CPU cores for CPU-bound workloads.
-    For I/O-bound workloads, prefer raising `CONSERVER_VCON_CONCURRENCY` first —
-    it gives you parallelism without the per-process memory cost.
-
-### CONSERVER_VCON_CONCURRENCY
-
-Maximum number of in-flight vCons **per worker process**. When > 1, each worker dispatches popped vCons to an internal `ThreadPoolExecutor` of this size, so multiple chains run in parallel inside a single worker.
-
-| Property | Value |
-|----------|-------|
-| **Required** | No |
-| **Default** | `1` (strict serial — original behaviour) |
-| **Minimum** | `1` |
-
-```bash
-# Strict serial (default)
-CONSERVER_VCON_CONCURRENCY=1
-
-# Up to 8 vCons running in parallel inside each worker
-CONSERVER_VCON_CONCURRENCY=8
-```
-
-!!! info "Total parallelism"
-    `CONSERVER_WORKERS` and `CONSERVER_VCON_CONCURRENCY` multiply:
-
-    ```
-    max parallel vCons = CONSERVER_WORKERS × CONSERVER_VCON_CONCURRENCY
-    ```
-
-    For example, `CONSERVER_WORKERS=4` with `CONSERVER_VCON_CONCURRENCY=8` allows up to **32 vCons** in flight simultaneously. See [Worker Configuration](workers.md) for sizing guidance.
-
-!!! warning "Thread safety"
-    Concurrency > 1 runs chain links in threads. Link code must be thread-safe and should release the GIL during I/O (standard HTTP/DB clients do). Modules that hold the GIL across long CPU work will block other in-flight vCons in the same worker.
-
-### CONSERVER_PARALLEL_STORAGE
-
-Enable parallel writes to storage backends.
-
-| Property | Value |
-|----------|-------|
-| **Required** | No |
-| **Default** | `true` |
-| **Options** | `true`, `false`, `1`, `0`, `yes`, `no` |
-
-```bash
-# Enable parallel storage (default)
-CONSERVER_PARALLEL_STORAGE=true
-
-# Disable for sequential writes
-CONSERVER_PARALLEL_STORAGE=false
-```
-
-### CONSERVER_START_METHOD
-
-Multiprocessing start method for workers.
-
-| Property | Value |
-|----------|-------|
-| **Required** | No |
-| **Default** | Platform default |
-| **Options** | `fork`, `spawn`, `forkserver` |
-
-```bash
-# Memory-efficient (Unix only)
-CONSERVER_START_METHOD=fork
-
-# Safer, cross-platform
-CONSERVER_START_METHOD=spawn
-
-# Hybrid approach
-CONSERVER_START_METHOD=forkserver
-```
-
-| Method | Memory | Startup | Safety | Platform |
-|--------|--------|---------|--------|----------|
-| `fork` | Low (COW) | Fast | Lower | Unix only |
-| `spawn` | Higher | Slower | Higher | All |
-| `forkserver` | Medium | Medium | Medium | Unix |
-
-## AI Service Keys
-
-### DEEPGRAM_KEY
-
-Deepgram API key for transcription.
-
-| Property | Value |
-|----------|-------|
-| **Required** | If using Deepgram |
-| **Default** | None |
-
-```bash
-DEEPGRAM_KEY=your-deepgram-api-key
-```
-
-### OPENAI_API_KEY
-
-OpenAI API key for analysis and transcription.
-
-| Property | Value |
-|----------|-------|
-| **Required** | If using OpenAI |
-| **Default** | None |
-
-```bash
-OPENAI_API_KEY=sk-your-openai-api-key
-```
-
-### GROQ_API_KEY
-
-Groq API key for Whisper transcription.
-
-| Property | Value |
-|----------|-------|
-| **Required** | If using Groq |
-| **Default** | None |
-
-```bash
-GROQ_API_KEY=gsk-your-groq-api-key
-```
-
-## Cache Settings
-
-### VCON_REDIS_EXPIRY
-
-Default TTL (Time-To-Live) for vCons stored in Redis (seconds).
-
-This expiry applies to:
-
-- **vCons created via POST `/vcon`**: New vCons are stored with this TTL
-- **vCons created via POST `/vcon/external-ingress`**: External submissions use this TTL
-- **vCons synced from storage backends**: When a vCon is fetched from storage and cached in Redis
-
-| Property | Value |
-|----------|-------|
-| **Required** | No |
-| **Default** | `3600` (1 hour) |
-
-```bash
-VCON_REDIS_EXPIRY=7200  # 2 hours
-```
-
-!!! warning "Cache Expiry Behavior"
-    vCons will be automatically removed from Redis after this TTL expires.
-    To ensure long-term retention, configure storage backends (S3, PostgreSQL, etc.)
-    in your processing chains to persist vCons before they expire from Redis.
-
-### VCON_INDEX_EXPIRY
-
-Index expiration time in seconds.
-
-| Property | Value |
-|----------|-------|
-| **Required** | No |
-| **Default** | `86400` (24 hours) |
-
-```bash
-VCON_INDEX_EXPIRY=172800  # 48 hours
-```
-
-### VCON_CONTEXT_EXPIRY
-
-Context data expiration for ingress operations (seconds).
-
-| Property | Value |
-|----------|-------|
-| **Required** | No |
-| **Default** | `86400` (24 hours) |
-
-```bash
-VCON_CONTEXT_EXPIRY=43200  # 12 hours
-```
-
-### VCON_DLQ_EXPIRY
-
-TTL for vCons moved to the Dead Letter Queue (seconds).
-
-When a vCon fails processing and is moved to the DLQ, its TTL is extended to this value to ensure operators have sufficient time to investigate failures. This prevents vCons from expiring before they can be reviewed and reprocessed.
-
-| Property | Value |
-|----------|-------|
-| **Required** | No |
-| **Default** | `604800` (7 days) |
-
-```bash
-# Extend DLQ retention to 14 days
-VCON_DLQ_EXPIRY=1209600
-
-# Disable DLQ expiry (vCons persist indefinitely)
-VCON_DLQ_EXPIRY=0
-```
-
-!!! tip "DLQ Retention Strategy"
-    The default 7-day retention gives operators time to investigate and reprocess failed vCons. Set to `0` if you want DLQ vCons to persist indefinitely (useful when using persistent storage backends).
-
-### VCON_SORTED_SET_NAME
-
-Redis sorted set name for vCon indexing.
-
-| Property | Value |
-|----------|-------|
-| **Required** | No |
-| **Default** | `vcons` |
-
-```bash
-VCON_SORTED_SET_NAME=vcon_index
-```
-
-### VCON_SORTED_FORCE_RESET
-
-Force reset sorted set on startup.
-
-| Property | Value |
-|----------|-------|
-| **Required** | No |
-| **Default** | `true` |
-
-```bash
-VCON_SORTED_FORCE_RESET=false
-```
-
-## Vector Database
-
-### WEVIATE_HOST
-
-Weaviate vector database host.
-
-| Property | Value |
-|----------|-------|
-| **Required** | If using Weaviate |
-| **Default** | `localhost:8000` |
-
-```bash
-WEVIATE_HOST=weaviate:8080
-```
-
-### WEVIATE_API_KEY
-
-Weaviate API key.
-
-| Property | Value |
-|----------|-------|
-| **Required** | If using Weaviate with auth |
-| **Default** | None |
-
-```bash
-WEVIATE_API_KEY=your-weaviate-key
-```
-
-## Build Information
-
-These are typically set at build time:
-
-### VCON_SERVER_VERSION
-
-Server version in CalVer format.
-
-```bash
-VCON_SERVER_VERSION=2024.01.15
-```
-
-### VCON_SERVER_GIT_COMMIT
-
-Git commit hash of the build.
-
-```bash
-VCON_SERVER_GIT_COMMIT=a1b2c3d
-```
-
-### VCON_SERVER_BUILD_TIME
-
-ISO timestamp of the build.
-
-```bash
-VCON_SERVER_BUILD_TIME=2024-01-15T10:30:00Z
-```
-
-## Complete Example
-
-```bash
-# =============================================================================
-# vCon Server Environment Configuration
-# =============================================================================
-
-# Core Settings
-REDIS_URL=redis://redis:6379
-HOSTNAME=https://api.example.com
-ENV=production
-LOG_LEVEL=INFO
-CONSERVER_CONFIG_FILE=/etc/vcon/config.yml
-
-# Authentication
-CONSERVER_API_TOKEN=your-secure-production-token
-CONSERVER_HEADER_NAME=x-conserver-api-token
-
-# Worker Configuration
-CONSERVER_WORKERS=4
-CONSERVER_PARALLEL_STORAGE=true
-CONSERVER_START_METHOD=fork
-
-# AI Services
-DEEPGRAM_KEY=your-deepgram-key
-OPENAI_API_KEY=your-openai-key
-GROQ_API_KEY=your-groq-key
-
-# Cache Settings
-VCON_REDIS_EXPIRY=3600
-VCON_INDEX_EXPIRY=86400
-VCON_CONTEXT_EXPIRY=86400
-
-# Processing
-TICK_INTERVAL=5000
-```
-
-## Environment-Specific Configurations
-
-### Development
-
-```bash
-ENV=dev
-LOG_LEVEL=DEBUG
-LOGGING_CONFIG_FILE=server/logging_dev.conf
-CONSERVER_WORKERS=1
-CONSERVER_API_TOKEN=dev-token
-```
-
-### Staging
-
-```bash
-ENV=staging
-LOG_LEVEL=INFO
-CONSERVER_WORKERS=2
-CONSERVER_API_TOKEN=staging-token
-```
-
-### Production
-
-```bash
-ENV=production
-LOG_LEVEL=INFO
-LOGGING_CONFIG_FILE=server/logging.conf
-CONSERVER_WORKERS=8
-CONSERVER_PARALLEL_STORAGE=true
-CONSERVER_START_METHOD=fork
-```
+## Read the build information
+
+`VCON_SERVER_VERSION`, `VCON_SERVER_GIT_COMMIT` and `VCON_SERVER_BUILD_TIME` are Docker build arguments that the images keep as variables. `GET /version` returns them. Without them the values are `dev` and `unknown`.
+
+## Skip the variables with no effect
+
+The code reads these variables and then never uses the value. Older guides mention some of them.
+
+| Variable | Note |
+|---|---|
+| `DEEPGRAM_KEY` | Set the key in link options |
+| `HOSTNAME` | |
+| `LOG_LEVEL` | Set levels in the logging config file |
+| `TICK_INTERVAL` | |
+| `UUID8_DOMAIN_NAME` | |
+| `VCON_SORTED_FORCE_RESET` | |
+| `VCON_STORAGE` | The API defines a Peewee model on it, and nothing uses the model |
+| `WEVIATE_API_KEY`, `WEVIATE_HOST` | Spelled this way in the code |

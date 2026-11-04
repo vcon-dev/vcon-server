@@ -1,5 +1,7 @@
 # Tag Link
 
+Reference: [`links.tag`](../../../docs/reference/links/tag.md)
+
 The Tag link is a specialized plugin that adds tags to vCon objects. It provides a simple way to categorize and organize vCons with custom tags, enabling better filtering, searching, and organization of conversation data.
 
 ## Features
@@ -9,7 +11,7 @@ The Tag link is a specialized plugin that adds tags to vCon objects. It provides
 - In-place modification of vCon objects
 - Efficient tag management
 - Minimal dependencies
-- Seamless integration with vCon processing chains
+- Integrates with vCon processing chains
 
 ## Configuration Options
 

@@ -1,5 +1,7 @@
 # Deepgram Link
 
+Reference: [`links.deepgram_link`](../../../docs/reference/links/deepgram.md)
+
 The Deepgram link is a specialized plugin that performs speech-to-text transcription on audio recordings in vCon dialogs using the Deepgram API. It supports automatic language detection and confidence scoring for transcription quality.
 
 ## Features
@@ -11,7 +13,7 @@ The Deepgram link is a specialized plugin that performs speech-to-text transcrip
 - Automatic retry mechanism with exponential backoff
 - Metrics tracking for transcription time and failures
 - Support for URL-based audio sources
-- **Comprehensive logging and code comments for observability and maintainability**
+- **Logging and code comments for observability and maintainability**
 
 ## Configuration Options
 
@@ -87,7 +89,7 @@ The link tracks the following metrics:
 
 ## Logging and Observability
 
-This link now features **comprehensive logging** at multiple levels (INFO, WARNING, ERROR, DEBUG) to provide:
+This link logs at multiple levels (INFO, WARNING, ERROR, DEBUG) to provide:
 - Start and end of processing for each vCon
 - Option merging and configuration details
 - Dialog filtering decisions (type, URL, duration)

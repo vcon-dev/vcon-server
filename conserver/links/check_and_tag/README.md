@@ -1,5 +1,7 @@
 # Check and Tag Link
 
+Reference: [`links.check_and_tag`](../../../docs/reference/links/check-and-tag.md)
+
 ## Overview
 
 The `check_and_tag` link is a specialized component of the vCon server that evaluates dialog content against a specific question to determine if a particular tag should be applied. It uses OpenAI's language models to process various dialog formats (transcripts, messages, chats, emails) and makes a binary decision about whether a specific tag applies based on an evaluation question.
@@ -45,7 +47,7 @@ The link accepts the following configuration options:
 ## Usage Example
 
 ```python
-from server.links.check_and_tag import run
+from links.check_and_tag import run
 
 # Run with required tag_name and evaluation_question
 run(
@@ -73,7 +75,7 @@ Example evaluation questions:
 
 ## Error Handling
 
-The link includes robust error handling:
+The link handles errors as follows:
 
 - Exponential backoff retry mechanism for API calls
 - JSON parsing error handling for evaluation responses
@@ -82,7 +84,7 @@ The link includes robust error handling:
 
 ## Testing
 
-The link includes comprehensive tests for all functionality. To run the tests with actual OpenAI API calls (optional):
+The link has tests for all functionality. To run the tests with actual OpenAI API calls (optional):
 
 ```bash
 # Set environment variables
@@ -90,7 +92,7 @@ export OPENAI_API_KEY="your-api-key"
 export RUN_OPENAI_CHECK_TAG_TESTS=1
 
 # Run the tests
-pytest server/links/check_and_tag/tests/test_check_and_tag.py
+pytest conserver/links/check_and_tag/tests/test_check_and_tag.py
 ```
 
 Without setting `RUN_OPENAI_CHECK_TAG_TESTS=1`, tests will run with mocked API responses.

@@ -1,5 +1,7 @@
 # Expire vCon Link
 
+Reference: [`links.expire_vcon`](../../../docs/reference/links/expire-vcon.md)
+
 The Expire vCon link is a simple but effective plugin that sets an expiration time for vCon objects in Redis. This helps manage storage by automatically removing vCons after a specified period.
 
 ## Features

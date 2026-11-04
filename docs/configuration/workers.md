@@ -1,550 +1,125 @@
-# Worker Configuration
+# Configure the workers
 
-vCon Server supports multi-worker processing for improved throughput and parallel storage writes for faster persistence.
-
-Two environment variables together determine how many vCons can be processed in parallel:
+Workers pop vCon ids from Redis and run chains. Three environment variables shape them:
 
 ```
-max parallel vCons = CONSERVER_WORKERS × CONSERVER_VCON_CONCURRENCY
+max parallel vCons = CONSERVER_WORKERS x CONSERVER_VCON_CONCURRENCY
 ```
 
-- **`CONSERVER_WORKERS`** — number of worker **processes** (separate OS processes, each polling Redis independently). Scales CPU-bound work.
-- **`CONSERVER_VCON_CONCURRENCY`** — number of in-flight vCons **per worker** (a `ThreadPoolExecutor` inside each worker). Scales I/O-bound work (LLM, transcription, webhooks, storage writes) without paying the per-process memory cost.
+`CONSERVER_PARALLEL_STORAGE` adds a separate pool for storage writes. [Environment variables](../reference/environment.md) lists the defaults and accepted values.
 
-A third variable, **`CONSERVER_PARALLEL_STORAGE`**, controls a separate thread pool used only for writing to multiple storage backends concurrently — it is independent of the two above.
+![Producers, ingress lists, the worker processes and their thread pools, egress lists and dead letter queues](../diagrams/D06-worker-queue-topology.svg)
 
-## Architecture Overview
+## Set the process count
 
-```mermaid
-flowchart TB
-    subgraph main [Main Process]
-        MAIN[Main Process<br/>Spawns and monitors workers]
-    end
+`CONSERVER_WORKERS` sets the number of worker processes. With `1`, the main process runs the worker loop itself. Above `1`, the main process spawns the workers and watches them.
 
-    subgraph workers [Worker Processes]
-        W1[Worker 1]
-        W2[Worker 2]
-        W3[Worker 3]
-        WN[Worker N]
-    end
+More processes suit CPU-bound chains, since each has its own interpreter. Each process also loads its own copy of the code and modules, so memory grows with the count.
 
-    subgraph redis [Redis]
-        Q1[Ingress Queue 1]
-        Q2[Ingress Queue 2]
-    end
+## Size the thread pool
 
-    subgraph storage [Storage Layer]
-        S1[PostgreSQL]
-        S2[S3]
-        S3[Elasticsearch]
-    end
+`CONSERVER_VCON_CONCURRENCY` sets how many vCons one worker keeps in flight. At `1` the worker runs each vCon itself, one at a time. Above `1` it hands each vCon to a thread pool of that size, and it stops popping while the pool is full.
 
-    MAIN --> W1
-    MAIN --> W2
-    MAIN --> W3
-    MAIN --> WN
+Threads suit I/O-bound chains that wait on LLM, transcription, webhook or storage calls, and they share the memory of their process.
 
-    Q1 --> |BLPOP| W1
-    Q1 --> |BLPOP| W2
-    Q2 --> |BLPOP| W3
-    Q2 --> |BLPOP| WN
+!!! warning "Thread safety"
+    Above `1`, links and hooks run in threads. Custom link code must be thread-safe. A link that holds the GIL through long CPU work slows the other vCons in that worker.
 
-    W1 --> |Parallel Write| S1
-    W1 --> |Parallel Write| S2
-    W1 --> |Parallel Write| S3
-```
+## Combine the two settings
 
-## Worker Configuration
+| `CONSERVER_WORKERS` | `CONSERVER_VCON_CONCURRENCY` | Max parallel vCons | Fits |
+|---|---|---|---|
+| `1` | `1` | 1 | Development and debugging |
+| `4` | `1` | 4 | CPU-bound chains |
+| `1` | `8` | 8 | I/O-bound chains on a small host |
+| `4` | `8` | 32 | I/O-bound chains at higher volume |
 
-### CONSERVER_WORKERS
+For a mixed workload, raise concurrency in one worker first, then add workers if the CPU has room. Measure against your own chains, since link cost varies widely.
 
-Controls the number of worker processes.
+## Run parallel storage writes
+
+With `CONSERVER_PARALLEL_STORAGE` on, a chain with two or more storages writes to them at once, with one thread per backend. A chain with one backend writes directly. This pool starts per vCon, so peak thread use is workers times concurrency times backends.
+
+Turn it off to write backends one at a time in chain order, for example while debugging a storage problem. A failed save goes to the storage DLQ in both modes. See [chains and pipelines](chains-and-pipelines.md#handle-a-failure).
+
+## Choose a start method
+
+`CONSERVER_START_METHOD` applies only when `CONSERVER_WORKERS` is above `1`. Left empty, Python's platform default applies, which is `fork` on Linux for the Python versions this project supports and `spawn` on macOS.
+
+| Method | How a worker starts | Trade-off |
+|---|---|---|
+| `fork` | Copies the parent process | Lowest memory and fastest start. Can cause problems with threads and some libraries, such as OpenSSL and CUDA. See the shutdown warning below |
+| `spawn` | Starts a fresh interpreter | Higher memory and slower start, and the safest with those libraries |
+| `forkserver` | Forks from a clean server process | Between the two. Unix only |
+
+Modules listed under `imports` load inside each worker, not in the main process. Followers run in the main process only, so with followers configured the parent already has timer threads when it forks. See [importing modules](yaml-configuration.md#import-extra-modules).
+
+## Follow the worker loop
+
+Each pass of the loop does this:
+
+1. Rereads the config file and rebuilds the map of ingress lists to chains.
+2. Calls BLPOP on all ingress lists with a 15 second timeout.
+3. Runs the chain for the popped id, directly or in the pool.
+
+BLPOP gives each id to exactly one worker. It checks lists in the order they appear across chains, so an earlier list that always has work can starve a later one.
+
+Link and chain edits apply on the next pass, and `imports` apply only when a worker starts. See [reload timing](yaml-configuration.md#plan-for-reloads).
+
+A popped id has no in-flight record. If a worker dies during a chain, that queue entry is lost. The body stays in Redis until its TTL ends, and `POST /vcon/ingress` can queue the id again.
+
+## Stop the workers
+
+On SIGTERM or SIGINT, the main process signals each live worker. With one worker, the main process is the worker. Each worker then:
+
+1. Stops popping after the current wait, which can take up to 15 seconds.
+2. Returns an id it popped during shutdown to the head of its list.
+3. Finishes its current vCon, and waits for its thread pool to drain.
+
+The main process waits up to 30 seconds for each worker, then terminates any that remain. A terminated worker loses its in-flight vCons as described above.
+
+!!! warning "Set a stop timeout that fits your chains"
+    `docker-compose.yml` sets `stop_grace_period: 5s` on the `conserver` service, so Docker kills the container before those waits end. Raise it if your chains run longer than that.
+
+!!! warning "Shutdown under fork"
+    With `fork`, each worker after the first inherits the parent's list of earlier workers. The signal handler then calls `is_alive()` on a process that is not its child, which raises `AssertionError` in that worker. The shutdown flag is already set by then, but the error lands in whatever the worker was doing. It can end the worker or fail the current vCon. `spawn` and `forkserver` do not inherit the list.
+
+Under `docker-compose.yml`, `watchmedo` is the container's main process. It receives the `SIGTERM` from `docker compose stop` and sends `SIGINT` to the server's process group, and the server handles both signals the same way.
+
+## Restart a failed worker
+
+With more than one worker, the main process checks every 5 seconds and replaces any worker that died, logging `died unexpectedly, restarting`. With one worker there is no supervisor inside the process, so rely on your container or service manager.
+
+## Scale past one process
+
+Conservers that share a Redis server share the work, since BLPOP is atomic across them.
 
 ```bash
-# Single worker (default)
-CONSERVER_WORKERS=1
-
-# Multi-worker mode
-CONSERVER_WORKERS=4
-```
-
-| Value | Mode | Use Case |
-|-------|------|----------|
-| `1` | Single worker | Development, low volume |
-| `2-4` | Light parallel | Medium volume, limited resources |
-| `4-8` | Standard parallel | Production workloads |
-| `8-16` | High parallel | High-throughput systems |
-
-### Sizing Guidelines
-
-**I/O-Bound Workloads** (transcription, API calls):
-
-```bash
-# Match CPU cores
-CONSERVER_WORKERS=$(nproc)
-```
-
-**CPU-Bound Workloads** (local processing):
-
-```bash
-# Leave 1 core for system
-CONSERVER_WORKERS=$(($(nproc) - 1))
-```
-
-**Memory-Constrained Systems**:
-
-```bash
-# Each worker uses ~200-500MB
-# For 8GB system with other services:
-CONSERVER_WORKERS=4
-```
-
-### CONSERVER_VCON_CONCURRENCY
-
-Controls how many vCons each worker process keeps in flight at once. When set above `1`, the worker dispatches each popped vCon to an internal `ThreadPoolExecutor` and back-pressures (waits before the next BLPOP) when the pool is full.
-
-```bash
-# Strict serial — one vCon at a time per worker (default)
-CONSERVER_VCON_CONCURRENCY=1
-
-# Up to 8 vCons running in parallel inside each worker
-CONSERVER_VCON_CONCURRENCY=8
-```
-
-| Value | Behaviour | Best For |
-|-------|-----------|----------|
-| `1` | Strict serial — original behaviour | CPU-bound chains, debugging |
-| `2-4` | Light in-process parallelism | Mixed workloads |
-| `4-16` | High in-process parallelism | I/O-bound chains (LLM, transcription, webhooks) |
-
-#### How it combines with CONSERVER_WORKERS
-
-The two settings multiply:
-
-```
-max parallel vCons = CONSERVER_WORKERS × CONSERVER_VCON_CONCURRENCY
-```
-
-| Workers | Concurrency | Max parallel vCons | Notes |
-|---------|-------------|--------------------|----|
-| `1` | `1` | 1 | Original single-threaded behaviour |
-| `4` | `1` | 4 | Multi-process only — good for CPU-bound work |
-| `1` | `8` | 8 | Single-process, threaded — good for I/O-bound chains |
-| `4` | `8` | 32 | Combined — high-throughput I/O-bound workloads |
-
-#### When to raise concurrency vs. workers
-
-- **Raise `CONSERVER_WORKERS`** when chains are CPU-bound (heavy local compute, audio processing without GPU offload) — more processes sidestep the Python GIL.
-- **Raise `CONSERVER_VCON_CONCURRENCY`** when chains are I/O-bound (waiting on LLM/transcription APIs, external webhooks, S3/Postgres writes) — threads share memory and avoid the cost of extra processes.
-- **Combine both** for mixed workloads. Start by saturating concurrency within a single worker, then add workers if CPU is still underused.
-
-!!! warning "GIL & thread safety"
-    Concurrency > 1 runs chain links in threads. Chain link code must be thread-safe and should release the GIL during I/O (most HTTP/DB clients do). Modules that hold the GIL across long CPU work will block other in-flight vCons in the same worker.
-
-## Parallel Storage
-
-### CONSERVER_PARALLEL_STORAGE
-
-Enables concurrent writes to multiple storage backends.
-
-```bash
-# Enable parallel storage (default)
-CONSERVER_PARALLEL_STORAGE=true
-
-# Disable for sequential writes
-CONSERVER_PARALLEL_STORAGE=false
-```
-
-### Performance Impact
-
-```
-Without parallel storage (sequential):
-  PostgreSQL: 100ms
-  S3: 150ms
-  Elasticsearch: 100ms
-  Total: 350ms
-
-With parallel storage (concurrent):
-  All backends: ~150ms (max of individual times)
-  Speedup: 2.3x
-```
-
-### When to Disable
-
-Disable parallel storage if:
-
-- Storage backends have interdependencies
-- Debugging storage issues
-- Resource constraints prevent concurrent connections
-
-## Start Method
-
-### CONSERVER_START_METHOD
-
-Controls how worker processes are created.
-
-```bash
-# Memory-efficient (Unix only)
-CONSERVER_START_METHOD=fork
-
-# Safer, cross-platform
-CONSERVER_START_METHOD=spawn
-
-# Hybrid approach
-CONSERVER_START_METHOD=forkserver
-
-# Platform default
-CONSERVER_START_METHOD=
-```
-
-### Comparison
-
-| Method | Memory | Startup | Safety | Platform |
-|--------|--------|---------|--------|----------|
-| `fork` | Low (COW) | Fast | Lower | Unix only |
-| `spawn` | Higher | Slower | Higher | All |
-| `forkserver` | Medium | Medium | Medium | Unix |
-
-### fork (Default on Unix)
-
-```bash
-CONSERVER_START_METHOD=fork
-```
-
-**How it works:**
-
-- Creates worker by copying parent process (copy-on-write)
-- Shares memory pages until modified
-- Fast startup, low memory overhead
-
-**Considerations:**
-
-- Not safe with threads before fork
-- Can cause issues with some libraries (OpenSSL, CUDA)
-- Not available on Windows
-
-**Best for:**
-
-- Unix servers with stable libraries
-- Memory-constrained environments
-- Simple deployments
-
-### spawn
-
-```bash
-CONSERVER_START_METHOD=spawn
-```
-
-**How it works:**
-
-- Starts fresh Python interpreter for each worker
-- No shared memory from parent
-- All modules re-imported
-
-**Considerations:**
-
-- Higher memory usage
-- Slower startup time
-- Most compatible option
-
-**Best for:**
-
-- macOS deployments
-- Windows systems
-- When using CUDA, OpenSSL, or other sensitive libraries
-- Maximum stability
-
-### forkserver
-
-```bash
-CONSERVER_START_METHOD=forkserver
-```
-
-**How it works:**
-
-- Spawns a clean "server" process at startup
-- Workers are forked from the server
-- Avoids issues with parent process state
-
-**Considerations:**
-
-- Middle ground between fork and spawn
-- Only available on Unix
-- Requires extra process
-
-**Best for:**
-
-- Balance of memory efficiency and safety
-- When fork causes issues but spawn is too slow
-
-## Worker Behavior
-
-### Atomic Work Distribution
-
-Workers use Redis BLPOP for atomic work distribution:
-
-```
-Worker 1: BLPOP queue1 queue2 ...
-Worker 2: BLPOP queue1 queue2 ...
-Worker N: BLPOP queue1 queue2 ...
-```
-
-Each vCon is processed by exactly one worker.
-
-### Graceful Shutdown
-
-On SIGTERM or SIGINT:
-
-1. Main process signals all workers
-2. Workers complete current vCon
-3. Workers exit cleanly
-4. Main process exits
-
-```bash
-# Graceful stop
-docker compose stop  # Sends SIGTERM
-
-# Force stop (after timeout)
-docker compose kill  # Sends SIGKILL
-```
-
-### Auto-Restart
-
-If a worker crashes:
-
-1. Main process detects exit
-2. New worker is spawned
-3. Processing continues
-
-```bash
-# Check worker status
-docker compose logs conserver | grep -i "worker"
-```
-
-## Configuration Examples
-
-### Development
-
-```bash
-# Single worker, single in-flight vCon, verbose logging
-CONSERVER_WORKERS=1
-CONSERVER_VCON_CONCURRENCY=1
-CONSERVER_PARALLEL_STORAGE=true
-LOG_LEVEL=DEBUG
-```
-
-### Production (Linux)
-
-```bash
-# Multi-worker, memory-efficient
-# 8 workers × 4 in-flight = up to 32 vCons in parallel
-CONSERVER_WORKERS=8
-CONSERVER_VCON_CONCURRENCY=4
-CONSERVER_PARALLEL_STORAGE=true
-CONSERVER_START_METHOD=fork
-LOG_LEVEL=INFO
-```
-
-### Production (macOS/Container)
-
-```bash
-# Multi-worker, safer start method
-# 4 workers × 4 in-flight = up to 16 vCons in parallel
-CONSERVER_WORKERS=4
-CONSERVER_VCON_CONCURRENCY=4
-CONSERVER_PARALLEL_STORAGE=true
-CONSERVER_START_METHOD=spawn
-LOG_LEVEL=INFO
-```
-
-### High-Throughput (I/O-Bound)
-
-```bash
-# Saturate I/O without exploding process count
-# 4 workers × 16 in-flight = up to 64 vCons in parallel
-CONSERVER_WORKERS=4
-CONSERVER_VCON_CONCURRENCY=16
-CONSERVER_PARALLEL_STORAGE=true
-CONSERVER_START_METHOD=fork
-TICK_INTERVAL=1000  # Check queues more frequently
-```
-
-### High-Throughput (CPU-Bound)
-
-```bash
-# Maximise process count, keep per-worker concurrency low
-CONSERVER_WORKERS=16
-CONSERVER_VCON_CONCURRENCY=1
-CONSERVER_PARALLEL_STORAGE=true
-CONSERVER_START_METHOD=fork
-```
-
-### Memory-Constrained
-
-```bash
-# Few processes, lean on in-process threading for parallelism
-CONSERVER_WORKERS=2
-CONSERVER_VCON_CONCURRENCY=8
-CONSERVER_PARALLEL_STORAGE=true
-CONSERVER_START_METHOD=fork  # Use COW memory
-```
-
-## Monitoring Workers
-
-### Logs
-
-```bash
-# View worker startup
-docker compose logs conserver | grep -i "worker"
-
-# Watch for processing
-docker compose logs -f conserver
-```
-
-### Metrics
-
-Monitor these metrics:
-
-- **Queue depth**: `redis-cli LLEN {ingress_list}`
-- **Processing rate**: vCons processed per minute
-- **Worker health**: Process count, restarts
-
-### Health Check
-
-```bash
-# Check all workers are running
-docker compose exec conserver ps aux | grep python
-
-# Check queue processing
-docker compose exec redis redis-cli LLEN default
-```
-
-## Troubleshooting
-
-### Workers Not Starting
-
-**Check logs:**
-
-```bash
-docker compose logs conserver
-```
-
-**Common causes:**
-
-- Invalid start method for platform
-- Insufficient memory
-- Redis connection issues
-
-### High Memory Usage
-
-**Reduce workers:**
-
-```bash
-CONSERVER_WORKERS=2
-```
-
-**Use fork start method:**
-
-```bash
-CONSERVER_START_METHOD=fork
-```
-
-### Slow Processing
-
-**Increase workers:**
-
-```bash
-CONSERVER_WORKERS=8
-```
-
-**Enable parallel storage:**
-
-```bash
-CONSERVER_PARALLEL_STORAGE=true
-```
-
-**Check external API latency:**
-
-```bash
-# Time transcription API
-time curl -X POST https://api.deepgram.com/...
-```
-
-### Worker Crashes
-
-**Check for library compatibility:**
-
-```bash
-# If using fork and seeing crashes
-CONSERVER_START_METHOD=spawn
-```
-
-**Check resource limits:**
-
-```bash
-# Docker resource constraints
-docker stats
-```
-
-### Inconsistent Processing
-
-**Ensure atomic operations:**
-
-- Workers use BLPOP (atomic pop)
-- Each vCon processed once
-
-**Check for duplicate processing:**
-
-```bash
-# Review logs for same UUID
-docker compose logs conserver | grep "UUID"
-```
-
-## Scaling Strategies
-
-### Vertical Scaling
-
-Increase workers within single instance:
-
-```bash
-# Start with CPU cores
-CONSERVER_WORKERS=$(nproc)
-
-# Monitor and adjust
-docker stats
-```
-
-### Horizontal Scaling
-
-Run multiple instances:
-
-```bash
-# Docker Compose
 docker compose up -d --scale conserver=4
-
-# Each instance can have multiple workers
-CONSERVER_WORKERS=2  # 4 instances x 2 workers = 8 total
 ```
 
-### Auto-Scaling (Kubernetes)
+Total parallelism is then instances times workers times concurrency. Each instance also starts its own followers. For Kubernetes, see [the deployment guide](../installation/kubernetes.md).
 
-```yaml
-apiVersion: autoscaling/v2
-kind: HorizontalPodAutoscaler
-metadata:
-  name: worker-hpa
-spec:
-  scaleTargetRef:
-    apiVersion: apps/v1
-    kind: Deployment
-    name: worker
-  minReplicas: 2
-  maxReplicas: 10
-  metrics:
-    - type: Resource
-      resource:
-        name: cpu
-        target:
-          type: Utilization
-          averageUtilization: 70
-```
+## Watch the workers
+
+| Signal | Source |
+|---|---|
+| Startup settings | Log line `Worker configuration: workers=...` |
+| Queue depth | `GET /stats/queue?list_name=<list>`, or the gauge `conserver.ingress_list.length` |
+| In-flight vCons per chain | `conserver.vcons.inflight` |
+| Throughput and time per vCon, halted vCons included | `conserver.main_loop.count_vcons_processed`, `conserver.main_loop.vcon_processing_time` |
+| Redis memory | `conserver.redis.memory_used_bytes` |
+
+The [metrics reference](../reference/metrics.md) has the full list, and [monitoring](../operations/monitoring.md) shows how to collect it.
+
+## Troubleshoot the workers
+
+| Symptom | Check |
+|---|---|
+| Server exits at startup | An invalid `CONSERVER_START_METHOD` raises `ValueError`. An empty integer variable fails on import |
+| A worker fails at startup | A module under `imports` failed to load. Worker logs show `Failed to import module` |
+| Workers crash under `fork` | Try `spawn`, since some libraries do not survive a fork |
+| Memory grows too high | Use fewer processes and more concurrency |
+| Queue depth keeps rising | Raise concurrency for I/O-bound chains and workers for CPU-bound ones, and check the latency of outside services |
+| A later list never drains | An earlier list is taking every pop. See [the worker loop](#follow-the-worker-loop) |
+| Workers idle with work queued | The list name matches no chain, or a later chain took the list |

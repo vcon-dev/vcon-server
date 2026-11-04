@@ -1,304 +1,171 @@
-# Automated Installation Script
+# Install with the automated script
 
-The automated installation script provides a one-command setup for production deployments on Ubuntu Linux.
+`scripts/install_conserver.sh` sets up an Ubuntu host with vcon-admin and vcon-server. It runs both as Docker Compose projects.
 
-## Overview
+!!! danger "Set the API token yourself"
+    The script does not write your domain, email or token into the files it creates. `CONSERVER_API_TOKEN` ends up empty in `/opt/vcon-server/.env`, which turns off the API key check, even though the script prints a token. Port 8000 is published on the host. Follow [Repair the generated files](#repair-the-generated-files) straight after the install.
 
-The `install_conserver.sh` script:
+## See the script steps
 
-- Installs Docker and Docker Compose if needed
-- Creates a dedicated `vcon` user
-- Sets up directory structure
-- Clones both vcon-server and vcon-admin repositories
-- Configures SSL with Let's Encrypt
-- Starts all services
+In order, the script:
 
-## Requirements
+1. Asks you to confirm the domain, email and token.
+2. Creates a `vcon` user with a Bash shell, and the folders `/opt/vcon-admin`, `/opt/vcon-server` and `/opt/vcon-data/redis`.
+3. Installs Docker, with the Compose plugin, if the `docker` command is missing, and adds `vcon` to the `docker` group. A host that has Docker needs the plugin already.
+4. Creates the `conserver` Docker network.
+5. Clones `vcon-dev/vcon-admin` to `/opt/vcon-admin`, writes its `.env` and `.streamlit/secrets.toml`, and starts it.
+6. Clones `vcon-dev/vcon-server` to `/opt/vcon-server`, writes `.env` and a `config.yml` with one `demo_chain`, and starts it.
 
-- **Operating System**: Ubuntu 20.04 or later (recommended)
-- **Access**: Root or sudo privileges
-- **Network**: Public IP address with DNS record
-- **Resources**: Minimum 4GB RAM, 20GB disk
+Running the script again removes nothing in the two clones but pulls them and overwrites `.env` and `config.yml`, so keep your own copies.
 
-## Usage
+The server project is the repo's `docker-compose.yml`, which is built for development. See [Install with Docker](docker.md) for what that means.
 
-### Basic Installation
+## Prepare the host
+
+- Ubuntu. The script uses `apt-get` and Docker's Ubuntu repository.
+- Root access.
+- A domain name, and a DNS record pointing at the host.
+
+See the [system requirements](../getting-started/requirements.md) for sizing.
+
+## Run the script
+
+The script is in the repo, so clone it first:
 
 ```bash
+git clone https://github.com/vcon-dev/vcon-server.git
+cd vcon-server
 sudo ./scripts/install_conserver.sh \
   --domain your-domain.com \
   --email admin@your-domain.com
 ```
 
-### With Custom API Token
-
-```bash
-sudo ./scripts/install_conserver.sh \
-  --domain your-domain.com \
-  --email admin@your-domain.com \
-  --token your-custom-api-token
-```
-
-## Command Line Options
-
 | Option | Required | Description |
-|--------|----------|-------------|
-| `--domain` | Yes | Domain name pointing to this server |
-| `--email` | Yes | Email for SSL certificate registration |
-| `--token` | No | Custom API token (auto-generated if not provided) |
+|---|---|---|
+| `-d`, `--domain` | Yes | Domain name for the installation |
+| `-e`, `--email` | Yes | Email for DNS registration |
+| `-t`, `--token` | No | API token. A random 16-character hex value when left out. See the warning above |
+| `-h`, `--help` | No | Print the options |
 
-## What Gets Installed
+## Repair the generated files
 
-### Directory Structure
-
-```
-/opt/vcon-admin/     # Admin portal
-/opt/vcon-server/    # vCon Server
-/opt/vcon-data/      # Persistent data
-  ├── redis/         # Redis data
-  ├── mongo/         # MongoDB data
-  └── uploads/       # Uploaded files
-```
-
-### Services
-
-| Service | Port | Description |
-|---------|------|-------------|
-| API | 8000 | vCon Server REST API |
-| Admin | 3000 | Admin portal web UI |
-| Redis | 6379 | Queue and cache |
-| MongoDB | 27017 | Document storage |
-| nginx | 80, 443 | Reverse proxy with SSL |
-
-### User Account
-
-A dedicated `vcon` user is created with:
-
-- No login shell (security)
-- Ownership of `/opt/vcon-*` directories
-- Docker group membership
-
-## Post-Installation
-
-### Access Points
-
-After installation, access your services at:
-
-| Service | URL |
-|---------|-----|
-| Admin Portal | `https://your-domain.com/admin/` |
-| API Documentation | `https://your-domain.com/api/docs` |
-| API Health | `https://your-domain.com/api/health` |
-| MongoDB Express | `https://your-domain.com/mongo-express` |
-| Redis Insight | `http://your-server:8001` |
-
-### API Token
-
-If you didn't specify a token, find it in:
+Set a token in the server's `.env` and apply it:
 
 ```bash
-cat /opt/vcon-server/.env | grep CONSERVER_API_TOKEN
-```
-
-### Service Management
-
-```bash
-# View service status
+TOKEN=$(openssl rand -hex 32)
+sudo sed -i "s/^CONSERVER_API_TOKEN=.*/CONSERVER_API_TOKEN=$TOKEN/" /opt/vcon-server/.env
 cd /opt/vcon-server
-docker compose ps
-
-# View logs
-docker compose logs -f
-
-# Restart services
-docker compose restart
-
-# Stop services
-docker compose down
-
-# Start services
-docker compose up -d
+sudo -u vcon docker compose up -d
 ```
 
-## Configuration
+Then fill in the values the script left blank:
 
-### Environment Variables
+| File | Values to set |
+|---|---|
+| `/opt/vcon-server/.env` | `DNS_HOST`, `DNS_REGISTRATION_EMAIL` |
+| `/opt/vcon-admin/.env` | `DNS_HOST`, `DNS_REGISTRATION_EMAIL` |
+| `/opt/vcon-admin/.streamlit/secrets.toml` | `api_url` under `[conserver]`, which needs your domain, and `auth_token`, which needs the token |
 
-Edit `/opt/vcon-server/.env`:
-
-```bash
-sudo -u vcon nano /opt/vcon-server/.env
-```
-
-After changes, restart services:
-
-```bash
-cd /opt/vcon-server
-docker compose restart
-```
-
-### Processing Chains
-
-Edit `/opt/vcon-server/config.yml`:
-
-```bash
-sudo -u vcon nano /opt/vcon-server/config.yml
-```
-
-### SSL Certificates
-
-Certificates are managed by Certbot and auto-renewed. Manual renewal:
-
-```bash
-certbot renew
-```
-
-## Upgrading
-
-### Update vCon Server
-
-```bash
-cd /opt/vcon-server
-sudo -u vcon git pull
-docker compose build --no-cache
-docker compose up -d
-```
-
-### Update Admin Portal
+Restart vcon-admin after you edit its files:
 
 ```bash
 cd /opt/vcon-admin
-sudo -u vcon git pull
-docker compose build --no-cache
-docker compose up -d
+sudo -u vcon docker compose up -d
 ```
 
-## Uninstallation
+Check that the key is on:
 
-Use the uninstall script:
+```bash
+curl -i http://localhost:8000/api/vcon
+```
+
+A `403` means the check is on.
+
+## Find the installed services
+
+This repo's Compose project starts `api`, `conserver` and `redis`. `.env` sets no `COMPOSE_PROFILES`, so no optional service starts. [Ports and services](../reference/ports.md) lists them.
+
+The generated `config.yml` writes to `mongodb://root:example@mongo:27017/`, a host this repo's Compose file does not define.
+
+<!-- TODO(verify): the mongo service, the HTTPS proxy on /api, the admin login and mongo-express come from the vcon-admin Compose project, which is outside this repo. Confirm against vcon-admin. -->
+
+The script's closing summary names these addresses. All but the last depend on vcon-admin, so check them against that project:
+
+| Service | Address |
+|---|---|
+| Admin portal | `https://your-domain.com/admin/` |
+| API docs | `https://your-domain.com/api/docs` |
+| Mongo Express | `https://your-domain.com/mongo-express` |
+| Redis Stack | `http://localhost:8001`. Out of date: the server now uses plain Redis with no Redis Insight, so nothing in this repo serves this port |
+
+On the host itself, the API answers on `http://localhost:8000/api/health`.
+
+The script opens no firewall ports and sets up no certificates of its own. Restrict port 8000 with your own firewall rules.
+
+## Change the configuration
+
+```bash
+sudo -u vcon nano /opt/vcon-server/.env
+sudo -u vcon nano /opt/vcon-server/config.yml
+```
+
+Apply a change to `.env` with:
+
+```bash
+cd /opt/vcon-server
+sudo -u vcon docker compose up -d
+```
+
+Most changes to `config.yml` need no restart. See [the reload table](../configuration/yaml-configuration.md#plan-for-reloads).
+
+## Update the install
+
+```bash
+cd /opt/vcon-server
+sudo -u vcon git pull
+sudo -u vcon docker compose up -d --build
+```
+
+Do the same in `/opt/vcon-admin`. See [Upgrading](upgrading.md) first. An install that predates plain Redis needs the [Redis migration](redis-migration.md).
+
+## Remove the install
 
 ```bash
 sudo ./scripts/uninstall_conserver.sh
 ```
 
-This removes:
+The script asks for confirmation, then removes:
 
-- Docker containers and images
-- Configuration files
-- The `vcon` user
+- The vcon-server containers and volumes, and the `conserver` network
+- Images named `vcon-server` or `vcon-admin`
+- `/opt/vcon-data`, `/opt/vcon-server` and `/opt/vcon-admin`
+- The `vcon` user, unless that user is logged in
 
-!!! warning "Data Preservation"
-    By default, data in `/opt/vcon-data` is preserved. Add `--remove-data` to delete everything.
+!!! warning "Data is deleted"
+    The script has no option to keep data. Back up first. See [Backup and restore](../operations/backup-restore.md).
 
-## Troubleshooting
+The script runs `docker compose down` for vcon-server only. Stop vcon-admin first with `docker compose down` in `/opt/vcon-admin`, or its containers keep running. While they run, the `conserver` network stays too, because its removal fails without stopping the script.
 
-### Installation Failed
+## Troubleshoot the install
 
-Check the installation log:
+The script logs to the terminal and keeps no log file. `set -e` stops it at the first failed command, so read the last lines it printed.
 
-```bash
-cat /var/log/conserver-install.log
-```
+| Symptom | Fix |
+|---|---|
+| `ERROR: This script must be run as root` | Run it with `sudo` |
+| Docker install fails | Install Docker yourself, then run the script again |
+| Services do not start | Run `docker compose logs` in `/opt/vcon-server` |
+| vCons fail at storage | Check that the `mongo` host resolves on the `conserver` network, or change `storages` in `config.yml` |
 
-Common issues:
-
-1. **DNS not configured**: Ensure your domain points to the server IP
-2. **Port 80/443 in use**: Stop any existing web servers
-3. **Insufficient disk space**: Need at least 20GB free
-4. **Docker installation failed**: Try installing Docker manually first
-
-### Services Not Starting
-
-Check Docker logs:
+To see what is running on the shared network:
 
 ```bash
-cd /opt/vcon-server
-docker compose logs
+docker ps
+docker network inspect conserver
 ```
 
-Check system resources:
+## Continue with these guides
 
-```bash
-free -h
-df -h
-```
-
-### SSL Certificate Issues
-
-Verify DNS:
-
-```bash
-dig your-domain.com
-```
-
-Check Certbot logs:
-
-```bash
-cat /var/log/letsencrypt/letsencrypt.log
-```
-
-### Cannot Access Admin Portal
-
-Check nginx configuration:
-
-```bash
-nginx -t
-systemctl status nginx
-```
-
-Verify the admin service is running:
-
-```bash
-cd /opt/vcon-admin
-docker compose ps
-```
-
-## Security Considerations
-
-### Firewall Configuration
-
-The script configures UFW. Required ports:
-
-```bash
-# View current rules
-ufw status
-
-# Required ports
-ufw allow 22/tcp    # SSH
-ufw allow 80/tcp    # HTTP (redirect to HTTPS)
-ufw allow 443/tcp   # HTTPS
-```
-
-### Changing the API Token
-
-1. Generate new token:
-   ```bash
-   openssl rand -hex 32
-   ```
-
-2. Update `.env`:
-   ```bash
-   sudo -u vcon nano /opt/vcon-server/.env
-   ```
-
-3. Restart services:
-   ```bash
-   cd /opt/vcon-server
-   docker compose restart
-   ```
-
-4. Update any clients using the old token
-
-### Database Security
-
-MongoDB is configured with authentication. Default credentials are in `.env`. Change them for production:
-
-1. Update `.env` with new credentials
-2. Connect to MongoDB and update users
-3. Restart services
-
-## Next Steps
-
-- [Configuration Guide](../configuration/index.md) - Customize settings
-- [API Reference](../operations/api-reference.md) - Explore the API
-- [Monitoring](../operations/monitoring.md) - Set up observability
+- [Configuration guide](../configuration/index.md)
+- [API reference](../reference/api.md)
+- [Monitoring](../operations/monitoring.md)

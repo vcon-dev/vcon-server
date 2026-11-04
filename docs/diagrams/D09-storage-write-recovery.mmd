@@ -1,0 +1,67 @@
+%%{init: {'theme':'base','themeVariables':{'fontFamily':'Inter, Helvetica, Arial, sans-serif','fontSize':'14px','background':'#FFFFFF','primaryColor':'#F3F4F6','primaryTextColor':'#292929','primaryBorderColor':'#0A7D18','secondaryColor':'#FFFFFF','secondaryTextColor':'#33363B','secondaryBorderColor':'#8A8A8D','tertiaryColor':'#FFFFFF','tertiaryTextColor':'#33363B','tertiaryBorderColor':'#8A8A8D','lineColor':'#33363B','textColor':'#33363B','mainBkg':'#F3F4F6','nodeBorder':'#0A7D18','clusterBkg':'#FFFFFF','clusterBorder':'#8A8A8D','edgeLabelBackground':'#FFFFFF','actorBkg':'#F3F4F6','actorBorder':'#0A7D18','actorTextColor':'#292929','signalColor':'#33363B','signalTextColor':'#292929','labelBoxBkgColor':'#F3F4F6','labelBoxBorderColor':'#0A7D18','noteBkgColor':'#F3F4F6','noteBorderColor':'#8A8A8D','noteTextColor':'#292929'}}}%%
+%%{init: {'fontFamily':'Inter, Helvetica, Arial, sans-serif'}}%%
+sequenceDiagram
+    autonumber
+    actor Op as Operator
+    participant W as Worker wrap-up
+    participant S as Storage
+    participant A as Adapter module
+    participant B as Backend
+    participant Q as VconQueue
+    participant R as Redis
+    participant API as API
+
+    Note over W,R: Write path after the last link
+    W->>R: RPUSH to each egress list, before any storage write
+    loop Each backend, threads when CONSERVER_PARALLEL_STORAGE is on and there are two or more
+        W->>S: Storage(name).save(vcon_id)
+        S->>A: module.save(vcon_id, options)
+        A->>R: VconRedis.get_vcon(vcon_id)
+        R-->>A: vCon body
+        A->>B: write
+        alt Write succeeds
+            A-->>W: returns, conserver.storage.count outcome=success
+        else Adapter raises
+            A-->>W: exception, outcome=error
+            W->>Q: enqueue_storage_dlq(name, vcon_id, VCON_DLQ_EXPIRY)
+            Q->>R: EVAL, one atomic script
+            alt Body exists
+                Note over R: Raise a shorter TTL to the retention value, then RPUSH DLQ:storage:#lt;name#gt;
+                R-->>Q: list length
+                Q-->>W: conserver.dlq.count incremented
+            else Body missing
+                R-->>Q: -1
+                Q-->>W: ValueError
+                Note over W: Logged as manual recovery required, never re-raised
+            end
+        end
+    end
+    Note over W: A failed backend does not stop the other backends or re-run the chain
+
+    Note over Op,API: Recovery path, driven by the operator
+    Op->>API: GET /dlq/storage?storage_name=#lt;name#gt;
+    API->>R: LRANGE 0 -1
+    R-->>API: pending vCon ids
+    API-->>Op: JSON list of ids
+    Op->>API: POST /dlq/storage/reprocess?storage_name=#lt;name#gt;#amp;count=N
+    alt Backend not configured or adapter fails to load
+        API-->>Op: 404
+    else Replay lock is already held
+        API->>R: acquire DLQ:storage:#lt;name#gt;:replay-lock, non-blocking, no expiry
+        API-->>Op: 409
+    else Lock acquired
+        API->>R: LRANGE 0 count-1, a snapshot that removes nothing
+        loop Each id in the snapshot
+            API->>S: save(vcon_id) in the threadpool
+            S->>A: module.save(vcon_id, options)
+            A->>R: VconRedis.get_vcon(vcon_id)
+            A->>B: write
+            alt Write succeeds
+                API->>R: LREM one entry
+            else Adapter raises
+                Note over API: Warning logged, entry stays, batch stops
+            end
+        end
+        API->>R: release the lock
+        API-->>Op: 200 with the number written
+    end

@@ -24,68 +24,130 @@ theme:
     code: JetBrains Mono
   palette:
     - scheme: default
-      primary: blue grey
-      accent: light blue
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
     - scheme: slate
-      primary: blue grey
-      accent: light blue
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-4
         name: Switch to light mode
   icon:
     repo: fontawesome/brands/github
 
+extra_css:
+  - stylesheets/vconic.css
+
+exclude_docs: |
+  /plans/
+  /diagrams/*.sources.md
+  /visuals/motion/scene-authoring.md
+
+not_in_nav: |
+  /archive/
+  /diagrams/README.md
+
 nav:
-  - Home: index.md
-  - Getting Started:
+  - Start:
+    - Home: index.md
     - getting-started/index.md
     - System Requirements: getting-started/requirements.md
     - Quick Start: getting-started/quick-start.md
-  - Installation:
-    - installation/index.md
-    - Docker: installation/docker.md
-    - Automated Script: installation/automated-script.md
-    - Manual Installation: installation/manual-installation.md
-    - Kubernetes: installation/kubernetes.md
-    - Upgrading: installation/upgrading.md
-  - Configuration:
-    - configuration/index.md
-    - Environment Variables: configuration/environment-variables.md
-    - YAML Configuration: configuration/yaml-configuration.md
-    - Chains and Pipelines: configuration/chains-and-pipelines.md
-    - Egress Format Compatibility: configuration/egress-compatibility.md
-    - Authentication: configuration/authentication.md
-    - Workers: configuration/workers.md
+  - Concepts:
+    - Architecture: concepts/architecture.md
+    - vCon Lifecycle: concepts/vcon-lifecycle.md
+    - Chains, Links and Storage: concepts/chains-links-storage.md
+    - Lawful Basis: concepts/lawful-basis.md
+    - Editions: concepts/editions.md
+  - Guides:
+    - Installation:
+      - installation/index.md
+      - Docker: installation/docker.md
+      - Automated Script: installation/automated-script.md
+      - Manual Installation: installation/manual-installation.md
+      - Kubernetes: installation/kubernetes.md
+      - Upgrading: installation/upgrading.md
+    - Configuration:
+      - configuration/index.md
+      - Environment Variables: configuration/environment-variables.md
+      - YAML Configuration: configuration/yaml-configuration.md
+      - Chains and Pipelines: configuration/chains-and-pipelines.md
+      - Egress Format Compatibility: configuration/egress-compatibility.md
+      - Authentication: configuration/authentication.md
+      - Workers: configuration/workers.md
+    - Extending:
+      - extending/index.md
+      - Creating Links: extending/creating-links.md
+      - Creating Storage Adapters: extending/creating-storage-adapters.md
+      - Creating Tracers: extending/creating-tracers.md
+      - Dynamic Modules: extending/dynamic-modules.md
+    - Contributing: contributing.md
+  - Reference:
+    - reference/index.md
+    - Links:
+      - reference/links/index.md
+      - analyze: reference/links/analyze.md
+      - analyze_and_label: reference/links/analyze-and-label.md
+      - analyze_vcon: reference/links/analyze-vcon.md
+      - check_and_tag: reference/links/check-and-tag.md
+      - datatrails: reference/links/datatrails.md
+      - deepgram_link: reference/links/deepgram.md
+      - delay: reference/links/delay.md
+      - detect_engagement: reference/links/detect-engagement.md
+      - diet: reference/links/diet.md
+      - expire_vcon: reference/links/expire-vcon.md
+      - groq_whisper: reference/links/groq-whisper.md
+      - hugging_face_whisper: reference/links/huggingface-whisper.md
+      - hugging_llm_link: reference/links/hugging-llm.md
+      - jq_link: reference/links/jq.md
+      - openai_transcribe: reference/links/openai-transcribe.md
+      - post_analysis_to_slack: reference/links/slack.md
+      - sampler: reference/links/sampler.md
+      - scitt: reference/links/scitt.md
+      - tag: reference/links/tag.md
+      - tag_router: reference/links/tag-router.md
+      - transcribe: reference/links/transcribe.md
+      - webhook: reference/links/webhook.md
+      - wtf_transcribe: reference/links/wtf-transcribe.md
+    - Storage Adapters:
+      - reference/storage-adapters/index.md
+      - ChatGPT Files: reference/storage-adapters/chatgpt_files.md
+      - Dataverse: reference/storage-adapters/dataverse.md
+      - Elasticsearch: reference/storage-adapters/elasticsearch.md
+      - File: reference/storage-adapters/file.md
+      - Milvus: reference/storage-adapters/milvus.md
+      - MongoDB: reference/storage-adapters/mongo.md
+      - PostgreSQL: reference/storage-adapters/postgres.md
+      - Redis: reference/storage-adapters/redis_storage.md
+      - S3: reference/storage-adapters/s3.md
+      - SCITT: reference/storage-adapters/scitt.md
+      - SFTP: reference/storage-adapters/sftp.md
+      - Space and Time: reference/storage-adapters/spaceandtime.md
+      - Utopia: reference/storage-adapters/utopia.md
+      - vCon MCP: reference/storage-adapters/vcon_mcp.md
+      - Webhook: reference/storage-adapters/webhook.md
+    - Tracers:
+      - JLINC: reference/tracers/jlinc.md
+    - API Reference: reference/api.md
+    - API Routes: reference/api-routes.md
+    - Environment Variables: reference/environment.md
+    - Ports and Services: reference/ports.md
+    - Metrics: reference/metrics.md
+    - CLI Reference: reference/cli-reference.md
   - Operations:
     - operations/index.md
-    - API Reference: operations/api-reference.md
     - Monitoring: operations/monitoring.md
     - Logging: operations/logging.md
     - Troubleshooting: operations/troubleshooting.md
     - Dead Letter Queue: operations/dead-letter-queue.md
+    - Storage Recovery: operations/storage-recovery.md
     - Backup and Restore: operations/backup-restore.md
-  - Extending:
-    - extending/index.md
-    - Creating Links: extending/creating-links.md
-    - Creating Storage Adapters: extending/creating-storage-adapters.md
-    - Creating Tracers: extending/creating-tracers.md
-    - Dynamic Modules: extending/dynamic-modules.md
-  - Reference:
-    - reference/index.md
-    - Links:
-      - Deepgram: reference/links/deepgram.md
-      - Analyze: reference/links/analyze.md
-      - Tag: reference/links/tag.md
-      - JQ: reference/links/jq.md
-      - Webhook: reference/links/webhook.md
-    - Storage Adapters:
-      - PostgreSQL: reference/storage-adapters/postgres.md
-      - S3: reference/storage-adapters/s3.md
-      - MongoDB: reference/storage-adapters/mongo.md
-    - CLI Reference: reference/cli-reference.md
+    - Redis Migration: installation/redis-migration.md
+  - Visuals: visuals/index.md
+  - Archive: archive/index.md
 
 plugins:
   - search

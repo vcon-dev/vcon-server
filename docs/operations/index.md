@@ -1,33 +1,28 @@
-# Operations Guide
+# Run the server
 
-This section covers day-to-day operations, monitoring, troubleshooting, and maintenance of vCon Server.
-
-## Operations Overview
+This section covers day-to-day operation of vCon Server: checking it, recovering from failure and planning capacity.
 
 | Topic | Description |
 |-------|-------------|
-| [API Reference](api-reference.md) | Complete API endpoint documentation |
-| [Monitoring](monitoring.md) | Metrics, observability, and health checks |
+| [Monitoring](monitoring.md) | Health checks, OpenTelemetry export and alerts |
 | [Logging](logging.md) | Log configuration and analysis |
 | [Troubleshooting](troubleshooting.md) | Common issues and solutions |
-| [Dead Letter Queue](dead-letter-queue.md) | Managing failed processing |
-| [Backup and Restore](backup-restore.md) | Data protection procedures |
+| [Dead letter queues](dead-letter-queue.md) | Failed chains and how to replay them |
+| [Storage recovery](storage-recovery.md) | Failed backend writes and how to replay them |
+| [Backup and restore](backup-restore.md) | Data protection procedures |
+| [API reference](../reference/api.md) | Every REST endpoint |
 
-## Quick Reference
+In the examples, `default` stands for your own ingress list and `$TOKEN` for your API token. The API listens on port 8000. See [API reference](../reference/api.md#set-the-base-url) for the base URL.
 
-### Health Check
+## Check the service status
 
 ```bash
+# Health and version need no token
 curl http://localhost:8000/api/health
-```
-
-### Version Information
-
-```bash
 curl http://localhost:8000/api/version
 ```
 
-### Service Status
+`/health` confirms only that the API process answers. It does not check Redis or the workers. See [Monitoring](monitoring.md#check-the-server-health).
 
 === "Docker"
 
@@ -43,25 +38,21 @@ curl http://localhost:8000/api/version
     kubectl logs -f deployment/worker -n vcon-server
     ```
 
-=== "Systemd"
+## Run the common tasks
 
-    ```bash
-    systemctl status vcon-server
-    journalctl -u vcon-server -f
-    ```
-
-## Common Operations
-
-### Restart Services
+### Restart the services
 
 === "Docker"
 
     ```bash
     # Restart all
     docker compose restart
-    
-    # Restart specific service
+
+    # Restart one service
     docker compose restart conserver
+
+    # Recreate a service after changing .env
+    docker compose up -d conserver
     ```
 
 === "Kubernetes"
@@ -70,18 +61,15 @@ curl http://localhost:8000/api/version
     kubectl rollout restart deployment/worker -n vcon-server
     ```
 
-### View Logs
+`docker compose restart` keeps the old environment. After editing `.env`, use `docker compose up -d`.
+
+### Read the logs
 
 === "Docker"
 
     ```bash
-    # All logs
     docker compose logs -f
-    
-    # Last 100 lines
     docker compose logs --tail=100 conserver
-    
-    # Filter by time
     docker compose logs --since="1h" conserver
     ```
 
@@ -92,207 +80,175 @@ curl http://localhost:8000/api/version
     kubectl logs --tail=100 -l app=worker -n vcon-server
     ```
 
-### Check Queue Status
+### Check the queue status
 
 ```bash
-# Get queue lengths
-docker compose exec redis redis-cli LLEN default
-docker compose exec redis redis-cli LLEN DLQ:default
+# Queue depth through the API, no token needed
+curl "http://localhost:8000/api/stats/queue?list_name=default"
+curl "http://localhost:8000/api/stats/queue?list_name=DLQ:default"
 
-# List all queues
-docker compose exec redis redis-cli KEYS "*"
+# Queue depth in Redis
+docker compose exec redis redis-cli LLEN default
+
+# List every dead letter queue, without blocking Redis as KEYS would
+docker compose exec redis redis-cli --scan --pattern 'DLQ:*'
 ```
 
-### Submit Test vCon
+### Submit a test vCon
+
+The `uuid` must be a valid UUID, or the API returns 422.
 
 ```bash
 curl -X POST "http://localhost:8000/api/vcon?ingress_lists=default" \
   -H "Content-Type: application/json" \
   -H "x-conserver-api-token: $TOKEN" \
   -d '{
-    "vcon": "0.0.1",
-    "uuid": "test-'$(date +%s)'",
+    "vcon": "0.4.0",
+    "uuid": "'$(uuidgen | tr 'A-Z' 'a-z')'",
     "created_at": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'",
-    "parties": [],
+    "parties": [{"tel": "+15551234567"}],
     "dialog": []
   }'
 ```
 
-### View Configuration
+The API accepts any list name, even one no chain reads. An id pushed to such a list waits there and nothing processes it.
+
+### Read the configuration
 
 ```bash
 curl http://localhost:8000/api/config \
   -H "x-conserver-api-token: $TOKEN" | jq .
 ```
 
-## Operational Metrics
+## Watch the key signals
 
-### Key Metrics to Monitor
+Publish metrics through OpenTelemetry, then watch these signals. [Monitoring](monitoring.md#watch-the-key-signals) maps each one to a metric, and the [metrics reference](../reference/metrics.md) lists every name.
 
-| Metric | Description | Alert Threshold |
-|--------|-------------|-----------------|
-| Queue Depth | Items waiting in ingress queues | > 1000 |
-| DLQ Depth | Items in dead letter queue | > 0 |
-| Processing Latency | Time to process one vCon | > 30s |
-| Error Rate | Percentage of failed processing | > 5% |
-| Worker Count | Active worker processes | < expected |
-| Memory Usage | Container/process memory | > 80% |
-| CPU Usage | Container/process CPU | > 80% |
+- Ingress queue depth
+- Ingress and storage DLQ depth
+- Chain processing time
+- Link and storage errors
+- Redis memory, and container CPU and memory
 
-### Quick Health Assessment
+Set thresholds from your own baseline, since load depends on the chains you run.
+
+### Script a quick health assessment
 
 ```bash
 #!/bin/bash
 # health-check.sh
 
 API_URL="http://localhost:8000/api"
-TOKEN="your-token"
+QUEUES="default"
 
-echo "=== vCon Server Health Check ==="
-
-# API Health
-echo -n "API Health: "
+echo -n "API health: "
 curl -s "$API_URL/health" | jq -r .status
 
-# Version
 echo -n "Version: "
 curl -s "$API_URL/version" | jq -r .version
 
-# Queue Status
-echo "Queue Depths:"
-for queue in default production test; do
-  depth=$(docker compose exec -T redis redis-cli LLEN $queue 2>/dev/null || echo "N/A")
-  echo "  $queue: $depth"
+for queue in $QUEUES; do
+  for list in "$queue" "DLQ:$queue"; do
+    echo -n "$list: "
+    curl -s "$API_URL/stats/queue?list_name=$list" | jq -r .depth
+  done
 done
 
-# DLQ Status
-echo "DLQ Depths:"
-for queue in default production test; do
-  depth=$(docker compose exec -T redis redis-cli LLEN "DLQ:$queue" 2>/dev/null || echo "N/A")
-  echo "  DLQ:$queue: $depth"
-done
+echo -n "Redis: "
+docker compose exec -T redis redis-cli ping
 
-# Container Status
-echo "Container Status:"
 docker compose ps --format "table {{.Name}}\t{{.Status}}"
 ```
 
-## Maintenance Windows
+## Plan maintenance
 
-### Planned Maintenance
+No switch stops ingress on the server, so stop your producers first. Then drain the queues before stopping the workers.
 
-1. **Announce maintenance** to users
-2. **Stop ingress** (stop accepting new vCons)
-3. **Drain queues** (wait for processing to complete)
-4. **Perform maintenance**
-5. **Verify health**
-6. **Resume operations**
+1. Announce the maintenance to users.
+2. Stop the systems that submit vCons.
+3. Wait until the ingress lists reach 0 and `conserver.vcons.inflight` falls to 0.
+4. Stop the workers and carry out the maintenance.
+5. Start the workers and verify health.
+6. Resume the producers.
 
 ```bash
-# Graceful shutdown (allows current processing to complete)
 docker compose stop conserver
 
-# Perform maintenance...
+# Perform the maintenance
 
-# Restart
 docker compose start conserver
-
-# Verify
 curl http://localhost:8000/api/health
 ```
 
-### Emergency Procedures
+!!! warning "Shutdown has a short grace period"
+    A worker finishes the vCons it holds before it exits, but `docker-compose.yml` sets `stop_grace_period: 5s`. After that Docker kills the process. A popped id lives only in memory, so a vCon still running at that moment is lost from the queue. Drain first, or raise the grace period above your longest chain.
 
-**Service Unresponsive:**
+## Respond to an emergency
+
+**Service unresponsive:**
 
 ```bash
-# Force restart
 docker compose restart
 
-# If still unresponsive
+# If it still does not respond
 docker compose down
 docker compose up -d
 ```
 
-**Queue Backup:**
+**Queue backing up:**
 
 ```bash
-# Check queue depth
-docker compose exec redis redis-cli LLEN default
+curl "http://localhost:8000/api/stats/queue?list_name=default"
 
-# Scale workers
+# Add worker containers
 docker compose up -d --scale conserver=4
 ```
 
-**DLQ Growing:**
+[Configure the workers](../configuration/workers.md) covers the other ways to add capacity.
 
-```bash
-# Check DLQ
-curl "http://localhost:8000/api/dlq?ingress_list=default" \
-  -H "x-conserver-api-token: $TOKEN"
+**DLQ growing:** find the cause, then replay. See [Manage dead letter queues](dead-letter-queue.md).
 
-# Fix issues, then reprocess
-curl -X POST "http://localhost:8000/api/dlq/reprocess?ingress_list=default" \
-  -H "x-conserver-api-token: $TOKEN"
-```
+**Storage DLQ growing:** fix the backend, then replay. See [Recover failed storage writes](storage-recovery.md).
 
-## Capacity Planning
+## Plan the capacity
 
-### Resource Requirements by Scale
+Treat these figures as starting points, not measurements. Throughput depends on your chains, and a chain that calls external transcription or analysis services behaves very differently from one that only tags and stores. Load test with your own chains.
+
+<!-- TODO(verify): the repo holds no measured figures behind this table. docs/getting-started/requirements.md dropped its sizing tables for that reason. Replace these rows if a load test produces numbers. -->
 
 | Scale | vCons/day | Workers | Memory | CPU |
 |-------|-----------|---------|--------|-----|
 | Small | < 1,000 | 1-2 | 2 GB | 2 cores |
 | Medium | 1,000-10,000 | 4 | 4 GB | 4 cores |
 | Large | 10,000-100,000 | 8 | 8 GB | 8 cores |
-| Enterprise | > 100,000 | 16+ | 16+ GB | 16+ cores |
+| Very large | > 100,000 | 16+ | 16+ GB | 16+ cores |
 
-### Scaling Triggers
+Scale up when the queue depth stays high, chain processing time climbs, or CPU stays high. Scale down when the queue stays empty and CPU stays low. Maximum parallel vCons per host is `CONSERVER_WORKERS` times `CONSERVER_VCON_CONCURRENCY`. See [Configure the workers](../configuration/workers.md).
 
-**Scale Up When:**
+The `redis` service in `docker-compose.yml` has `mem_limit: 1gb`. Bodies held for a DLQ stay in Redis for days, so raise the limit if a queue may grow large.
 
-- Queue depth consistently > 100
-- Processing latency > 10s
-- CPU usage > 70%
-
-**Scale Down When:**
-
-- Queue depth consistently 0
-- CPU usage < 30%
-- Cost optimization needed
-
-## Security Operations
-
-### Regular Tasks
+## Maintain the security
 
 | Task | Frequency | Procedure |
 |------|-----------|-----------|
-| Rotate API tokens | Monthly | [Authentication Guide](../configuration/authentication.md) |
-| Review access logs | Weekly | Check for unauthorized access |
-| Update dependencies | Monthly | `poetry update && docker compose build` |
-| Security patches | As released | Apply and test |
-| Backup verification | Weekly | Test restore procedure |
+| Rotate API tokens | Monthly | [Authentication](../configuration/authentication.md). The API reads its tokens at startup, so restart it |
+| Review access logs | Weekly | See below |
+| Update dependencies | Monthly | `uv lock --upgrade && docker compose build` |
+| Apply security patches | As released | Apply and test |
+| Verify backups | Weekly | [Test a restore](backup-restore.md#test-the-restores) |
 
-### Audit Logging
-
-Enable audit logging for compliance:
+The server has no dedicated audit log. To review access, search the API process output:
 
 ```bash
-LOG_LEVEL=INFO
+# Rejected requests
+docker compose logs api | grep '" 403'
+
+# Rejected keys on external ingress
+docker compose logs api | grep "Invalid API key for ingress list"
 ```
 
-Review access patterns:
+## Read the next pages
 
-```bash
-# Failed auth attempts
-docker compose logs api | grep -i "403"
-
-# Successful operations
-docker compose logs api | grep "200"
-```
-
-## Next Steps
-
-- [API Reference](api-reference.md) - Complete endpoint documentation
-- [Monitoring](monitoring.md) - Set up observability
-- [Troubleshooting](troubleshooting.md) - Solve common issues
+- [Monitoring](monitoring.md) sets up observability
+- [Troubleshooting](troubleshooting.md) solves common issues
+- [API reference](../reference/api.md) documents every endpoint

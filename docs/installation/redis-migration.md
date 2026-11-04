@@ -33,13 +33,13 @@ volume, remove that volume, or flush the source database to make startup succeed
 
 ## Copy the owned data
 
-Install this repository's Python dependencies. Set `REDIS_MIGRATION_SOURCE_URL`
-and `REDIS_MIGRATION_TARGET_URL` using the deployment's secret-management method.
-Do not put credential-bearing URLs on the command line or in a committed file.
-Then, from the repository root:
+Install this repository's Python dependencies with `uv sync`. Set
+`REDIS_MIGRATION_SOURCE_URL` and `REDIS_MIGRATION_TARGET_URL` using the
+deployment's secret-management method. Do not put credential-bearing URLs on the
+command line or in a committed file. Then, from the repository root:
 
 ```sh
-python scripts/migrate_redis_json.py --writers-stopped --match 'vcon:*' --match 'config:*'
+uv run python scripts/migrate_redis_json.py --writers-stopped --match 'vcon:*' --match 'config:*'
 ```
 
 Those patterns are examples, **not a complete application inventory**. Include the
@@ -95,8 +95,8 @@ The existing API/TTL integration tests use REDIS_URL, which must point to a
 disposable test instance. They now fail if that service is unavailable.
 
 ```sh
-pytest tests/core/test_plain_redis.py tests/core/test_redis_json_migration.py
-pytest tests/core/test_vcon_redis.py tests/core/test_vcon_redis_ttl.py common/tests/test_api.py
+uv run pytest tests/core/test_plain_redis.py tests/core/test_redis_json_migration.py
+uv run pytest tests/core/test_vcon_redis.py tests/core/test_vcon_redis_ttl.py common/tests/test_api.py
 ```
 
 JSON syntax errors remain visible errors. Missing keys still return None and batch

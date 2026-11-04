@@ -1,5 +1,7 @@
 # DataTrails Link
 
+Reference: [`links.datatrails`](../../../docs/reference/links/datatrails.md)
+
 The DataTrails link is a specialized plugin that integrates vCon data with the DataTrails platform, creating a verifiable audit trail for vCon operations. It supports both asset-based and asset-free event recording, with plans to transition fully to asset-free events in the future.
 
 ## Features
@@ -110,7 +112,7 @@ With the SCITT capabilities of DataTrails, the integrity and inclusion of all vC
 If you're in possession of a vCon that's not recorded on a SCITT ledger, how do you know it's a valid vCon, or the latest version of that vCon?
 
 The DataTrails Link is a conserver link designed to integrate vCon (virtual conversation) data with the [DataTrails Events API][datatrails-events].
-The DataTrails Link allows for the creation of DataTrails Events based on vCon information, enabling seamless tracking and management of conversation-related assets.
+The DataTrails Link allows for the creation of DataTrails Events based on vCon information, for tracking and managing conversation-related assets.
 Setting the `vcon_operation` chain configuration, log different types of Events, based on which chain is executed.
 
 ## Prerequisites
@@ -168,11 +170,11 @@ links:
         token_endpoint: "https://app.datatrails.ai/archivist/iam/v1/appidp/token"
         client_id: "<your_client_id>"
         client_secret: "<your_client_secret>"
-  datatrails_consent_revoked:
+  datatrails_updated:
     module: links.datatrails
     options:
       api_url: "https://app.datatrails.ai/archivist"
-      vcon_operation: "vcon_consent_revoked"
+      vcon_operation: "vcon_updated"
       auth:
         type: "OIDC-client-credentials"
         token_endpoint: "https://app.datatrails.ai/archivist/iam/v1/appidp/token"
@@ -188,11 +190,11 @@ chains:
     egress_lists:
       - default_egress
     enabled: 1
-  consent_revoked_chain:
+  update_chain:
     links:
-      - datatrails_consent_revoked
+      - datatrails_updated
     ingress_lists:
-      - consent_ingress
+      - update_ingress
     egress_lists:
       - default_egress
     enabled: 1
@@ -233,7 +235,7 @@ To run the tests for the DataTrails Link:
 1. Run the tests:
 
    ```bash
-   pytest server/links/datatrails/
+   pytest conserver/links/datatrails/
    ```
 
 ## Contributing
@@ -282,6 +284,6 @@ The [DataTrails Asset Link is open-sourced under the MIT license](./LICENSE).
 [datatrails-tokens]:  https://docs.datatrails.ai/developers/developer-patterns/getting-access-tokens-using-app-registrations/
 [datatrails-events]:  https://docs.datatrails.ai/developers/api-reference/events-api/
 [scitt-scrapi]:       https://datatracker.ietf.org/doc/draft-ietf-scitt-scrapi/
-[scitt-link]:         https://github.com/vcon-dev/vcon-server/tree/main/server/links/scitt
+[scitt-link]:         https://github.com/vcon-dev/vcon-server/tree/main/conserver/links/scitt
 [scitt-architecture]: https://datatracker.ietf.org/wg/scitt/about/
 [datatrails-vcon-template]: https://docs.datatrails.ai/developers/templates/vcons/

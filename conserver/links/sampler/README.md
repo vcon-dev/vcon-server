@@ -1,5 +1,7 @@
 # Sampler Link
 
+Reference: [`links.sampler`](../../../docs/reference/links/sampler.md)
+
 The Sampler link is a specialized plugin that selectively processes vCons based on various sampling methods. It provides a way to reduce the volume of vCons being processed in a chain, enabling efficient resource utilization and focused analysis.
 
 ## Features

@@ -1,0 +1,43 @@
+%%{init: {'theme':'base','themeVariables':{'fontFamily':'Inter, Helvetica, Arial, sans-serif','fontSize':'14px','background':'#FFFFFF','primaryColor':'#F3F4F6','primaryTextColor':'#292929','primaryBorderColor':'#0A7D18','secondaryColor':'#FFFFFF','secondaryTextColor':'#33363B','secondaryBorderColor':'#8A8A8D','tertiaryColor':'#FFFFFF','tertiaryTextColor':'#33363B','tertiaryBorderColor':'#8A8A8D','lineColor':'#33363B','textColor':'#33363B','mainBkg':'#F3F4F6','nodeBorder':'#0A7D18','clusterBkg':'#FFFFFF','clusterBorder':'#8A8A8D','edgeLabelBackground':'#FFFFFF','actorBkg':'#F3F4F6','actorBorder':'#0A7D18','actorTextColor':'#292929','signalColor':'#33363B','signalTextColor':'#292929','labelBoxBkgColor':'#F3F4F6','labelBoxBorderColor':'#0A7D18','noteBkgColor':'#F3F4F6','noteBorderColor':'#8A8A8D','noteTextColor':'#292929'}}}%%
+%%{init: {'fontFamily':'Inter, Helvetica, Arial, sans-serif'}}%%
+flowchart TB
+    canon["Canonical vCon in Redis<br/>vcon 0.4.0, never changed by egress"]
+
+    subgraph points["Egress points that call to_configured_legacy"]
+        direction LR
+        hook["webhook link"]
+        stores["postgres, s3 and<br/>elasticsearch adapters"]
+        reads["GET /vcon/{uuid}<br/>GET /vcons"]
+    end
+
+    other["Other storage adapters<br/>skip the conversion"]
+
+    canon --> points
+    canon --> other
+
+    points -- "reads EGRESS_FORMAT_VERSION" --> setting{"Format<br/>version set?"}
+    setting -- "no" --> same["Payload unchanged, current spec"]
+    setting -- "yes, checks SUPPORTED_VERSIONS" --> known{"Version<br/>supported?"}
+    known -- "no" --> bad["ValueError at egress time"]
+    bad --> fail["webhook link: ingress DLQ<br/>adapter: storage DLQ<br/>API read: HTTP 500"]
+    known -- "yes, 0.0.1" --> copy["Deep copy the dict"]
+
+    subgraph convert["to_legacy steps"]
+        direction TB
+        top["Top level<br/>amended to appended<br/>critical to must_support"]
+        ent["Dialog, analysis, attachments<br/>schema to schema_version<br/>mediatype to mimetype<br/>critical to must_support"]
+        att["Attachments<br/>purpose to type when type is absent"]
+        body["Analysis and attachments<br/>encoding json becomes none<br/>string body parsed to a native value"]
+        fill["Defaults group [], redacted {}, appended null<br/>Stamp vcon 0.0.1"]
+        top --> ent --> att --> body --> fill
+    end
+
+    copy --> convert
+    convert --> legacy["Legacy 0.0.1 payload to the consumer or store"]
+    lb["lawful_basis attachment keeps its body<br/>Only field names and encoding change"]
+    convert -.-> lb
+
+    legacy -. "read back from storage" .-> up["Renamed up to the current spec<br/>vcon stamped 0.4.0, cached in Redis"]
+
+    classDef pick stroke:#0BB81E,stroke-width:3px,fill:#FFFFFF
+    class lb pick

@@ -1,44 +1,42 @@
 # vCon Server (Conserver)
 
-vCon Server is a pipeline-based conversation processing and storage system. It ingests [vCon](https://datatracker.ietf.org/doc/draft-ietf-vcon-vcon-container/) (Voice Conversation) records, routes them through configurable processing chains — transcription, AI analysis, tagging, webhooks — and writes results to one or more storage backends.
+vCon Server is a pipeline for [vCon](https://datatracker.ietf.org/doc/draft-ietf-vcon-vcon-core/) conversation records. It takes them in, runs them through configurable chains of links (transcription, AI analysis, tagging, routing, webhooks) and writes the results to one or more storage backends.
 
-**Full documentation:** https://vcon-dev.github.io/vcon-server/
+**Documentation:** start at [docs/index.md](docs/index.md). The `Docs` workflow publishes the same pages to https://vcon-dev.github.io/vcon-server/.
 
-## Quick Start
+## Start the server
 
-```bash
-git clone https://github.com/vcon-dev/vcon-server.git
-cd vcon-server
-cp example_docker-compose.yml docker-compose.yml
-cp .env.example .env          # edit CONSERVER_API_TOKEN at minimum
-docker network create conserver
-docker compose up -d --build
-curl http://localhost:8000/api/health
-```
+You need Docker with the Compose plugin. The [quick start](docs/getting-started/quick-start.md) takes you from a fresh clone to a processed vCon. It sets three values in `.env`, writes a small `config.yml`, and starts the stack.
 
-## Documentation by Audience
+## Find the docs for your role
 
 | Audience | Start here |
 |----------|-----------|
-| **New users** | [Getting Started](https://vcon-dev.github.io/vcon-server/getting-started/) |
-| **Operators / DevOps** | [Installation](https://vcon-dev.github.io/vcon-server/installation/) · [Configuration](https://vcon-dev.github.io/vcon-server/configuration/) · [Operations](https://vcon-dev.github.io/vcon-server/operations/) |
-| **Developers** | [Contributing](https://vcon-dev.github.io/vcon-server/contributing/) · [Extending](https://vcon-dev.github.io/vcon-server/extending/) · [Reference](https://vcon-dev.github.io/vcon-server/reference/) |
+| **New users** | [Getting Started](docs/getting-started/index.md) |
+| **Operators** | [Installation](docs/installation/index.md), [Configuration](docs/configuration/index.md), [Operations](docs/operations/index.md) |
+| **Developers** | [Contributing](docs/contributing.md), [Extending](docs/extending/index.md), [Reference](docs/reference/index.md) |
 
-## Key Features
+## Check the main features
 
-- **Chain-based processing** — compose reusable links into pipelines driven by Redis queues
-- **20+ processing links** — transcription (Deepgram, Whisper), AI analysis (OpenAI, Groq), tagging, routing, webhooks, compliance (SCITT, DataTrails)
-- **10+ storage backends** — PostgreSQL, MongoDB, S3, Elasticsearch, Milvus, Redis, SFTP, and more
-- **Multi-worker scaling** — parallel workers with configurable process count and parallel storage writes
-- **External ingress** — scoped API keys let third-party systems submit vCons to specific queues
-- **OpenTelemetry** — built-in tracing and metrics export
+- **Chain-based processing:** compose reusable links into pipelines driven by Redis queues
+- **Processing links:** [transcription, AI analysis, tagging, routing, webhooks, SCITT and DataTrails records](docs/reference/links/index.md)
+- **Storage backends:** [PostgreSQL, MongoDB, S3, Elasticsearch, Milvus, Redis, SFTP and more](docs/reference/storage-adapters/index.md)
+- **Multi-worker scaling:** parallel workers, per-worker concurrency and parallel storage writes
+- **External ingress:** scoped API keys let third-party systems submit vCons to specific queues
+- **OpenTelemetry:** built-in tracing and metrics export
 
-## Running Tests
+The server carries `lawful_basis` attachments through the pipeline. It does not create, validate or enforce consent. See [lawful basis](docs/concepts/lawful-basis.md).
+
+## Run the tests
+
+With the stack running:
 
 ```bash
-docker compose run --rm conserver pytest conserver/links/analyze/tests/ -v
+docker compose run --rm conserver pytest
 ```
 
-## License
+[Contributing](docs/contributing.md) covers local setup with uv.
 
-See [LICENSE](LICENSE).
+## Read the license
+
+MIT. See [LICENSE](LICENSE).

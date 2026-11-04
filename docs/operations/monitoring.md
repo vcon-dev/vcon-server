@@ -1,110 +1,100 @@
-# Monitoring
+# Monitor the server
 
-This guide covers monitoring, observability, and alerting for vCon Server.
+This page shows how to check the server, publish its telemetry and alert on the failures that matter. The [metrics reference](../reference/metrics.md) lists every metric name, and the [environment reference](../reference/environment.md) lists every variable.
 
-## Health Endpoints
+![Metrics, traces, errors and chain tracers leaving the API and worker processes, with the Redis reads behind them](../diagrams/D14-observability.svg)
 
-### API Health
+## Check the server health
+
+Three monitoring routes need no API token. The FastAPI `/docs`, `/redoc` and `/openapi.json` pages are also open. See the [API reference](../reference/api.md#monitor-the-server) for the responses.
 
 ```bash
 curl http://localhost:8000/api/health
-```
-
-Response:
-
-```json
-{"status": "healthy"}
-```
-
-### Version Information
-
-```bash
 curl http://localhost:8000/api/version
+curl "http://localhost:8000/api/stats/queue?list_name=default"
 ```
 
-Response:
+`/health` returns a fixed `healthy` status with the version details. It proves that the API process answers and nothing more. It does not touch Redis or the workers, so pair it with a queue depth check and a Redis check.
 
-```json
-{
-  "version": "2024.01.15",
-  "git_commit": "a1b2c3d",
-  "build_time": "2024-01-15T10:30:00Z"
-}
-```
+The version fields come from the image build. Outside a built image they read `dev` and `unknown`. Every API response also carries `X-Vcon-Server-Version` and `X-Vcon-Server-Commit` headers.
 
-## Key Metrics
+## Read the queue depth
 
-### Queue Metrics
-
-| Metric | Command | Description |
-|--------|---------|-------------|
-| Ingress Depth | `LLEN {ingress_list}` | Items waiting to process |
-| Egress Depth | `LLEN {egress_list}` | Processed items awaiting pickup |
-| DLQ Depth | `LLEN DLQ:{ingress_list}` | Failed items |
+| Queue | Redis list | Holds |
+|---|---|---|
+| Ingress | `<ingress_list>` | Ids waiting for a worker |
+| Egress | `<egress_list>` | Processed ids awaiting pickup |
+| Ingress DLQ | `DLQ:<ingress_list>` | Ids whose chain failed |
+| Storage DLQ | `DLQ:storage:<storage_name>` | Ids whose write to one backend failed |
 
 ```bash
-# Check queue depths
-docker compose exec redis redis-cli LLEN default
-docker compose exec redis redis-cli LLEN DLQ:default
+# Through the API, for any Redis list
+curl "http://localhost:8000/api/stats/queue?list_name=DLQ:default"
 
-# Watch queue depth over time
+# In Redis
+docker compose exec redis redis-cli LLEN default
+
+# Watch the depth over time
 watch -n 5 'docker compose exec -T redis redis-cli LLEN default'
 ```
 
-### Processing Metrics
+## Watch the key signals
 
-| Metric | Description | Target |
-|--------|-------------|--------|
-| Processing Rate | vCons/minute | Depends on volume |
-| Processing Latency | Time per vCon | < 30s typical |
-| Error Rate | Failed/Total | < 5% |
-| DLQ Growth | New DLQ items/hour | 0 |
+Set thresholds from your own baseline. The [metrics reference](../reference/metrics.md) gives each metric's type and attributes.
 
-### Resource Metrics
+| Signal | Metric | Watch for |
+|---|---|---|
+| Ingress depth | `conserver.ingress_list.length` with `kind="ingress"` | Sustained growth |
+| Ingress DLQ depth | `conserver.ingress_list.length` with `kind="dlq"` | Anything above 0 |
+| Storage DLQ growth | `conserver.dlq.count` with a `DLQ:storage:` queue name | Any increase |
+| Chain time | `conserver.main_loop.vcon_processing_time` | A rising upper percentile |
+| Throughput | `conserver.main_loop.count_vcons_processed` | A drop against the ingress rate |
+| Link errors | `conserver.link.count` with `outcome="error"` | Any sustained rate |
+| Storage errors | `conserver.storage.count` with `outcome="error"` | Any sustained rate |
+| In-flight work | `conserver.vcons.inflight` | Stuck at the concurrency limit |
+| Redis memory | `conserver.redis.memory_used_bytes` | Nearing the limit |
 
-| Metric | Description | Alert Threshold |
-|--------|-------------|-----------------|
-| CPU Usage | Container CPU % | > 80% |
-| Memory Usage | Container memory | > 80% |
-| Disk Usage | Storage volume | > 80% |
-| Network I/O | Bytes in/out | Baseline + 50% |
+The depth gauge covers configured ingress lists and their DLQs. It does not sample storage DLQs, so read those through `/stats/queue` or with `LLEN`.
 
-## OpenTelemetry Integration
+Take CPU, memory, disk and network figures from your container platform. The server does not publish them.
 
-vCon Server includes OpenTelemetry instrumentation.
+## Publish the telemetry
 
-### Enable Tracing
+The server has two separate OpenTelemetry pipelines.
+
+**Metrics** go through `common/lib/metrics.py`. They publish only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set, and always over OTLP gRPC, whatever `OTEL_EXPORTER_OTLP_PROTOCOL` says. Each process exports with its own `service.instance.id`, so sum across instances for a total.
+
+**Traces** come from `opentelemetry-instrument`, which wraps both processes in `docker-compose.yml`. Workers open one span per vCon, with `link.*` and `storage.*` children, and `init_tracing` adds OpenAI LLM spans. The API has only auto-instrumented request spans.
+
+Set the endpoint in `.env`. `docker-compose.yml` passes the `OTEL_EXPORTER_OTLP_*` variables through.
 
 ```bash
-# Environment variables
-OTEL_SERVICE_NAME=vcon-server
 OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
-OTEL_TRACES_EXPORTER=otlp
-OTEL_METRICS_EXPORTER=otlp
+OTEL_EXPORTER_OTLP_PROTOCOL=grpc
 ```
 
-### Docker Compose with Collector
+`docker-compose.yml` sets `OTEL_SERVICE_NAME` to `conserver` and `api`, so a value in `.env` has no effect on those services. Outside Compose the metrics default is `vcon-server`.
+
+### Run a collector
+
+Add the collector to `docker-compose.yml`:
 
 ```yaml
 services:
   otel-collector:
-    image: otel/opentelemetry-collector:latest
+    image: otel/opentelemetry-collector-contrib:latest
     command: ["--config=/etc/otel-collector-config.yaml"]
     volumes:
       - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml
     ports:
       - "4317:4317"   # OTLP gRPC
       - "4318:4318"   # OTLP HTTP
+      - "8889:8889"   # Prometheus scrape
     networks:
       - conserver
-
-  conserver:
-    environment:
-      - OTEL_SERVICE_NAME=vcon-server
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
 ```
 
-### Collector Configuration
+Then configure it. This example sends traces to Jaeger and exposes metrics for Prometheus.
 
 ```yaml
 # otel-collector-config.yaml
@@ -120,16 +110,13 @@ processors:
   batch:
 
 exporters:
-  logging:
-    loglevel: debug
-  
-  # Jaeger for traces
-  jaeger:
-    endpoint: jaeger:14250
+  debug:
+
+  otlp/jaeger:
+    endpoint: jaeger:4317
     tls:
       insecure: true
-  
-  # Prometheus for metrics
+
   prometheus:
     endpoint: "0.0.0.0:8889"
 
@@ -138,91 +125,42 @@ service:
     traces:
       receivers: [otlp]
       processors: [batch]
-      exporters: [jaeger, logging]
+      exporters: [otlp/jaeger, debug]
     metrics:
       receivers: [otlp]
       processors: [batch]
       exporters: [prometheus]
 ```
 
-### Langfuse Integration
+### Send traces to Langfuse
 
-Langfuse accepts traces via the standard OTLP HTTP endpoint — no separate collector needed.
+Langfuse accepts traces over OTLP HTTP. Metrics cannot follow, since the metrics exporter is gRPC only. If you want metrics too, use [a collector to fan out](#fan-out-to-several-backends).
 
-#### Step 1 — Generate your auth header
-
-In Langfuse, go to **Settings → API Keys** and copy your Public Key and Secret Key. Then run:
+In Langfuse, open the API keys page in its settings and copy your public and secret keys. Then build the auth header:
 
 ```bash
 echo -n "pk-lf-YOUR_PUBLIC_KEY:sk-lf-YOUR_SECRET_KEY" | base64
 ```
 
-Copy the output for the next step.
-
-#### Step 2 — Set environment variables
-
-Add the following to your `.env` file:
+Add these to `.env`:
 
 ```bash
 OTEL_EXPORTER_OTLP_ENDPOINT=http://<your-langfuse-host>:3000/api/public/otel
 OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
-OTEL_EXPORTER_OTLP_HEADERS=Authorization=Basic <output_from_step_1>
+OTEL_EXPORTER_OTLP_HEADERS=Authorization=Basic <output_from_above>
 ```
 
-For Langfuse Cloud use:
+For Langfuse Cloud, use `https://cloud.langfuse.com/api/public/otel` as the endpoint.
 
-```bash
-OTEL_EXPORTER_OTLP_ENDPOINT=https://cloud.langfuse.com/api/public/otel
-```
+Traces appear under the service names `conserver` and `api`.
 
-Traces will appear in Langfuse under the service names `conserver` and `api`.
+For local testing, `docker-compose.yml` has a `langfuse` profile with development credentials. Its comments give the `.env` values. Never use those credentials in production.
 
-### Sending to Multiple Backends (Fan-out via OTel Collector)
+### Fan out to several backends
 
-vCon Server can only point to one OTLP endpoint via environment variables. To fan out to multiple backends simultaneously, use the OTel Collector as a proxy. The example below uses SigNoz and Langfuse, but the same pattern works with any two OTLP-compatible backends.
+The server points at one OTLP endpoint. To reach several backends, send everything to a collector and let it fan out. This example uses SigNoz over gRPC and Langfuse over HTTP, and the same pattern works with any two OTLP backends.
 
-```
-vcon-server ──OTLP──▶ OTel Collector ──▶ Backend A (gRPC :4317)
-                                      └──▶ Backend B (HTTP)
-```
-
-#### Step 1 — Point vCon Server at the collector
-
-In your `.env`:
-
-```bash
-OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
-OTEL_EXPORTER_OTLP_PROTOCOL=grpc
-```
-
-No auth header needed here — the collector handles authentication to each backend separately.
-
-#### Step 2 — Add the collector to docker-compose.yml
-
-```yaml
-services:
-  otel-collector:
-    image: otel/opentelemetry-collector-contrib:latest
-    command: ["--config=/etc/otel-collector-config.yaml"]
-    volumes:
-      - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml
-    ports:
-      - "4317:4317"
-    networks:
-      - conserver
-```
-
-> Use `otel/opentelemetry-collector-contrib` (not the slim `otel/opentelemetry-collector`) — it includes the `otlphttp` exporter needed for Langfuse.
-
-#### Step 3 — Configure the collector (otel-collector-config.yaml)
-
-Generate your Langfuse Basic auth token first:
-
-```bash
-echo -n "pk-lf-YOUR_PUBLIC_KEY:sk-lf-YOUR_SECRET_KEY" | base64
-```
-
-Then create `otel-collector-config.yaml`:
+Point the server at the collector as shown in [Publish the telemetry](#publish-the-telemetry), with no auth header. The collector authenticates to each backend itself. Then configure the collector:
 
 ```yaml
 receivers:
@@ -235,13 +173,11 @@ processors:
   batch:
 
 exporters:
-  # SigNoz — receives OTLP gRPC
   otlp/signoz:
     endpoint: <your-signoz-host>:4317
     tls:
       insecure: true
 
-  # Langfuse — receives OTLP HTTP
   otlphttp/langfuse:
     endpoint: http://<your-langfuse-host>:3000/api/public/otel
     headers:
@@ -259,23 +195,15 @@ service:
       exporters: [otlp/signoz]
 ```
 
-> Langfuse only ingests **traces** (LLM spans). Metrics go to SigNoz only.
+Langfuse ingests only traces, so metrics go to SigNoz alone.
 
-Traces will appear in both backends. In Langfuse, look under service names `conserver` and `api`.
+### Send telemetry to Datadog
 
----
+The server has no Datadog library, so `DD_*` application settings do nothing. Send OTLP to a collector or to a Datadog Agent with OTLP intake enabled, and follow the Datadog documentation for that side.
 
-## Prometheus Integration
+## Scrape the metrics with Prometheus
 
-### Metrics Endpoint
-
-If using OpenTelemetry with Prometheus exporter:
-
-```bash
-curl http://localhost:8889/metrics
-```
-
-### Prometheus Configuration
+The server exposes no metrics port of its own. Prometheus scrapes the collector.
 
 ```yaml
 # prometheus.yml
@@ -283,71 +211,29 @@ scrape_configs:
   - job_name: 'vcon-server'
     static_configs:
       - targets: ['otel-collector:8889']
-    
-  - job_name: 'redis'
-    static_configs:
-      - targets: ['redis-exporter:9121']
 ```
 
-### Key Prometheus Queries
+The collector's Prometheus exporter rewrites names. Dots become underscores and counters gain `_total`, so `conserver.dlq.count` becomes `conserver_dlq_count_total`. Attribute dots change too, so `chain.name` becomes `chain_name`. Check the names at `http://localhost:8889/metrics`, since exporter settings can change them.
+
+<!-- TODO(verify): the Prometheus names below follow the collector's default naming and were not checked against a running collector. The conserver side of each name is confirmed in docs/reference/metrics.md. -->
 
 ```promql
-# Processing rate (vCons per minute)
-rate(vcon_processed_total[5m]) * 60
+# vCons finished per minute
+sum(rate(conserver_main_loop_count_vcons_processed_total[5m])) * 60
 
-# Error rate
-rate(vcon_processing_errors_total[5m]) / rate(vcon_processed_total[5m])
+# Share of link runs that failed
+sum(rate(conserver_link_count_total{outcome="error"}[5m]))
+  / sum(rate(conserver_link_count_total[5m]))
 
-# Average processing duration
-histogram_quantile(0.95, rate(vcon_processing_duration_seconds_bucket[5m]))
+# 95th percentile chain time in seconds
+histogram_quantile(0.95,
+  sum by (le) (rate(conserver_main_loop_vcon_processing_time_bucket[5m])))
 
-# Queue depth
-redis_list_length{list="default"}
+# Ingress depth. Each worker process reports the gauge, so take the maximum.
+max by (ingress_list) (conserver_ingress_list_length{kind="ingress"})
 ```
 
-## Datadog Integration
-
-### Agent Configuration
-
-```yaml
-# docker-compose.yml
-services:
-  datadog-agent:
-    image: datadog/agent:latest
-    environment:
-      - DD_API_KEY=${DD_API_KEY}
-      - DD_SITE=datadoghq.com
-      - DD_APM_ENABLED=true
-      - DD_LOGS_ENABLED=true
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - /proc/:/host/proc/:ro
-      - /sys/fs/cgroup/:/host/sys/fs/cgroup:ro
-    networks:
-      - conserver
-```
-
-### Application Configuration
-
-```bash
-# Enable Datadog APM
-DD_AGENT_HOST=datadog-agent
-DD_TRACE_ENABLED=true
-DD_PROFILING_ENABLED=true
-```
-
-### Datadog Dashboards
-
-Create dashboards for:
-
-1. **Overview**: Health, version, uptime
-2. **Processing**: Queue depths, throughput, latency
-3. **Errors**: DLQ depth, error rates, error types
-4. **Resources**: CPU, memory, network, disk
-
-## Grafana Dashboards
-
-### Sample Dashboard JSON
+## Build a Grafana dashboard
 
 ```json
 {
@@ -355,30 +241,30 @@ Create dashboards for:
     "title": "vCon Server",
     "panels": [
       {
-        "title": "Queue Depth",
-        "type": "graph",
+        "title": "Queue depth",
+        "type": "timeseries",
         "targets": [
           {
-            "expr": "redis_list_length{list=~\"default|production\"}",
-            "legendFormat": "{{list}}"
+            "expr": "max by (ingress_list) (conserver_ingress_list_length{kind=\"ingress\"})",
+            "legendFormat": "{{ingress_list}}"
           }
         ]
       },
       {
-        "title": "Processing Rate",
+        "title": "vCons per minute",
         "type": "stat",
         "targets": [
           {
-            "expr": "rate(vcon_processed_total[5m]) * 60"
+            "expr": "sum(rate(conserver_main_loop_count_vcons_processed_total[5m])) * 60"
           }
         ]
       },
       {
-        "title": "DLQ Items",
+        "title": "DLQ items",
         "type": "stat",
         "targets": [
           {
-            "expr": "redis_list_length{list=~\"DLQ:.*\"}"
+            "expr": "sum(max by (ingress_list) (conserver_ingress_list_length{kind=\"dlq\"}))"
           }
         ]
       }
@@ -387,9 +273,7 @@ Create dashboards for:
 }
 ```
 
-## Alerting
-
-### Alert Rules
+## Write the alert rules
 
 ```yaml
 # prometheus-alerts.yml
@@ -397,42 +281,46 @@ groups:
   - name: vcon-server
     rules:
       - alert: HighQueueDepth
-        expr: redis_list_length{list="default"} > 1000
+        expr: max by (ingress_list) (conserver_ingress_list_length{kind="ingress"}) > 1000
         for: 5m
         labels:
           severity: warning
         annotations:
           summary: "Queue depth is high"
-          description: "Queue {{ $labels.list }} has {{ $value }} items"
+          description: "Queue {{ $labels.ingress_list }} has {{ $value }} items"
 
-      - alert: DLQNotEmpty
-        expr: redis_list_length{list=~"DLQ:.*"} > 0
+      - alert: IngressDLQNotEmpty
+        expr: max by (ingress_list) (conserver_ingress_list_length{kind="dlq"}) > 0
         for: 5m
         labels:
           severity: warning
         annotations:
-          summary: "DLQ has items"
-          description: "DLQ {{ $labels.list }} has {{ $value }} items"
+          summary: "An ingress DLQ has items"
+          description: "DLQ for {{ $labels.ingress_list }} has {{ $value }} items"
 
-      - alert: HighErrorRate
-        expr: rate(vcon_processing_errors_total[5m]) / rate(vcon_processed_total[5m]) > 0.05
+      - alert: StorageDLQGrowing
+        expr: sum by (queue_name) (increase(conserver_dlq_count_total{queue_name=~"DLQ:storage:.*"}[15m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "Storage writes are failing"
+          description: "{{ $labels.queue_name }} gained entries"
+
+      - alert: HighLinkErrorRate
+        expr: |
+          sum(rate(conserver_link_count_total{outcome="error"}[5m]))
+            / sum(rate(conserver_link_count_total[5m])) > 0.05
         for: 5m
         labels:
           severity: critical
         annotations:
-          summary: "High error rate"
+          summary: "High link error rate"
           description: "Error rate is {{ $value | humanizePercentage }}"
-
-      - alert: ServiceDown
-        expr: up{job="vcon-server"} == 0
-        for: 1m
-        labels:
-          severity: critical
-        annotations:
-          summary: "vCon Server is down"
 ```
 
-### PagerDuty Integration
+Treat 1000 items and 5% as examples. The `up` metric for this scrape job describes the collector, not the server, so probe `/health` with a blackbox check to catch a dead API. A stalled worker shows up as rising ingress depth.
+
+### Route alerts to PagerDuty
 
 ```yaml
 # alertmanager.yml
@@ -450,95 +338,57 @@ route:
       receiver: 'pagerduty'
 ```
 
-## Custom Monitoring Script
+## Report errors to Sentry
+
+Set `SENTRY_DSN` and `ENV` to turn on Sentry for the conserver side. Logging at `ERROR` becomes an event, and `INFO` and above become breadcrumbs. The API process does not initialize Sentry. See the [environment reference](../reference/environment.md).
+
+## Record chain events with a tracer
+
+Tracers are separate from OpenTelemetry. Every entry under `tracers` in the config runs before the first link and after each link. The repo ships one, described in the [JLINC tracer reference](../reference/tracers/jlinc.md).
+
+## Script a monitoring check
 
 ```bash
 #!/bin/bash
-# monitor.sh - Custom monitoring script
+# monitor.sh
 
 API_URL="${API_URL:-http://localhost:8000/api}"
-TOKEN="${CONSERVER_API_TOKEN}"
+QUEUE="${QUEUE:-default}"
 THRESHOLD_QUEUE=100
-THRESHOLD_DLQ=0
 
-# Check API health
 health=$(curl -s "$API_URL/health" | jq -r .status)
 if [ "$health" != "healthy" ]; then
     echo "CRITICAL: API health check failed"
     exit 2
 fi
 
-# Check queue depth
-queue_depth=$(docker compose exec -T redis redis-cli LLEN default)
+redis_ping=$(docker compose exec -T redis redis-cli ping)
+if [ "$redis_ping" != "PONG" ]; then
+    echo "CRITICAL: Redis did not answer"
+    exit 2
+fi
+
+queue_depth=$(curl -s "$API_URL/stats/queue?list_name=$QUEUE" | jq -r .depth)
 if [ "$queue_depth" -gt "$THRESHOLD_QUEUE" ]; then
     echo "WARNING: Queue depth is $queue_depth (threshold: $THRESHOLD_QUEUE)"
     exit 1
 fi
 
-# Check DLQ
-dlq_depth=$(docker compose exec -T redis redis-cli LLEN DLQ:default)
-if [ "$dlq_depth" -gt "$THRESHOLD_DLQ" ]; then
+dlq_depth=$(curl -s "$API_URL/stats/queue?list_name=DLQ:$QUEUE" | jq -r .depth)
+if [ "$dlq_depth" -gt 0 ]; then
     echo "WARNING: DLQ has $dlq_depth items"
     exit 1
 fi
 
 echo "OK: All checks passed"
-exit 0
 ```
 
-## Logging Integration
+## Ship the logs
 
-### Ship Logs to ELK
+See [Forward logs to an aggregator](logging.md#forward-logs-to-an-aggregator).
 
-```yaml
-# docker-compose.yml
-services:
-  conserver:
-    logging:
-      driver: "fluentd"
-      options:
-        fluentd-address: localhost:24224
-        tag: vcon.server
-```
+## Review the coverage
 
-### Ship Logs to CloudWatch
-
-```yaml
-services:
-  conserver:
-    logging:
-      driver: "awslogs"
-      options:
-        awslogs-region: us-east-1
-        awslogs-group: vcon-server
-        awslogs-stream: "{{.Name}}"
-```
-
-## Best Practices
-
-### 1. Monitor All Layers
-
-- Application (processing rate, errors)
-- Infrastructure (CPU, memory, disk)
-- Dependencies (Redis, databases)
-- External services (Deepgram, OpenAI)
-
-### 2. Set Meaningful Alerts
-
-- Alert on symptoms, not causes
-- Use appropriate thresholds
-- Include runbook links in alerts
-- Avoid alert fatigue
-
-### 3. Visualize Trends
-
-- Historical processing rates
-- Queue depth over time
-- Error patterns
-- Resource usage trends
-
-### 4. Regular Review
-
-- Weekly review of dashboards
-- Monthly alert threshold review
-- Quarterly capacity planning
+- Monitor each layer: the application, the host, Redis and your storage backends, and external services such as Deepgram and OpenAI.
+- Alert on symptoms, and link a runbook from each alert. [Dead letter queues](dead-letter-queue.md) and [storage recovery](storage-recovery.md) are good targets.
+- Review dashboards and thresholds on a regular schedule, and revisit capacity as volume changes.
