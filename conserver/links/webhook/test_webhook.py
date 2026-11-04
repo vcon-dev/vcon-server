@@ -21,7 +21,7 @@ def test_run_skips_when_no_webhook_urls(mock_vcon_redis, mock_increment_counter)
     assert result == "test-uuid"
     mock_increment_counter.assert_called_once_with(
         "conserver.link.webhook.no_urls_configured",
-        attributes={"link.name": "webhook", "vcon.uuid": "test-uuid"},
+        attributes={"link.name": "webhook"},
     )
 
 
@@ -72,7 +72,7 @@ def test_run_raises_and_counts_post_failures(mock_vcon_redis, mock_increment_cou
 
     mock_increment_counter.assert_called_once_with(
         "conserver.link.webhook.post_failures",
-        attributes={"link.name": "webhook", "vcon.uuid": "test-uuid"},
+        attributes={"link.name": "webhook"},
     )
 
 

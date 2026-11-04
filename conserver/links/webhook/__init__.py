@@ -46,7 +46,7 @@ def run(
 
     # Validate webhook URLs are configured
     webhook_urls = opts.get("webhook-urls", [])
-    attrs = {"link.name": link_name, "vcon.uuid": vcon_uuid}
+    attrs = {"link.name": link_name}
     if not webhook_urls:
         logger.warning(
             f"webhook plugin: no webhook-urls configured for vcon {vcon_uuid}, skipping"

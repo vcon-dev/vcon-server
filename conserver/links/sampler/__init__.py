@@ -43,7 +43,7 @@ def run(vcon_uuid: str, link_name: str, opts: dict = default_options) -> str | N
 
     method = options["method"]
     value = options["value"]
-    attrs = {"link.name": link_name, "vcon.uuid": vcon_uuid, "method": method}
+    attrs = {"link.name": link_name, "method": method}
 
     if method == "percentage":
         result = _percentage_sampling(vcon_uuid, value)

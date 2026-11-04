@@ -100,7 +100,6 @@ def test_run_applies_tag_when_evaluation_is_positive(
             "tag_name": "topic",
             "tag_value": "billing",
             "link.name": "check_and_tag",
-            "vcon.uuid": "test-uuid",
         },
     )
     mock_record_histogram.assert_called_once()
