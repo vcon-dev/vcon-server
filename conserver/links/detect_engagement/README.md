@@ -1,5 +1,7 @@
 # Engagement Detection Link
 
+Reference: [`links.detect_engagement`](../../../docs/reference/links/detect-engagement.md)
+
 This link analyzes conversations to determine if both the customer and agent are engaged in the dialogue. It uses OpenAI's GPT-4.1 model to analyze transcripts and determine engagement status.
 
 ## Features
@@ -81,7 +83,7 @@ Make sure the `detect_engagement` link is included in your server's link configu
 ```yaml
 links:
   - name: detect_engagement
-    module: server.links.detect_engagement
+    module: links.detect_engagement
     options:
       # Optional: override any default options here
       # prompt: "Custom prompt here"

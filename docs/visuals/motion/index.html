@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>vCon Server motion scenes</title>
+  <meta name="description" content="Four animated scenes of the open source vCon Server, each with a static diagram twin.">
+  <link rel="stylesheet" href="shell.css">
+</head>
+<body>
+  <header class="mo-header">
+    <p class="mo-eyebrow">vCon Server documentation</p>
+    <h1 class="mo-display">Four scenes follow <span class="mo-accent">a vCon</span> through the server.</h1>
+  </header>
+
+  <main class="mo-main">
+    <div class="mo-tabs" role="tablist" aria-label="Motion scenes">
+      <button class="mo-tab" role="tab" type="button" id="tab-m1" data-scene="m1" aria-controls="player" aria-selected="false" tabindex="-1"><span class="mo-tab-id">M1</span>A vCon runs a chain</button>
+      <button class="mo-tab" role="tab" type="button" id="tab-m2" data-scene="m2" aria-controls="player" aria-selected="false" tabindex="-1"><span class="mo-tab-id">M2</span>Workers drain the ingress queues</button>
+      <button class="mo-tab" role="tab" type="button" id="tab-m3" data-scene="m3" aria-controls="player" aria-selected="false" tabindex="-1"><span class="mo-tab-id">M3</span>A vCon gains analysis, tags and attachments</button>
+      <button class="mo-tab" role="tab" type="button" id="tab-m4" data-scene="m4" aria-controls="player" aria-selected="false" tabindex="-1"><span class="mo-tab-id">M4</span>A failed vCon reaches the DLQ and returns</button>
+    </div>
+
+    <section class="mo-player" id="player" role="tabpanel" aria-labelledby="tab-m1">
+      <div class="mo-primary">
+        <h2 class="mo-title" id="scene-title"></h2>
+        <p class="mo-summary" id="scene-summary"></p>
+        <div class="mo-stage" id="stage" tabindex="0" role="group" aria-label="Scene animation"></div>
+        <p class="mo-hint">Scroll the stage sideways to see the whole scene.</p>
+        <div class="mo-progress" aria-hidden="true"><div class="mo-progress-bar" id="progress"></div></div>
+        <div class="mo-controls" role="group" aria-label="Playback">
+          <button class="mo-btn mo-btn--primary" type="button" id="btn-play">Play</button>
+          <button class="mo-btn" type="button" id="btn-back">Back</button>
+          <button class="mo-btn" type="button" id="btn-step">Step</button>
+          <button class="mo-btn" type="button" id="btn-reset">Reset</button>
+          <span class="mo-status" id="status"></span>
+        </div>
+        <p class="mo-caption" id="caption" aria-live="polite"></p>
+        <p class="mo-notice" id="reduced-note" hidden>Your system asks for reduced motion. Steps change without animation, and nothing plays until you press Play.</p>
+      </div>
+      <aside class="mo-side">
+        <h3 class="mo-label">Steps</h3>
+        <ol class="mo-steps" id="steps"></ol>
+        <h3 class="mo-label">Static twins</h3>
+        <p class="mo-twins" id="twins"></p>
+      </aside>
+    </section>
+    <noscript><p class="mo-notice">These scenes need JavaScript. The static diagrams in the docs/diagrams folder carry the same content.</p></noscript>
+  </main>
+
+  <script src="shell.js"></script>
+  <script src="scenes/m1-chain-run.js"></script>
+  <script src="scenes/m2-workers.js"></script>
+  <script src="scenes/m3-vcon-assembly.js"></script>
+  <script src="scenes/m4-dlq-recovery.js"></script>
+</body>
+</html>

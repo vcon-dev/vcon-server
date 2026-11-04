@@ -1,0 +1,51 @@
+%%{init: {'theme':'base','themeVariables':{'fontFamily':'Inter, Helvetica, Arial, sans-serif','fontSize':'14px','background':'#FFFFFF','primaryColor':'#F3F4F6','primaryTextColor':'#292929','primaryBorderColor':'#0A7D18','secondaryColor':'#FFFFFF','secondaryTextColor':'#33363B','secondaryBorderColor':'#8A8A8D','tertiaryColor':'#FFFFFF','tertiaryTextColor':'#33363B','tertiaryBorderColor':'#8A8A8D','lineColor':'#33363B','textColor':'#33363B','mainBkg':'#F3F4F6','nodeBorder':'#0A7D18','clusterBkg':'#FFFFFF','clusterBorder':'#8A8A8D','edgeLabelBackground':'#FFFFFF','actorBkg':'#F3F4F6','actorBorder':'#0A7D18','actorTextColor':'#292929','signalColor':'#33363B','signalTextColor':'#292929','labelBoxBkgColor':'#F3F4F6','labelBoxBorderColor':'#0A7D18','noteBkgColor':'#F3F4F6','noteBorderColor':'#8A8A8D','noteTextColor':'#292929'}}}%%
+%%{init: {'fontFamily':'Inter, Helvetica, Arial, sans-serif'}}%%
+stateDiagram-v2
+    direction TB
+
+    state "Ingress list" as Ingress
+    state "Popped by a worker" as Popped
+    state "Links running" as Links
+    state "Wrap-up, egress then storage" as WrapUp
+    state "Ingress DLQ, DLQ:#lt;ingress_list#gt;" as IngressDLQ
+    state "Storage DLQ, DLQ:storage:#lt;backend#gt;" as StorageDLQ
+    state "Skipped by hook" as Skipped
+    state "Halted by a link" as Halted
+    state "Saved to the backend" as Saved
+    state "Manual recovery, error logged" as Manual
+
+    [*] --> Ingress : RPUSH from API or follower
+    Ingress --> Popped : BLPOP by a worker
+    Popped --> Ingress : shutdown requested, LPUSH to head
+    Popped --> Skipped : before_processing returns falsy
+    Popped --> IngressDLQ : before_processing raises
+    Popped --> Links : chain starts
+    Links --> Halted : a link returns falsy
+    Links --> WrapUp : every link returns an id
+    Links --> IngressDLQ : exception in a link, hook or tracer
+    WrapUp --> IngressDLQ : egress enqueue raises
+    WrapUp --> Saved : backend save returns
+    WrapUp --> StorageDLQ : backend save raises
+    WrapUp --> Manual : dead-letter fails, body missing or Redis error
+    IngressDLQ --> Ingress : POST /dlq/reprocess, LPOP then RPUSH, whole chain runs again
+    StorageDLQ --> Saved : POST /dlq/storage/reprocess, write only, see D09
+    StorageDLQ --> StorageDLQ : retry fails, entry stays
+    Skipped --> [*]
+    Halted --> [*]
+    Saved --> [*]
+
+    note right of IngressDLQ
+        EXPIRE resets the
+        body TTL to the
+        DLQ expiry setting
+        unless that is 0.
+        GET /dlq only reads.
+    end note
+
+    note right of StorageDLQ
+        One entry per
+        failed backend.
+        A longer TTL or a
+        persistent body
+        stays as it is.
+    end note

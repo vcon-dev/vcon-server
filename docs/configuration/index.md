@@ -1,47 +1,31 @@
-# Configuration Guide
+# Configuration guide
 
-vCon Server uses a two-tier configuration system:
+vCon Server reads two kinds of settings:
 
-1. **Environment Variables**: Server-level settings, API keys, worker configuration
-2. **YAML Configuration**: Processing pipelines, storage backends, chains, and links
+| Source | Holds | Reference |
+|---|---|---|
+| Environment variables, usually in `.env` | Redis, API keys, workers, logging, telemetry | [Environment reference](../reference/environment.md) and [environment guide](environment-variables.md) |
+| YAML file, usually `config.yml` | Links, storages, tracers, chains, ingress keys, followers | [YAML configuration](yaml-configuration.md) |
 
-## Configuration Overview
+Credentials for links and storage backends go in the YAML file as `options`. The server does not expand `${VAR}` in that file.
 
-```mermaid
-flowchart TB
-    subgraph env [Environment Variables]
-        REDIS[REDIS_URL]
-        TOKEN[CONSERVER_API_TOKEN]
-        WORKERS[CONSERVER_WORKERS]
-        KEYS[API Keys]
-    end
-
-    subgraph yaml [YAML Configuration]
-        CHAINS[Chains]
-        LINKS[Links]
-        STORAGE[Storages]
-        AUTH[Ingress Auth]
-    end
-
-    ENV_FILE[.env file] --> env
-    CONFIG_FILE[config.yml] --> yaml
-
-    env --> SERVER[vCon Server]
-    yaml --> SERVER
-```
-
-## Quick Configuration
-
-### Minimal Setup
+## Start with a minimal setup
 
 **.env**:
+
 ```bash
 REDIS_URL=redis://localhost:6379
 CONSERVER_API_TOKEN=your-secure-token
+CONSERVER_CONFIG_FILE=./config.yml
 ```
 
 **config.yml**:
+
 ```yaml
+storages:
+  redis_storage:
+    module: storage.redis_storage
+
 chains:
   simple_chain:
     links: []
@@ -49,41 +33,75 @@ chains:
       - redis_storage
     ingress_lists:
       - default
-    enabled: 1
-
-storages:
-  redis_storage:
-    module: storage.redis_storage
 ```
 
-### Production Setup
+## Grow into a production setup
 
 **.env**:
+
 ```bash
-# Core Settings
 REDIS_URL=redis://redis:6379
 CONSERVER_API_TOKEN=your-production-token
+CONSERVER_CONFIG_FILE=./config.yml
 ENV=production
-LOG_LEVEL=INFO
+LOGGING_CONFIG_FILE=common/logging.conf
 
-# Worker Configuration
 CONSERVER_WORKERS=4
 CONSERVER_PARALLEL_STORAGE=true
-CONSERVER_START_METHOD=fork
-
-# AI Services
-DEEPGRAM_KEY=your-deepgram-key
-OPENAI_API_KEY=your-openai-key
 ```
 
+The logging file sets log levels. See [logging](../operations/logging.md).
+
 **config.yml**:
+
 ```yaml
+links:
+  transcribe:
+    module: links.transcribe
+    options:
+      vendor: deepgram
+      vendor_options:
+        DEEPGRAM_KEY: your-deepgram-key
+        api:
+          model: nova-3
+  analyze:
+    module: links.analyze
+    options:
+      OPENAI_API_KEY: your-openai-key
+      analysis_type: summary
+      model: gpt-4
+      prompt: Summarize this conversation.
+      source:
+        analysis_type: transcript
+        text_location: body.transcript
+  tag_processed:
+    module: links.tag
+    options:
+      tags:
+        - processed
+
+storages:
+  postgres:
+    module: storage.postgres
+    options:
+      host: postgres
+      port: 5432
+      database: vcon_server
+      user: postgres
+      password: your-password
+  s3:
+    module: storage.s3
+    options:
+      aws_access_key_id: your-key-id
+      aws_secret_access_key: your-secret
+      aws_bucket: vcon-archive
+
 chains:
   production_chain:
     links:
       - transcribe
       - analyze
-      - tag
+      - tag_processed
     storages:
       - postgres
       - s3
@@ -91,184 +109,153 @@ chains:
       - production
     egress_lists:
       - processed
-    enabled: 1
-
-links:
-  transcribe:
-    module: links.deepgram_link
-    options:
-      model: nova-2
-  analyze:
-    module: links.analyze
-    options:
-      model: gpt-4
-  tag:
-    module: links.tag
-    options:
-      tags: [processed]
-
-storages:
-  postgres:
-    module: storage.postgres
-    options:
-      host: postgres
-      database: vcon_server
-  s3:
-    module: storage.s3
-    options:
-      bucket: vcon-archive
 ```
 
-## Configuration Sections
+The [link reference](../reference/links/index.md) and the [storage adapter reference](../reference/storage-adapters/index.md) list every option.
 
-| Section | Documentation |
-|---------|---------------|
-| [Environment Variables](environment-variables.md) | All environment variables with defaults |
-| [YAML Configuration](yaml-configuration.md) | Complete YAML structure reference |
-| [Chains and Pipelines](chains-and-pipelines.md) | How to build processing pipelines |
-| [Authentication](authentication.md) | API tokens and ingress authentication |
-| [Workers](workers.md) | Multi-worker and parallel storage configuration |
+## Find the right page
 
-## Configuration Loading
+| Page | Covers |
+|---|---|
+| [Environment variables](environment-variables.md) | Choosing values |
+| [YAML configuration](yaml-configuration.md) | The file structure and reload rules |
+| [Chains and pipelines](chains-and-pipelines.md) | Building pipelines |
+| [Egress format compatibility](egress-compatibility.md) | Sending the legacy vCon format |
+| [Authentication](authentication.md) | API keys and ingress keys |
+| [Workers](workers.md) | Worker processes, concurrency and parallel storage |
 
-### Environment Variables
+## Understand the loading order
 
-Environment variables are loaded at startup from:
+### Load order for the environment
 
-1. System environment
-2. `.env` file in the working directory
-3. Docker Compose `env_file` directive
+`common/settings.py` loads a `.env` file when it is imported. A variable already set in the process wins over the same variable in `.env`. Compose passes `.env` through `env_file`. Each process reads these values once at startup.
 
-Priority: System environment > `.env` file
+### Location of the YAML file
 
-### YAML Configuration
+`CONSERVER_CONFIG_FILE` gives the path. The default is `./example_config.yml`, which is a catalogue of syntax and stops the worker if you run it unchanged, so always set your own.
 
-The YAML configuration file location is specified by:
+The server reads the file again as it runs, so most edits need no restart. See [the reload table](yaml-configuration.md#plan-for-reloads).
+
+### Checks on your configuration
+
+The server does not validate the file at startup. A link with a bad module name fails when a vCon first reaches it. To see what the server loads, run this in the conserver container:
 
 ```bash
-CONSERVER_CONFIG_FILE=./config.yml
+python -c "from config import get_config; import json; print(json.dumps(get_config(), indent=2))"
 ```
 
-Default: `./example_config.yml`
+For a manual install, prefix it with `uv run` and set `PYTHONPATH` as in [Install from source](../installation/manual-installation.md#set-the-environment).
 
-### Configuration Validation
+## Follow these practices
 
-The server validates configuration at startup:
+- Keep `.env` and `config.yml` out of version control, because both hold secrets.
+- Use a separate file for each environment.
+- Name chains for what they do.
+- Set `options` on every link, even as `options: {}`.
+- Use [ingress keys](authentication.md#scope-a-key-to-an-ingress-list) for outside systems.
+- Size workers with the [workers guide](workers.md).
 
-```bash
-# Check configuration
-poetry run python -c "from server.config import get_config; import json; print(json.dumps(get_config(), indent=2))"
-```
+## Copy a common configuration
 
-## Configuration Best Practices
+These fragments show the `chains` section only. Each name must match an entry you define under `links` or `storages`.
 
-### Security
-
-1. **Never commit secrets** to version control
-2. **Use environment variables** for sensitive data
-3. **Rotate API tokens** regularly
-4. **Use ingress-specific authentication** for external integrations
-
-### Organization
-
-1. **Separate environments** with different config files
-2. **Use meaningful chain names** that describe their purpose
-3. **Document custom links** with comments in YAML
-
-### Performance
-
-1. **Match workers to CPU cores** for I/O-bound workloads
-2. **Enable parallel storage** when using multiple backends
-3. **Use appropriate storage backends** for your access patterns
-
-## Common Configurations
-
-### Call Center Analytics
+### Call analytics
 
 ```yaml
 chains:
   call_analytics:
     links:
-      - deepgram_link      # Transcribe
-      - analyze            # Extract insights
-      - detect_engagement  # Measure customer engagement
-      - tag_router         # Route by outcome
+      - transcribe         # links.transcribe
+      - analyze            # links.analyze
+      - detect_engagement  # links.detect_engagement
+      - tag_router         # links.tag_router
     storages:
-      - postgres           # Queryable storage
-      - elasticsearch      # Full-text search
+      - postgres
+      - elasticsearch
     ingress_lists:
       - call_recordings
-    enabled: 1
 ```
 
-### Compliance Archive
+### Long-term archive with a trace
+
+Tracers sit at the top level and run for every chain. A `tracers` key inside a chain is not read. See [Add tracers](yaml-configuration.md#add-tracers).
 
 ```yaml
+tracers:
+  jlinc:
+    module: tracers.jlinc
+    options:
+      data_store_api_url: http://jlinc-server:9090
+      data_store_api_key: replace-with-a-key
+      archive_api_url: http://jlinc-server:9090
+      archive_api_key: replace-with-a-key
+      system_prefix: VCONProd
+      agreement_id: 00000000-0000-0000-0000-000000000000
+
 chains:
-  compliance_archive:
+  archive:
     links:
-      - transcribe
-      - check_and_tag      # Apply compliance tags
+      - transcribe         # links.transcribe
+      - check_and_tag      # links.check_and_tag
     storages:
-      - s3                 # Long-term archive
-      - postgres           # Audit queries
-    tracers:
-      - jlinc              # Audit trail
+      - s3
+      - postgres
     ingress_lists:
-      - regulated_calls
-    enabled: 1
+      - archive_calls
 ```
 
-### AI Knowledge Base
+The tracer reports processing steps. It reads no `lawful_basis` attachment and makes no deployment compliant. See [Lawful basis](../concepts/lawful-basis.md).
+
+### Searchable knowledge base
+
+`storage.milvus` needs the `storage-milvus` dependency group, which the published images leave out.
 
 ```yaml
 chains:
   knowledge_base:
     links:
-      - transcribe
-      - analyze_and_label  # Extract topics and entities
+      - transcribe         # links.transcribe
+      - analyze_and_label  # links.analyze_and_label
     storages:
-      - milvus             # Vector search
-      - mongo              # Document storage
+      - milvus
+      - mongo
     ingress_lists:
       - knowledge_ingress
-    enabled: 1
 ```
 
-## Troubleshooting Configuration
+## Troubleshoot a configuration
 
-### Configuration Not Loading
+### Check the file path and syntax
 
 ```bash
-# Check file exists
-ls -la $CONSERVER_CONFIG_FILE
-
-# Validate YAML syntax
+ls -la "$CONSERVER_CONFIG_FILE"
 python -c "import yaml; yaml.safe_load(open('config.yml'))"
 ```
 
-### Environment Variables Not Set
+### Check a suspect variable
+
+Run this where the process runs, with `PYTHONPATH` set:
 
 ```bash
-# Check current values
 env | grep CONSERVER
-
-# Debug in Python
-python -c "from server import settings; print(settings.REDIS_URL)"
+python -c "import settings; print(settings.REDIS_URL)"
 ```
 
-### Chain Not Processing
+### Trace a silent chain
+
+Check that the list you submit to appears in the chain's `ingress_lists`:
 
 ```yaml
 chains:
   my_chain:
-    enabled: 1  # Must be 1, not "true"
     ingress_lists:
       - my_list  # Must match where vCons are submitted
 ```
 
-## Next Steps
+The worker never reads `enabled`. Setting `enabled: 0` does not stop a chain, so remove its `ingress_lists` instead.
 
-- [Environment Variables](environment-variables.md) - Complete reference
-- [YAML Configuration](yaml-configuration.md) - All configuration options
-- [Chains and Pipelines](chains-and-pipelines.md) - Build processing workflows
+## Continue with these guides
+
+- [Environment variables](environment-variables.md)
+- [YAML configuration](yaml-configuration.md)
+- [Chains and pipelines](chains-and-pipelines.md)

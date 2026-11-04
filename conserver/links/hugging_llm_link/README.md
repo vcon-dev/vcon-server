@@ -1,10 +1,12 @@
 # HuggingFace LLM Link
 
-A vCon Link component that processes conversation data using HuggingFace's language models. This link extracts transcripts from vCon documents and leverages LLMs to generate conversation analysis including summaries, sentiment analysis, and key discussion points.
+Reference: [`links.hugging_llm_link`](../../../docs/reference/links/hugging-llm.md)
+
+A vCon Link component that processes conversation data using HuggingFace's language models. This link extracts transcripts from vCon documents and uses LLMs to generate conversation analysis including summaries, sentiment analysis, and key discussion points.
 
 ## Overview
 
-This link is part of the vCon processing pipeline and works alongside other links to provide comprehensive conversation analysis. It integrates with HuggingFace's models to provide:
+This link is part of the vCon processing pipeline and works alongside other links to provide conversation analysis. It integrates with HuggingFace's models to provide:
 
 - Conversation summaries
 - Sentiment analysis

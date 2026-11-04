@@ -1,6 +1,8 @@
 # Hugging Face Whisper Link
 
-The Hugging Face Whisper link is a specialized plugin that performs speech-to-text transcription on audio recordings in vCon dialogs using Hugging Face's implementation of the Whisper ASR service. It provides high-quality transcription with support for various audio formats and robust error handling.
+Reference: [`links.hugging_face_whisper`](../../../docs/reference/links/huggingface-whisper.md)
+
+The Hugging Face Whisper link is a specialized plugin that performs speech-to-text transcription on audio recordings in vCon dialogs using Hugging Face's implementation of the Whisper ASR service. It provides high-quality transcription with support for various audio formats and error handling.
 
 ## Features
 

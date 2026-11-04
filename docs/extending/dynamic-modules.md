@@ -1,116 +1,90 @@
-# Dynamic Modules
+# Load dynamic modules
 
-vCon Server can dynamically install and load modules from PyPI or GitHub at runtime.
+The conserver can import a link or tracer from outside the repo, and install it with `pip` if it is missing. This page shows how to configure that and when to avoid it.
 
-## Overview
+## Add a module to the configuration
 
-Dynamic modules allow you to:
-
-- Use external processing links without modifying the codebase
-- Share custom modules across deployments
-- Install dependencies automatically
-
-## Configuration
-
-### From PyPI
+Give a link or tracer a `module` to import and a `pip_name` to install.
 
 ```yaml
 links:
-  custom_link:
+  pypi_link:
     module: custom_link_package.main
-    pip_name: custom-link-package
+    pip_name: custom-link-package==1.2.3
     options:
-      api_key: your-key
-```
+      setting: value
 
-### From GitHub
-
-```yaml
-links:
-  github_link:
-    module: github_link.processor
-    pip_name: git+https://github.com/username/repo.git
+  git_link:
+    module: git_link.processor
+    pip_name: git+https://github.com/username/repo.git@v1.2.3
     options:
       setting: value
 ```
 
-### From GitHub Branch/Tag
+`pip_name` defaults to `module`. It accepts any single requirement that `pip install` accepts, including a branch or tag after `@`.
 
-```yaml
-links:
-  dev_link:
-    module: dev_link.main
-    pip_name: git+https://github.com/username/repo.git@develop
-    
-  versioned_link:
-    module: versioned_link.main
-    pip_name: git+https://github.com/username/repo.git@v1.2.3
-```
-
-### From Private GitHub
-
-```yaml
-links:
-  private_link:
-    module: private_link.main
-    pip_name: git+https://${GITHUB_TOKEN}@github.com/org/private-repo.git
-```
-
-## Import Configuration
-
-Use the `imports` section to pre-load modules:
+Use the `imports` section to load a module when each worker starts, rather than when a vCon first reaches it:
 
 ```yaml
 imports:
-  # Simple import
-  requests_lib:
-    module: requests
-    
-  # PyPI package
-  custom_utils:
+  custom_utility:
     module: custom_utils
     pip_name: custom-utils-package
-    
-  # GitHub repository
-  shared_lib:
-    module: shared_library
-    pip_name: git+https://github.com/org/shared-lib.git
+  requests_import:
+    module: requests
+  legacy_module: some.legacy.module   # Older form: the module name alone
 ```
 
-## How It Works
+See [YAML configuration](../configuration/yaml-configuration.md#import-extra-modules) for the section itself.
 
-```mermaid
-flowchart TB
-    CONFIG[Load Configuration] --> CHECK{Module<br/>Installed?}
-    CHECK -->|Yes| IMPORT[Import Module]
-    CHECK -->|No| INSTALL[pip install]
-    INSTALL --> IMPORT
-    IMPORT --> CACHE[Cache Module]
-    CACHE --> USE[Use Module]
+Storage adapters do not use this. The server imports them by name and ignores `pip_name`, so their packages must already be installed.
+
+## Learn the loading rules
+
+1. The conserver tries to import `module`.
+2. If that raises `ModuleNotFoundError`, it runs `python -m pip install <pip_name>` and imports again.
+3. It keeps the module for the life of the process.
+
+Each worker process does this for itself.
+
+| Fact | Effect |
+|---|---|
+| `pip` runs only when the import fails | Changing a pinned version does not upgrade a module that is already installed |
+| The install lands in the running environment | A new container starts without it and installs it again |
+| A failure in `imports` raises | The worker stops at startup |
+| A failure for a link raises when a vCon reaches it | That vCon moves to the dead letter queue |
+| `pip_name` is passed as one argument, with no shell | `${VAR}` is not expanded, and extra flags such as `--index-url` do not work |
+
+`pip` must exist in the environment. The published images include it. For a manual install, create the environment with `uv venv --seed`, as in [Install from source](../installation/manual-installation.md#install-the-dependencies).
+
+## Bake modules into an image
+
+For production, install modules at build time. A deployment then needs no network access to a package index at runtime, and every worker has the same version.
+
+```dockerfile
+FROM public.ecr.aws/r4g1k2s3/vcon-dev/vcon-server-conserver:<version>
+RUN pip install custom-link-package==1.2.3
 ```
 
-1. Server reads configuration
-2. For each module with `pip_name`:
-   - Check if module is already installed
-   - If not, run `pip install {pip_name}`
-3. Import the module
-4. Cache for subsequent use
+Keep `module` in the configuration and leave out `pip_name`.
 
-## Creating Distributable Modules
+## Reach a private package
 
-### Package Structure
+The server does not expand environment variables in `config.yml` or in `pip_name`. Give `pip` its credentials through its own channels:
+
+- For a private index, set `PIP_INDEX_URL` in the conserver's environment.
+- For a private Git repo, use `git+ssh://git@github.com/org/repo.git` with a key in the container, or a Git credential helper.
+- A token written into `pip_name` works, but it sits in plain text in `config.yml` and comes back from `GET /config`.
+
+## Package a module
 
 ```
 my-vcon-link/
-  setup.py
   pyproject.toml
+  README.md
   my_link/
     __init__.py
-    processor.py
-  README.md
 ```
-
-### pyproject.toml
 
 ```toml
 [build-system]
@@ -123,251 +97,73 @@ version = "1.0.0"
 description = "Custom vCon processing link"
 requires-python = ">=3.12"
 dependencies = [
-    "requests>=2.28.0",
-]
-
-[project.optional-dependencies]
-dev = [
-    "pytest>=7.0.0",
+    "requests>=2.31.0",
 ]
 ```
 
-### Module Implementation
+The module follows the [link contract](creating-links.md#follow-the-link-contract). It imports server code such as `lib.vcon_redis` from the running server, so do not list those as dependencies. Tests outside the repo need the server's `common/` on the path, or a stub.
 
 ```python
 # my_link/__init__.py
 
 from lib.logging_utils import init_logger
-from server.lib.vcon_redis import VconRedis
+from lib.vcon_redis import VconRedis
 
 logger = init_logger(__name__)
 
 default_options = {
-    "setting": "default"
+    "setting": "default",
 }
 
+
 def run(vcon_uuid, link_name, opts=default_options):
-    """Process vCon."""
-    options = {**default_options, **opts}
-    
+    options = {**default_options, **(opts or {})}
+
     vcon_redis = VconRedis()
     vcon = vcon_redis.get_vcon(vcon_uuid)
-    
+    if vcon is None:
+        return None
+
     # Your processing logic
-    
+
     vcon_redis.store_vcon(vcon)
     return vcon_uuid
 ```
 
-### Publishing to PyPI
+Publish the package the way your project publishes everything else, ideally from CI on a tag push, and state which server image you tested against.
 
-```bash
-# Build
-python -m build
+## Keep third-party code safe
 
-# Upload to PyPI
-python -m twine upload dist/*
+Dynamic modules run with the same access as the conserver. That covers Redis, every vCon and all credentials in `config.yml`.
 
-# Or upload to private PyPI
-python -m twine upload --repository-url https://pypi.example.com dist/*
-```
+- Pin every `pip_name` to a version or tag.
+- Read the code of a module before you add it, and scan its dependencies in your own CI.
+- Install from sources you trust, and prefer [an image you built](#bake-modules-into-an-image).
+- Protect global API keys. `POST /config` rewrites the configuration, and a worker that rereads it can then install what a new `pip_name` names.
 
-### Publishing to GitHub
+## Handle a missing dependency
 
-```bash
-# Tag release
-git tag v1.0.0
-git push origin v1.0.0
-```
-
-## Environment Variables in pip_name
-
-Use environment variables for secrets:
-
-```yaml
-links:
-  private_link:
-    module: private_link
-    pip_name: git+https://${GITHUB_TOKEN}@github.com/org/repo.git
-```
-
-Set the environment variable:
-
-```bash
-export GITHUB_TOKEN=ghp_xxxxxxxxxxxx
-```
-
-## Version Pinning
-
-Pin versions for reproducibility:
-
-```yaml
-# PyPI with version
-links:
-  stable_link:
-    module: stable_link
-    pip_name: stable-link-package==1.2.3
-
-# GitHub with tag
-links:
-  tagged_link:
-    module: tagged_link
-    pip_name: git+https://github.com/org/repo.git@v1.2.3
-```
-
-## Troubleshooting
-
-### Module Not Found
-
-**Check pip installation:**
-
-```bash
-docker compose exec conserver pip list | grep my-package
-```
-
-**Manual install:**
-
-```bash
-docker compose exec conserver pip install my-package
-```
-
-### Import Errors
-
-**Check module path:**
-
-```python
-# Verify module can be imported
-docker compose exec conserver python -c "import my_module; print(my_module)"
-```
-
-**Check dependencies:**
-
-```bash
-docker compose exec conserver pip check
-```
-
-### GitHub Authentication
-
-**For private repos:**
-
-```bash
-# Use personal access token
-pip_name: git+https://TOKEN@github.com/org/repo.git
-
-# Or use SSH (requires key setup)
-pip_name: git+ssh://git@github.com/org/repo.git
-```
-
-### Version Conflicts
-
-**Check for conflicts:**
-
-```bash
-docker compose exec conserver pip check
-```
-
-**Force reinstall:**
-
-```bash
-docker compose exec conserver pip install --force-reinstall my-package
-```
-
-## Best Practices
-
-### 1. Pin Versions in Production
-
-```yaml
-# Good: Pinned version
-pip_name: my-package==1.2.3
-
-# Avoid: Unpinned (may break)
-pip_name: my-package
-```
-
-### 2. Use Trusted Sources
-
-```yaml
-# Good: Official PyPI
-pip_name: official-package
-
-# Good: Verified GitHub
-pip_name: git+https://github.com/trusted-org/repo.git@v1.0.0
-
-# Avoid: Unverified sources
-pip_name: git+https://github.com/random-user/suspicious-repo.git
-```
-
-### 3. Test Before Deployment
-
-```bash
-# Test installation
-pip install my-package
-
-# Test import
-python -c "from my_package import run; print(run)"
-
-# Test functionality
-pytest tests/
-```
-
-### 4. Document Dependencies
-
-Include in your module's README:
-
-```markdown
-## Requirements
-
-- Python 3.12+
-- vCon Server 1.1+
-
-## Dependencies
-
-- requests >= 2.28.0
-- pydantic >= 2.0.0
-```
-
-### 5. Handle Missing Dependencies
+Import optional packages inside `run`, and raise a clear error so the vCon reaches the dead letter queue:
 
 ```python
 def run(vcon_uuid, link_name, opts=default_options):
     try:
         import optional_dependency
-    except ImportError:
-        logger.error("Optional dependency not installed")
-        raise ImportError("Please install: pip install optional-dependency")
+    except ImportError as e:
+        raise ImportError("Install optional-dependency to use this link") from e
 ```
 
-## Security Considerations
+## Troubleshoot a dynamic module
 
-### 1. Verify Package Sources
+Run these in the conserver container.
 
-Only use packages from trusted sources:
+| Check | Command |
+|---|---|
+| Is it installed | `pip list \| grep my-package` |
+| Does it import | `python -c "import my_module; print(my_module)"` |
+| Are there conflicts | `pip check` |
+| Reinstall it | `pip install --force-reinstall my-package` |
 
-- Official PyPI packages
-- Verified GitHub repositories
-- Internal/private repositories
+The conserver log shows `Module <name> not found, attempting to install <pip_name>`, then either success or the `pip` error.
 
-### 2. Review Code
-
-Before using external modules:
-
-- Review the source code
-- Check for security issues
-- Verify maintainer reputation
-
-### 3. Use Private PyPI
-
-For enterprise deployments:
-
-```yaml
-# Configure private PyPI
-pip_name: my-package --index-url https://pypi.internal.example.com/simple/
-```
-
-### 4. Scan Dependencies
-
-```bash
-# Use safety to scan for vulnerabilities
-pip install safety
-safety check
-```
+`No module named pip` means the environment was created without `--seed`.

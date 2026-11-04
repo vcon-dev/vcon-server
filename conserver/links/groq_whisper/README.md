@@ -1,5 +1,7 @@
 # Groq Whisper Link
 
+Reference: [`links.groq_whisper`](../../../docs/reference/links/groq-whisper.md)
+
 A vCon-server link that provides automatic transcription of audio content using Groq's implementation of Whisper ASR.
 
 ## Overview
@@ -17,7 +19,7 @@ This link processes vCon objects containing audio recordings and transcribes the
 1. Install the required dependencies:
 
 ```bash
-poetry add groq
+uv sync --group conserver
 ```
 
 2. Set your Groq API key in the environment:
@@ -46,7 +48,7 @@ The link accepts the following configuration options:
 To use this link in a vCon processing chain:
 
 ```python
-from server.links.groq_whisper import run
+from links.groq_whisper import run
 
 result = run(
     vcon_uuid="your-vcon-uuid",
@@ -77,7 +79,7 @@ To run the unit tests (with mocked API):
 export GROQ_API_KEY=test_api_key_for_testing
 
 # Run the tests
-poetry run pytest server/links/groq_whisper/test_groq_whisper.py -v
+uv run --group conserver --group dev pytest conserver/links/groq_whisper/test_groq_whisper.py -v
 ```
 
 ### Integration Testing
@@ -91,10 +93,10 @@ To run the integration tests:
 export GROQ_API_KEY=your_actual_groq_api_key
 
 # Run just the integration tests
-poetry run python -m server.links.groq_whisper.test_groq_whisper
+uv run --group conserver --group dev pytest conserver/links/groq_whisper/test_groq_whisper.py -v -m integration
 
 # Or run all tests including integration tests
-poetry run pytest server/links/groq_whisper/test_groq_whisper.py -v
+uv run --group conserver --group dev pytest conserver/links/groq_whisper/test_groq_whisper.py -v
 ```
 
 **Important Notes:**

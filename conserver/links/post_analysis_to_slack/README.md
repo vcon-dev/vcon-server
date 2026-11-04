@@ -1,5 +1,7 @@
 # Post Analysis to Slack Link
 
+Reference: [`links.post_analysis_to_slack`](../../../docs/reference/links/slack.md)
+
 The Post Analysis to Slack link is a specialized plugin that posts vCon analysis results to Slack channels. It provides a way to notify teams about important analysis findings, with support for team-specific channels and customizable posting conditions.
 
 ## Features
@@ -40,15 +42,15 @@ default_options = {
 ### URL templating
 
 The `url` option is a template. If it contains `{vcon_id}`, the vCon uuid
-is substituted at that exact position — the template owns the quoting and
+is substituted at that exact position. The template owns the quoting and
 placement. This lets the same link work with destinations that embed the
 id in different shapes:
 
 ```yaml
-# Hex sheet — uuid must be wrapped in double quotes inside a query param.
+# Hex sheet: uuid must be wrapped in double quotes inside a query param.
 url: 'https://app.hex.tech/<workspace>/app/<app>/latest?_vcon_id="{vcon_id}"'
 
-# Path-based destination — uuid embedded raw in the path.
+# Path-based destination: uuid embedded raw in the path.
 url: "https://app.example.com/conversations/{vcon_id}"
 ```
 

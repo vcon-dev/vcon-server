@@ -1,0 +1,49 @@
+%%{init: {'theme':'base','themeVariables':{'fontFamily':'Inter, Helvetica, Arial, sans-serif','fontSize':'14px','background':'#FFFFFF','primaryColor':'#F3F4F6','primaryTextColor':'#292929','primaryBorderColor':'#0A7D18','secondaryColor':'#FFFFFF','secondaryTextColor':'#33363B','secondaryBorderColor':'#8A8A8D','tertiaryColor':'#FFFFFF','tertiaryTextColor':'#33363B','tertiaryBorderColor':'#8A8A8D','lineColor':'#33363B','textColor':'#33363B','mainBkg':'#F3F4F6','nodeBorder':'#0A7D18','clusterBkg':'#FFFFFF','clusterBorder':'#8A8A8D','edgeLabelBackground':'#FFFFFF','actorBkg':'#F3F4F6','actorBorder':'#0A7D18','actorTextColor':'#292929','signalColor':'#33363B','signalTextColor':'#292929','labelBoxBkgColor':'#F3F4F6','labelBoxBorderColor':'#0A7D18','noteBkgColor':'#F3F4F6','noteBorderColor':'#8A8A8D','noteTextColor':'#292929'}}}%%
+%%{init: {'fontFamily':'Inter, Helvetica, Arial, sans-serif'}}%%
+flowchart TD
+    ingress[("Ingress list<br/>Redis list of vCon ids")]
+    pop["worker_loop pops one id<br/>and finds the chain for that list"]
+    before{"hook.before_processing<br/>returns truthy?"}
+    link["Next link runs<br/>module.run(vcon_id, link_name, options)"]
+    result{"What did the<br/>link return?"}
+    swap["Chain carries the<br/>new id forward"]
+    more{"More links<br/>in the chain?"}
+    routed[("Another Redis list")]
+    skipped(["vCon skipped<br/>no links, storage or egress"])
+    halted(["Chain halted<br/>no storage or egress"])
+    dlq[("DLQ:ingress_list<br/>TTL set to VCON_DLQ_EXPIRY")]
+    after["hook.after_processing<br/>runs on every path"]
+
+    subgraph wrap["_wrap_up, in this order"]
+        egress["Push id to each egress list<br/>trace context stored first"]
+        mode{"Parallel storage on<br/>and 2 or more backends?"}
+        seq["One backend at a time"]
+        par["One thread per backend"]
+        save["Storage(name).save(vcon_id)"]
+        sdlq[("DLQ:storage:backend<br/>body TTL extended")]
+    end
+
+    ingress --> pop --> before
+    before -- "falsy" --> skipped
+    before -- "truthy" --> link
+    before -- "raises" --> dlq
+    link --> result
+    link -. "tag_router only" .-> routed
+    result -- "same id" --> more
+    result -- "new id" --> swap --> more
+    result -- "falsy" --> halted
+    result -- "raises" --> dlq
+    more -- "yes" --> link
+    more -- "no" --> egress
+    egress --> mode
+    mode -- "yes" --> par --> save
+    mode -- "no" --> seq --> save
+    save -- "raises" --> sdlq
+    save -- "ok" --> after
+    sdlq --> after
+    skipped --> after
+    halted --> after
+    dlq --> after
+
+    classDef key stroke:#0BB81E,stroke-width:3px
+    class link key

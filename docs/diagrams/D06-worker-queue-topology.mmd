@@ -1,0 +1,47 @@
+%%{init: {'theme':'base','themeVariables':{'fontFamily':'Inter, Helvetica, Arial, sans-serif','fontSize':'14px','background':'#FFFFFF','primaryColor':'#F3F4F6','primaryTextColor':'#292929','primaryBorderColor':'#0A7D18','secondaryColor':'#FFFFFF','secondaryTextColor':'#33363B','secondaryBorderColor':'#8A8A8D','tertiaryColor':'#FFFFFF','tertiaryTextColor':'#33363B','tertiaryBorderColor':'#8A8A8D','lineColor':'#33363B','textColor':'#33363B','mainBkg':'#F3F4F6','nodeBorder':'#0A7D18','clusterBkg':'#FFFFFF','clusterBorder':'#8A8A8D','edgeLabelBackground':'#FFFFFF','actorBkg':'#F3F4F6','actorBorder':'#0A7D18','actorTextColor':'#292929','signalColor':'#33363B','signalTextColor':'#292929','labelBoxBkgColor':'#F3F4F6','labelBoxBorderColor':'#0A7D18','noteBkgColor':'#F3F4F6','noteBorderColor':'#8A8A8D','noteTextColor':'#292929'}}}%%
+%%{init: {'fontFamily':'Inter, Helvetica, Arial, sans-serif'}}%%
+flowchart TD
+    subgraph sources["Producers"]
+        apiin["API ingress routes<br/>POST /vcon with ingress_lists<br/>POST /vcon/external-ingress<br/>POST /vcon/ingress"]
+        fol["Follower timers<br/>in the main process"]
+        dlqapi["API replay route<br/>POST /dlq/reprocess"]
+    end
+
+    ingress[("Ingress lists")]
+
+    subgraph conserver["Conserver"]
+        main["Main process<br/>spawns CONSERVER_WORKERS processes<br/>restarts dead ones, checks every 5 s<br/>runs worker_loop itself when the count is 1"]
+        subgraph worker["Each worker process"]
+            loop["worker_loop<br/>rereads config on each pass<br/>BLPOP with a 15 s timeout"]
+            pool["Thread pool, only when<br/>CONSERVER_VCON_CONCURRENCY<br/>is above 1"]
+            handle["_handle_vcon<br/>runs one chain"]
+        end
+    end
+
+    dlq[("DLQ:ingress_list")]
+    egress[("Egress lists")]
+    sdlq[("DLQ:storage:backend")]
+    backends[("Storage backends")]
+    egressapi["GET /vcon/egress<br/>client or remote follower"]
+    sdlqapi["POST /dlq/storage/reprocess"]
+
+    apiin -- "RPUSH" --> ingress
+    fol -- "RPUSH" --> ingress
+    dlqapi -- "RPUSH" --> ingress
+    main -- "spawns" --> loop
+    ingress -- "BLPOP" --> loop
+    loop -. "LPUSH popped id on shutdown" .-> ingress
+    loop -- "concurrency 1" --> handle
+    loop -- "above 1" --> pool --> handle
+    handle -- "RPUSH on exception" --> dlq
+    handle -- "RPUSH after links" --> egress
+    handle -- "save" --> backends
+    handle -- "RPUSH on failed save" --> sdlq
+    dlq -- "LPOP" --> dlqapi
+    egress -- "RPOP" --> egressapi
+    egress -. "same name as an ingress list" .-> ingress
+    sdlq -- "LRANGE, LREM on success" --> sdlqapi
+    sdlqapi -- "save" --> backends
+
+    classDef key stroke:#0BB81E,stroke-width:3px
+    class loop key

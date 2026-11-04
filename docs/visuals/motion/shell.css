@@ -1,0 +1,349 @@
+/* Motion player styles. Brand tokens, page layout and the SVG classes used by
+   the ctx helpers in shell.js. Everything loads from this folder, so the page
+   works over file:// with no network. */
+
+@font-face {
+  font-family: "Anton";
+  src: url("fonts/Anton-Regular.ttf") format("truetype");
+  font-weight: 400 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Inter";
+  src: url("fonts/Inter-VariableFont_opsz_wght.ttf") format("truetype");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: light;
+
+  --mo-green: #0BB81E;
+  --mo-green-deep: #0A7D18;
+  --mo-ink: #292929;
+  --mo-body: #33363B;
+  --mo-muted: #8A8A8D;
+  --mo-surface: #F3F4F6;
+  --mo-white: #FFFFFF;
+  --mo-green-tint: rgba(11, 184, 30, 0.14);
+  --mo-rule: rgba(17, 17, 17, 0.10);
+
+  --mo-font-display: "Anton", Impact, "Helvetica Neue", sans-serif;
+  --mo-font-body: "Inter", Helvetica, Arial, sans-serif;
+
+  --mo-ease: cubic-bezier(.2, .7, .2, 1);
+  --mo-fast: 0.25s;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--mo-white);
+  color: var(--mo-body);
+  font-family: var(--mo-font-body);
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+/* ---------- Page ---------- */
+
+.mo-header, .mo-main {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 32px;
+}
+
+.mo-header { padding-top: 48px; padding-bottom: 28px; }
+
+.mo-eyebrow, .mo-label {
+  margin: 0 0 14px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.35;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.mo-eyebrow { color: var(--mo-green-deep); }
+.mo-label { color: var(--mo-body); }
+
+/* Signature bar above the display heading. Anton stays at 40px or larger. */
+.mo-display {
+  position: relative;
+  margin: 0;
+  padding-top: 26px;
+  color: var(--mo-ink);
+  font-family: var(--mo-font-display);
+  font-size: clamp(40px, 4.2vw, 60px);
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+  text-transform: uppercase;
+  text-wrap: balance;
+}
+
+.mo-display::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 64px;
+  height: 4px;
+  background: var(--mo-green);
+}
+
+.mo-accent { color: var(--mo-green-deep); }
+
+/* ---------- Tabs ---------- */
+
+.mo-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 28px;
+}
+
+.mo-tab {
+  padding: 12px 14px;
+  border: 0;
+  border-top: 4px solid var(--mo-rule);
+  background: var(--mo-surface);
+  color: var(--mo-body);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--mo-fast) var(--mo-ease);
+}
+
+.mo-tab:hover { border-top-color: var(--mo-green); }
+
+.mo-tab[aria-selected="true"] {
+  border-top-color: var(--mo-green-deep);
+  background: var(--mo-white);
+  color: var(--mo-ink);
+  font-weight: 600;
+}
+
+.mo-tab-id {
+  display: block;
+  color: var(--mo-green-deep);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+/* ---------- Player ---------- */
+
+.mo-player {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 40px;
+  padding-bottom: 64px;
+}
+
+.mo-primary { min-width: 0; }
+
+.mo-title {
+  margin: 0 0 6px;
+  color: var(--mo-ink);
+  font-size: 24px;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.mo-summary { margin: 0 0 18px; }
+
+/* The stage keeps a readable size on phones and scrolls inside its own frame,
+   so the page itself never scrolls sideways. */
+.mo-stage {
+  overflow-x: auto;
+  background: var(--mo-surface);
+}
+
+.mo-stage svg {
+  display: block;
+  width: 100%;
+  min-width: 640px;
+  height: auto;
+}
+
+/* Shown only where the stage is narrower than its 640px minimum. */
+.mo-hint { display: none; margin: 6px 0; font-size: 13px; }
+
+.mo-progress { height: 4px; background: var(--mo-rule); }
+.mo-progress-bar { width: 0; height: 100%; background: var(--mo-green); }
+
+.mo-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.mo-btn {
+  min-height: 44px;
+  padding: 10px 22px;
+  border: 2px solid var(--mo-ink);
+  border-radius: 999px;
+  background: var(--mo-white);
+  color: var(--mo-ink);
+  font-family: var(--mo-font-body);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: transform var(--mo-fast) var(--mo-ease),
+              background var(--mo-fast) var(--mo-ease);
+}
+
+.mo-btn:hover:not(:disabled) { transform: translateY(-2px); }
+.mo-btn:active:not(:disabled) { transform: translateY(0); }
+.mo-btn:disabled { border-color: var(--mo-muted); color: var(--mo-muted); cursor: default; }
+
+/* White on the vivid green fails contrast, so the filled button uses deep green. */
+.mo-btn--primary {
+  min-width: 104px;
+  border-color: var(--mo-green-deep);
+  background: var(--mo-green-deep);
+  color: var(--mo-white);
+}
+
+.mo-btn--primary:disabled { background: var(--mo-muted); color: var(--mo-white); }
+
+.mo-status {
+  margin-left: auto;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.mo-caption {
+  min-height: 3.2em;
+  margin: 16px 0 0;
+  color: var(--mo-ink);
+  font-size: 18px;
+  line-height: 1.5;
+}
+
+.mo-notice {
+  margin: 12px 0 0;
+  padding-left: 12px;
+  border-left: 4px solid var(--mo-green);
+  font-size: 14px;
+}
+
+.mo-error {
+  margin: 0;
+  padding: 48px 32px;
+  color: var(--mo-ink);
+}
+
+/* ---------- Side rail ---------- */
+
+.mo-steps {
+  margin: 0 0 28px;
+  padding: 0;
+  list-style: none;
+}
+
+.mo-step {
+  display: block;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  border-left: 4px solid var(--mo-rule);
+  background: none;
+  color: var(--mo-body);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.45;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mo-step strong { display: block; color: var(--mo-ink); font-weight: 600; }
+.mo-step:hover { border-left-color: var(--mo-green); }
+
+.mo-step[aria-current="step"] {
+  border-left-color: var(--mo-green-deep);
+  background: var(--mo-surface);
+}
+
+.mo-twins { margin: 0; font-size: 14px; }
+.mo-twins a { margin-right: 14px; color: var(--mo-green-deep); font-weight: 600; }
+
+:focus-visible {
+  outline: 3px solid var(--mo-green-deep);
+  outline-offset: 2px;
+}
+
+/* ---------- SVG classes used by the ctx helpers ---------- */
+
+.mo-svg-text { fill: var(--mo-body); font-family: var(--mo-font-body); font-size: 14px; }
+.mo-svg-text--label { fill: var(--mo-ink); font-size: 15px; font-weight: 600; }
+.mo-svg-text--title {
+  fill: var(--mo-ink);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.mo-svg-text--small { font-size: 12px; }
+
+.mo-node rect { fill: var(--mo-white); stroke: var(--mo-ink); stroke-width: 1.5; }
+.mo-node .mo-node-label { fill: var(--mo-ink); font-family: var(--mo-font-body); font-size: 15px; font-weight: 600; }
+.mo-node .mo-node-sub { fill: var(--mo-body); font-family: var(--mo-font-body); font-size: 12px; }
+.mo-node--active rect { fill: #E2F6E4; stroke: var(--mo-green-deep); stroke-width: 3; }
+.mo-node--done rect { stroke: var(--mo-green-deep); stroke-width: 2; }
+.mo-node--fail rect { fill: var(--mo-ink); stroke: var(--mo-ink); stroke-dasharray: 6 4; }
+.mo-node--fail .mo-node-label, .mo-node--fail .mo-node-sub { fill: var(--mo-white); }
+.mo-node--muted { opacity: 0.45; }
+
+.mo-edge path { fill: none; stroke: var(--mo-muted); stroke-width: 2; }
+.mo-edge polygon { fill: var(--mo-muted); }
+.mo-edge text { fill: var(--mo-body); font-family: var(--mo-font-body); font-size: 12px; }
+.mo-edge--dashed path { stroke-dasharray: 6 5; }
+.mo-edge--active path { stroke: var(--mo-green-deep); stroke-width: 3; }
+.mo-edge--active polygon { fill: var(--mo-green-deep); }
+.mo-edge--fail path { stroke: var(--mo-ink); stroke-width: 3; stroke-dasharray: 6 4; }
+.mo-edge--fail polygon { fill: var(--mo-ink); }
+.mo-edge--muted { opacity: 0.45; }
+
+.mo-token rect { fill: var(--mo-green-deep); }
+.mo-token text { fill: var(--mo-white); font-family: var(--mo-font-body); font-size: 12px; font-weight: 700; }
+.mo-token--done rect { fill: var(--mo-white); stroke: var(--mo-green-deep); stroke-width: 2; }
+.mo-token--done text { fill: var(--mo-green-deep); }
+.mo-token--fail rect { fill: var(--mo-ink); }
+.mo-token--muted { opacity: 0.45; }
+
+/* ---------- Responsive ---------- */
+
+@media (max-width: 980px) {
+  .mo-player { grid-template-columns: minmax(0, 1fr); gap: 28px; }
+  .mo-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 704px) {
+  .mo-hint { display: block; }
+}
+
+@media (max-width: 540px) {
+  .mo-header, .mo-main { padding-left: 16px; padding-right: 16px; }
+  .mo-header { padding-top: 32px; }
+  .mo-status { flex-basis: 100%; margin-left: 0; }
+  .mo-btn { padding: 10px 16px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+  .mo-btn:hover:not(:disabled) { transform: none; }
+}

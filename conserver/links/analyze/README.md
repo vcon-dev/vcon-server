@@ -1,5 +1,7 @@
 # Analyze Link
 
+Reference: [`links.analyze`](../../../docs/reference/links/analyze.md)
+
 The Analyze link is a powerful plugin that performs AI-powered analysis on vCon transcripts using OpenAI's GPT models. It can generate various types of analysis, such as summaries, sentiment analysis, or any custom analysis based on the provided prompt.
 
 ## Features

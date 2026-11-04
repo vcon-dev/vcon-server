@@ -1,458 +1,219 @@
-# Creating Tracers
+# Create a tracer
 
-Tracers provide audit trails and event logging for vCon processing. This guide covers creating custom tracers.
+A tracer reports each step of a chain to somewhere else, such as a log or an audit service. This page shows how to write one. The [JLINC tracer](../reference/tracers/jlinc.md) is the one that ships with the server.
 
-## Tracer Interface
+## Implement the interface
 
-Tracers are called at key points during vCon processing:
-
-```python
-def trace(vcon_uuid: str, event: str, opts: dict = default_options) -> None:
-    """
-    Record a trace event.
-    
-    Args:
-        vcon_uuid: UUID of the vCon being processed
-        event: Event type (e.g., "chain_start", "chain_complete", "error")
-        opts: Configuration options
-    """
-```
-
-## Events
-
-Tracers receive these events:
-
-| Event | Description |
-|-------|-------------|
-| `chain_start` | vCon entered a processing chain |
-| `link_start` | Processing link started |
-| `link_complete` | Processing link completed |
-| `link_error` | Processing link failed |
-| `storage_start` | Storage operation started |
-| `storage_complete` | Storage operation completed |
-| `storage_error` | Storage operation failed |
-| `chain_complete` | Chain processing completed |
-| `chain_error` | Chain processing failed |
-
-## Directory Structure
-
-```
-server/tracers/
-  my_tracer/
-    __init__.py     # Required: contains trace()
-    README.md       # Optional: documentation
-    tests/
-      __init__.py
-      test_my_tracer.py
-```
-
-## Basic Tracer Example
+A tracer is a module with a `run` function. It has no event names: the server calls it at two kinds of point, and `link_index` tells you which.
 
 ```python
-# server/tracers/my_tracer/__init__.py
+def run(
+    in_vcon_uuid: str,
+    out_vcon_uuid: str,
+    tracer_name: str,
+    links: list[str],
+    link_index: int,
+    opts: dict = default_options,
+) -> None:
+    ...
+```
+
+| Argument | Value |
+|---|---|
+| `in_vcon_uuid` | Before the first link, the vCon id. After a link, the id the link returned, or the current id if the link halted |
+| `out_vcon_uuid` | The vCon id the chain held when the link ran |
+| `tracer_name` | The name of this entry in `config.yml` |
+| `links` | The chain's link names |
+| `link_index` | `-1` before the first link. After that, the index in `links` of the link that just finished |
+| `opts` | The entry's `options`. `None` when the entry has no `options` key |
+
+The two ids differ only when a link swaps the vCon for another.
+
+## Learn the tracer schedule
+
+- Every tracer under the top-level `tracers` key runs for every chain. A `tracers` key inside a chain is not read.
+- Each runs once before the first link, then once after each link that returns, including one that halts.
+- A tracer does not run after a link that raises.
+- A chain with no links runs no tracers. Tracers do not run around storage or egress.
+- The return value is ignored.
+
+Tracers run inline, so the chain waits for them. See [the link contract](creating-links.md#follow-the-link-contract) for the full sequence.
+
+## Lay out the module
+
+```
+conserver/tracers/my_tracer/
+  __init__.py       # run() and default_options
+  README.md
+  test_my_tracer.py # Tests sit beside the code
+```
+
+## Write a basic tracer
+
+```python
+# conserver/tracers/my_tracer/__init__.py
 
 import json
-from datetime import datetime
+from datetime import UTC, datetime
+
 from lib.logging_utils import init_logger
 
 logger = init_logger(__name__)
 
 default_options = {
-    "log_file": "/var/log/vcon/audit.log",
-    "include_vcon_data": False
+    "log_file": "/var/log/vcon/trace.log",
 }
 
-def trace(vcon_uuid, event, opts=default_options):
-    """Log trace event to file."""
-    options = {**default_options, **opts}
-    
+
+def run(in_vcon_uuid, out_vcon_uuid, tracer_name, links, link_index, opts=default_options):
+    options = {**default_options, **(opts or {})}
+
     record = {
-        "timestamp": datetime.utcnow().isoformat(),
-        "vcon_uuid": vcon_uuid,
-        "event": event
+        "timestamp": datetime.now(UTC).isoformat(),
+        "tracer": tracer_name,
+        "in_vcon_uuid": in_vcon_uuid,
+        "out_vcon_uuid": out_vcon_uuid,
+        "link": links[link_index] if link_index >= 0 else None,
+        "link_index": link_index,
     }
-    
-    if options.get("include_vcon_data"):
-        from server.lib.vcon_redis import VconRedis
-        vcon = VconRedis().get_vcon(vcon_uuid)
-        if vcon:
-            record["vcon_summary"] = {
-                "parties": len(vcon.parties),
-                "dialog_count": len(vcon.dialog)
-            }
-    
+
     with open(options["log_file"], "a") as f:
         f.write(json.dumps(record) + "\n")
-    
-    logger.debug(f"Traced {event} for {vcon_uuid}")
 ```
 
-## Configuration
-
-Register the tracer in `config.yml`:
+## Register the tracer
 
 ```yaml
 tracers:
   my_tracer:
     module: tracers.my_tracer
     options:
-      log_file: /var/log/vcon/audit.log
-      include_vcon_data: true
-
-chains:
-  audited_chain:
-    links:
-      - transcribe
-    storages:
-      - postgres
-    tracers:
-      - my_tracer
-    ingress_lists:
-      - default
-    enabled: 1
+      log_file: /var/log/vcon/trace.log
 ```
 
-## Common Patterns
+Always write `options`, even as `options: {}`. The error handler in `conserver/main.py` reads it, so a failing tracer with no options raises a second error that stops the chain.
 
-### Database Audit Trail
+`pip_name` works here as it does for links. See [Dynamic modules](dynamic-modules.md).
 
-```python
-# server/tracers/db_audit/__init__.py
+## Handle a tracer failure
 
-import psycopg2
-from datetime import datetime
-from lib.logging_utils import init_logger
+The server catches an exception from a tracer and logs it, and the chain continues. If the tracer's options set `dlq_vcon_on_error: true`, the exception stops the chain and the vCon moves to the dead letter queue. A failing tracer with no `options` key also stops the chain and sends the vCon to the DLQ, so always set `options`, even as `options: {}`.
 
-logger = init_logger(__name__)
+So raise when something goes wrong and let the operator choose with that option. A tracer needs no `try` block of its own for this.
 
-default_options = {
-    "host": "localhost",
-    "database": "audit",
-    "user": "audit",
-    "password": "",
-    "table": "vcon_events"
-}
+## Apply these patterns
 
-def trace(vcon_uuid, event, opts=default_options):
-    """Record event to audit database."""
-    options = {**default_options, **opts}
-    
-    conn = psycopg2.connect(
-        host=options["host"],
-        database=options["database"],
-        user=options["user"],
-        password=options["password"]
-    )
-    
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                f"""
-                INSERT INTO {options['table']} 
-                (vcon_uuid, event, timestamp, metadata)
-                VALUES (%s, %s, %s, %s)
-                """,
-                (
-                    vcon_uuid,
-                    event,
-                    datetime.utcnow(),
-                    json.dumps({"source": "vcon-server"})
-                )
-            )
-        conn.commit()
-    finally:
-        conn.close()
-    
-    logger.debug(f"Recorded {event} for {vcon_uuid}")
-```
+### Send events to an HTTP service
 
-### External Audit Service
+Always set a timeout, because the chain waits for the call.
 
 ```python
-# server/tracers/external_audit/__init__.py
+from datetime import UTC, datetime
 
 import requests
-from datetime import datetime
-from lib.logging_utils import init_logger
-
-logger = init_logger(__name__)
 
 default_options = {
     "api_url": "https://audit.example.com/events",
     "api_key": "",
-    "system_id": "vcon-server"
+    "system_id": "vcon-server",
+    "timeout": 5,
 }
 
-def trace(vcon_uuid, event, opts=default_options):
-    """Send event to external audit service."""
-    options = {**default_options, **opts}
-    
-    payload = {
-        "system_id": options["system_id"],
-        "entity_id": vcon_uuid,
-        "entity_type": "vcon",
-        "event_type": event,
-        "timestamp": datetime.utcnow().isoformat(),
-    }
-    
-    try:
-        response = requests.post(
-            options["api_url"],
-            headers={
-                "Authorization": f"Bearer {options['api_key']}",
-                "Content-Type": "application/json"
-            },
-            json=payload,
-            timeout=5
-        )
-        response.raise_for_status()
-    except requests.RequestException as e:
-        logger.error(f"Failed to send audit event: {e}")
-        if options.get("dlq_vcon_on_error", False):
-            raise
-```
 
-### Compliance Tracer
+def run(in_vcon_uuid, out_vcon_uuid, tracer_name, links, link_index, opts=default_options):
+    options = {**default_options, **(opts or {})}
 
-```python
-# server/tracers/compliance/__init__.py
-
-import hashlib
-import json
-from datetime import datetime
-from lib.logging_utils import init_logger
-from server.lib.vcon_redis import VconRedis
-
-logger = init_logger(__name__)
-
-default_options = {
-    "hash_algorithm": "sha256",
-    "include_content_hash": True,
-    "retention_policy": "7_years"
-}
-
-def trace(vcon_uuid, event, opts=default_options):
-    """Create compliance-grade audit record."""
-    options = {**default_options, **opts}
-    
-    record = {
-        "record_id": f"{vcon_uuid}_{event}_{datetime.utcnow().timestamp()}",
-        "vcon_uuid": vcon_uuid,
-        "event": event,
-        "timestamp": datetime.utcnow().isoformat(),
-        "retention_policy": options["retention_policy"]
-    }
-    
-    # Add content hash for integrity verification
-    if options.get("include_content_hash") and event in ["chain_complete", "storage_complete"]:
-        vcon = VconRedis().get_vcon(vcon_uuid)
-        if vcon:
-            content = vcon.dumps()
-            hash_algo = hashlib.new(options["hash_algorithm"])
-            hash_algo.update(content.encode())
-            record["content_hash"] = hash_algo.hexdigest()
-            record["hash_algorithm"] = options["hash_algorithm"]
-    
-    # Store record (implement based on your compliance requirements)
-    _store_compliance_record(record, options)
-
-def _store_compliance_record(record, options):
-    """Store compliance record - implement based on requirements."""
-    # Could be: immutable storage, blockchain, WORM storage, etc.
-    logger.info(f"Compliance record: {json.dumps(record)}")
-```
-
-### Metrics Tracer
-
-```python
-# server/tracers/metrics/__init__.py
-
-import time
-from lib.logging_utils import init_logger
-
-logger = init_logger(__name__)
-
-# Track timing
-_start_times = {}
-
-default_options = {
-    "statsd_host": "localhost",
-    "statsd_port": 8125,
-    "prefix": "vcon"
-}
-
-def trace(vcon_uuid, event, opts=default_options):
-    """Record metrics to StatsD."""
-    options = {**default_options, **opts}
-    
-    import statsd
-    client = statsd.StatsClient(
-        options["statsd_host"],
-        options["statsd_port"],
-        prefix=options["prefix"]
+    response = requests.post(
+        options["api_url"],
+        headers={"Authorization": f"Bearer {options['api_key']}"},
+        json={
+            "system_id": options["system_id"],
+            "entity_id": out_vcon_uuid,
+            "step": links[link_index] if link_index >= 0 else "start",
+            "timestamp": datetime.now(UTC).isoformat(),
+        },
+        timeout=options["timeout"],
     )
-    
-    # Count events
-    client.incr(f"events.{event}")
-    
-    # Track timing for paired events
-    if event.endswith("_start"):
-        _start_times[vcon_uuid] = time.time()
-    elif event.endswith("_complete") or event.endswith("_error"):
-        start_time = _start_times.pop(vcon_uuid, None)
-        if start_time:
-            duration_ms = (time.time() - start_time) * 1000
-            base_event = event.rsplit("_", 1)[0]
-            client.timing(f"duration.{base_event}", duration_ms)
-    
-    # Track errors
-    if event.endswith("_error"):
-        client.incr("errors.total")
+    response.raise_for_status()
 ```
 
-## Error Handling
+### Record a content hash
 
-### Fail-Safe Tracing
+A tracer can read the vCon. Use `out_vcon_uuid`, as the JLINC tracer does, and allow for a missing vCon.
 
 ```python
-def trace(vcon_uuid, event, opts=default_options):
-    """Trace with fail-safe behavior."""
-    options = {**default_options, **opts}
-    
-    try:
-        _send_trace(vcon_uuid, event, options)
-    except Exception as e:
-        logger.error(f"Tracing failed: {e}")
-        
-        # Optionally send to DLQ
-        if options.get("dlq_vcon_on_error", False):
-            raise
-        
-        # Otherwise, log and continue
-        # Processing continues even if tracing fails
+import hashlib
+
+from lib.vcon_redis import VconRedis
+
+
+def run(in_vcon_uuid, out_vcon_uuid, tracer_name, links, link_index, opts=default_options):
+    vcon = VconRedis().get_vcon(out_vcon_uuid)
+    if vcon is None:
+        return
+
+    digest = hashlib.sha256(vcon.dumps().encode()).hexdigest()
+    logger.info("vCon %s at step %s has hash %s", out_vcon_uuid, link_index, digest)
 ```
 
-### Async Tracing
+`Vcon.hash` gives the same value.
+
+### Hand work to a background thread
+
+To keep a slow call out of the chain, submit it to a pool. A failure then never reaches the server, so `dlq_vcon_on_error` has no effect.
 
 ```python
-import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
 _executor = ThreadPoolExecutor(max_workers=5)
 
-def trace(vcon_uuid, event, opts=default_options):
-    """Non-blocking trace."""
-    # Submit to thread pool, don't wait
-    _executor.submit(_do_trace, vcon_uuid, event, opts)
 
-def _do_trace(vcon_uuid, event, opts):
-    """Actual tracing logic."""
+def run(in_vcon_uuid, out_vcon_uuid, tracer_name, links, link_index, opts=default_options):
+    _executor.submit(_send, out_vcon_uuid, link_index, opts)
+
+
+def _send(vcon_uuid, link_index, opts):
     try:
-        # ... tracing implementation ...
-        pass
-    except Exception as e:
-        logger.error(f"Async trace failed: {e}")
+        ...
+    except Exception:
+        logger.exception("Trace failed for %s", vcon_uuid)
 ```
 
-## Testing Tracers
+For timing and counts, you may not need a tracer. The server already emits [metrics](../reference/metrics.md) and OpenTelemetry spans for each link and storage write.
 
-### Unit Tests
+## Test the tracer
 
 ```python
-# server/tracers/my_tracer/tests/test_my_tracer.py
+# conserver/tracers/my_tracer/test_my_tracer.py
 
-import pytest
-from unittest.mock import patch, mock_open
 import json
 
-class TestMyTracer:
-    def test_trace_writes_to_file(self):
-        """Test trace writes correct format."""
-        with patch('builtins.open', mock_open()) as mock_file:
-            from server.tracers.my_tracer import trace
-            trace("test-uuid", "chain_start", {"log_file": "/tmp/test.log"})
-            
-            # Verify write was called
-            mock_file.assert_called_with("/tmp/test.log", "a")
-            
-            # Verify content
-            handle = mock_file()
-            written = handle.write.call_args[0][0]
-            record = json.loads(written.strip())
-            
-            assert record["vcon_uuid"] == "test-uuid"
-            assert record["event"] == "chain_start"
-            assert "timestamp" in record
+from tracers.my_tracer import run
 
-    def test_trace_handles_errors(self):
-        """Test trace handles write errors gracefully."""
-        with patch('builtins.open', side_effect=IOError("Write failed")):
-            from server.tracers.my_tracer import trace
-            
-            # Should not raise
-            trace("test-uuid", "chain_start", {"log_file": "/invalid/path"})
+
+def test_run_records_the_step(tmp_path):
+    log_file = tmp_path / "trace.log"
+
+    run("id-1", "id-1", "my_tracer", ["first", "second"], 1, {"log_file": str(log_file)})
+
+    record = json.loads(log_file.read_text())
+    assert record["link"] == "second"
+    assert record["link_index"] == 1
+
+
+def test_run_handles_the_start_of_a_chain(tmp_path):
+    log_file = tmp_path / "trace.log"
+
+    run("id-1", "id-1", "my_tracer", ["first"], -1, {"log_file": str(log_file)})
+
+    assert json.loads(log_file.read_text())["link"] is None
 ```
 
-## Best Practices
+Run them with `uv run pytest conserver/tracers/my_tracer`.
 
-### 1. Keep Tracing Fast
+## Follow these practices
 
-```python
-def trace(vcon_uuid, event, opts=default_options):
-    # Avoid heavy processing in trace
-    # Use async/background processing for heavy operations
-```
-
-### 2. Handle Failures Gracefully
-
-```python
-def trace(vcon_uuid, event, opts=default_options):
-    try:
-        _trace_impl(vcon_uuid, event, opts)
-    except Exception as e:
-        logger.error(f"Trace failed: {e}")
-        # Don't let tracing failures break processing
-```
-
-### 3. Use Structured Data
-
-```python
-record = {
-    "timestamp": datetime.utcnow().isoformat(),
-    "vcon_uuid": vcon_uuid,
-    "event": event,
-    "metadata": {
-        "chain": chain_name,
-        "link": link_name
-    }
-}
-```
-
-### 4. Consider Retention
-
-```python
-default_options = {
-    "retention_days": 90,
-    "archive_after_days": 30
-}
-```
-
-### 5. Document Requirements
-
-```markdown
-# My Tracer
-
-Records audit events to external system.
-
-## Requirements
-
-- Network access to audit service
-- API key with write permissions
-
-## Options
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| api_url | string | Required | Audit service URL |
-| api_key | string | Required | Authentication key |
-```
+- Keep `run` fast, since it runs on every link of every chain.
+- Handle `link_index` of `-1` before you index into `links`.
+- Keep vCon content and credentials out of trace records unless the destination is meant to hold them.
+- Add a README with the options, and a page under `docs/reference/tracers/`.

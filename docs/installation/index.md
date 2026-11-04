@@ -1,168 +1,44 @@
-# Installation Guide
+# Install vCon Server
 
-This section covers all methods for installing and deploying vCon Server.
+Pick the path that fits how you will run the server. Every path ends with the same three processes: the API, the conserver workers and Redis.
 
-## Installation Methods
+![Five deployment paths: Docker Compose, the automated script, manual install, published images and the example Kubernetes manifests](../diagrams/D03-deploy-map.svg)
 
-Choose the installation method that best fits your needs:
+## Choose a method
 
-| Method | Best For | Complexity |
-|--------|----------|------------|
-| [Docker](docker.md) | Production, most users | Low |
-| [Automated Script](automated-script.md) | Quick production setup on Ubuntu | Low |
-| [Manual Installation](manual-installation.md) | Development, customization | Medium |
-| [Kubernetes](kubernetes.md) | Large scale, cloud native | High |
+| Method | Runs on | Use it for |
+|---|---|---|
+| [Docker Compose](docker.md) | One host with Docker | Local work and small single-host deployments |
+| [Automated script](automated-script.md) | One Ubuntu host | A demo host with the vcon-admin portal alongside the server |
+| [Manual install](manual-installation.md) | Any host with Python and Redis | Development and debugging without containers |
+| [Kubernetes](kubernetes.md) | A cluster | Scaled deployments from the published images |
 
-## Quick Comparison
+The Compose file builds `docker/Dockerfile`, which holds every dependency group, bind-mounts the source and restarts the conserver on file changes. It is built for development. For production, run the published images from `docker/Dockerfile.api` and `docker/Dockerfile.conserver`. The [Docker page](docker.md#run-the-published-images) gives the image names.
 
-### Docker (Recommended)
+The repo ships no Kubernetes manifests. The [Kubernetes page](kubernetes.md) gives an untested example to adapt.
 
-```bash
-git clone https://github.com/vcon-dev/vcon-server.git
-cd vcon-server
-cp .env.example .env
-cp example_docker-compose.yml docker-compose.yml
-docker network create conserver
-docker compose up -d --build
-```
+## Know the components
 
-**Pros:**
+| Component | Required | Role |
+|---|---|---|
+| API | Yes | FastAPI app on port 8000. Accepts vCons, serves reads and manages the queues |
+| Conserver | Yes | Worker processes that run each vCon through its chain |
+| Redis | Yes | Queues and the hot copy of each vCon. Plain Redis, no modules |
+| Storage backends | No | Long-term copies. See the [storage adapter reference](../reference/storage-adapters/index.md) |
 
-- Consistent environment across systems
-- Easy to scale with `docker compose up --scale`
-- All dependencies included
-- Simple upgrades
+[Architecture](../concepts/architecture.md) explains how they fit together. [Ports and services](../reference/ports.md) lists every port and Compose service.
 
-**Cons:**
+If you run an older deployment on Redis Stack, read [Migrate RedisJSON data](redis-migration.md) before you upgrade.
 
-- Requires Docker knowledge
-- Container overhead
+## Gather the prerequisites
 
-### Automated Script
+- Read the [system requirements](../getting-started/requirements.md).
+- Collect the API keys your links need. Most links take them as [options in the YAML file](../reference/links/index.md). A few fall back to an environment variable, and each link page names it.
+- Choose your [storage backends](../reference/storage-adapters/index.md).
 
-```bash
-sudo ./scripts/install_conserver.sh \
-  --domain your-domain.com \
-  --email admin@your-domain.com
-```
+## Complete the follow-up steps
 
-**Pros:**
-
-- One-command installation
-- Sets up SSL, reverse proxy, and all services
-- Production-ready configuration
-
-**Cons:**
-
-- Ubuntu Linux only
-- Requires root access
-- Less flexibility
-
-### Manual Installation
-
-```bash
-poetry install
-poetry run python ./server/main.py
-```
-
-**Pros:**
-
-- Full control over configuration
-- Best for development
-- Easy debugging
-
-**Cons:**
-
-- More setup steps
-- Must manage dependencies
-- External Redis required
-
-### Kubernetes
-
-```bash
-kubectl apply -f k8s/
-```
-
-**Pros:**
-
-- Horizontal scaling
-- Self-healing
-- Cloud-native integration
-
-**Cons:**
-
-- Kubernetes expertise required
-- More complex setup
-- Higher resource overhead
-
-## Architecture Overview
-
-Regardless of installation method, vCon Server consists of these components:
-
-```mermaid
-flowchart TB
-    subgraph required [Required Components]
-        API[API Server<br/>FastAPI on port 8000]
-        WORKER[Conserver Workers<br/>vCon Processing]
-        REDIS[Redis<br/>Queues and Cache]
-    end
-
-    subgraph optional [Optional Components]
-        PG[PostgreSQL]
-        MONGO[MongoDB]
-        ES[Elasticsearch]
-        S3[S3 Storage]
-    end
-
-    API <--> REDIS
-    WORKER <--> REDIS
-    WORKER --> PG
-    WORKER --> MONGO
-    WORKER --> ES
-    WORKER --> S3
-```
-
-### Required Components
-
-1. **API Server**: FastAPI application serving the REST API
-2. **Conserver Workers**: Background processes that execute chains
-3. **Redis**: Message queue and caching layer
-
-### Optional Components
-
-Storage backends are optional and can be added based on your needs:
-
-- **PostgreSQL**: Relational storage with full query support
-- **MongoDB**: Document storage for flexible schemas
-- **Elasticsearch**: Full-text search capabilities
-- **S3**: Object storage for archival
-- **Milvus**: Vector similarity search
-
-## Pre-Installation Checklist
-
-Before installing, ensure you have:
-
-- [ ] Reviewed [System Requirements](../getting-started/requirements.md)
-- [ ] Chosen an installation method
-- [ ] Obtained any necessary API keys (Deepgram, OpenAI, etc.)
-- [ ] Planned your storage backend strategy
-- [ ] Allocated sufficient system resources
-
-## Post-Installation Steps
-
-After installation, you should:
-
-1. **Verify the installation** by checking the health endpoint
-2. **Configure authentication** with secure API tokens
-3. **Set up monitoring** for production environments
-4. **Configure backups** for your storage backends
-5. **Review security settings** and firewall rules
-
-## Next Steps
-
-Choose your installation method:
-
-- [Docker Installation](docker.md) - Recommended for most users
-- [Automated Script](automated-script.md) - Quick Ubuntu production setup
-- [Manual Installation](manual-installation.md) - Development and customization
-- [Kubernetes](kubernetes.md) - Large scale deployments
+1. Check `GET /api/health`.
+2. Set API keys. See [Authentication](../configuration/authentication.md). With no key set, the main API routes are open.
+3. Build your [chains](../configuration/chains-and-pipelines.md).
+4. Set up [monitoring](../operations/monitoring.md) and [backups](../operations/backup-restore.md).

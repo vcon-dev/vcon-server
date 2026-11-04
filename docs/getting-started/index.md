@@ -1,106 +1,52 @@
-# Getting Started
+# Getting started
 
-Welcome to vCon Server! This section will help you understand what vCon Server does and get you up and running quickly.
+This section takes you from no knowledge of the server to a running stack that has processed its first vCon.
 
-## What is vCon Server?
+## Learn what a vCon holds
 
-vCon Server (also called "Conserver") is a processing pipeline for voice conversation data. It receives vCon (Voice Conversation) documents, processes them through configurable chains of operations, and stores them in one or more backends.
+A vCon is a JSON container for one conversation, defined in an [IETF draft](https://datatracker.ietf.org/doc/draft-ietf-vcon-vcon-core/). The server works with these parts:
 
-### The vCon Standard
+| Part | Contents |
+|---|---|
+| `parties` | The participants: phone numbers, email addresses, names |
+| `dialog` | The conversation itself: recordings, text, or references to them |
+| `analysis` | Output from models and services, such as transcripts and summaries |
+| `attachments` | Related material, including tags and any `lawful_basis` record |
 
-A vCon is a standardized JSON format for representing voice conversations. It includes:
+## Follow a vCon through the server
 
-- **Parties**: Information about participants (phone numbers, emails, names)
-- **Dialog**: The conversation content (audio files, transcripts)
-- **Analysis**: AI-generated insights (summaries, sentiment, topics)
-- **Attachments**: Related documents and files
-- **Metadata**: Timestamps, UUIDs, and custom tags
+1. Your system posts a vCon to the API, which stores it in Redis and adds its uuid to one or more ingress lists.
+2. A worker pops the uuid and finds the chain that reads from that list.
+3. The chain runs its links in order. A link can add to the vCon, stop the chain, or send the vCon elsewhere.
+4. The worker pushes the uuid to the chain's egress lists and writes the vCon to the chain's storage backends.
+5. A vCon that fails goes to a dead letter queue, where you can inspect and replay it.
 
-### What vCon Server Does
+![Flow from an ingress list through the links to egress lists and storage, with the dead letter paths](../diagrams/D05-chain-pipeline.svg)
 
-```mermaid
-flowchart LR
-    IN[Incoming vCon] --> INGEST[Ingress Queue]
-    INGEST --> CHAIN[Processing Chain]
-    
-    subgraph CHAIN[Processing Chain]
-        direction TB
-        L1[Transcribe] --> L2[Analyze]
-        L2 --> L3[Tag]
-        L3 --> L4[Route]
-    end
-    
-    CHAIN --> STORE[Storage Backends]
-    CHAIN --> OUT[Egress Queue]
-```
+[vCon lifecycle](../concepts/vcon-lifecycle.md) gives the full story, and [architecture](../concepts/architecture.md) shows the services.
 
-1. **Receives vCons** via REST API or external integrations
-2. **Queues them** in Redis for processing
-3. **Processes them** through configurable chains of "links"
-4. **Stores them** in one or more storage backends
-5. **Routes them** to egress queues for downstream systems
+## Learn three terms
 
-## Key Concepts
+- A **chain** is one pipeline: ingress lists, links, storage backends and egress lists. See [chains and pipelines](../configuration/chains-and-pipelines.md).
+- A **link** is one processing step, such as [transcribe](../reference/links/transcribe.md), [analyze](../reference/links/analyze.md) or [tag](../reference/links/tag.md). See the [link catalogue](../reference/links/index.md).
+- A **storage adapter** copies a finished vCon to another system. See the [adapter catalogue](../reference/storage-adapters/index.md).
 
-### Chains
+[Chains, links and storage](../concepts/chains-links-storage.md) explains how they fit together.
 
-A **chain** is a complete processing pipeline that defines:
+## Match a goal to its building blocks
 
-- **Ingress Lists**: Where vCons enter the chain
-- **Links**: Processing steps executed in order
-- **Storages**: Where processed vCons are persisted
-- **Egress Lists**: Where vCons go after processing
+| Goal | Building blocks |
+|---|---|
+| Analyse customer calls | [transcribe](../reference/links/transcribe.md), [analyze](../reference/links/analyze.md), [detect_engagement](../reference/links/detect-engagement.md), [tag_router](../reference/links/tag-router.md) |
+| Keep a searchable archive | [S3](../reference/storage-adapters/s3.md) for the records, [Elasticsearch](../reference/storage-adapters/elasticsearch.md) for search |
+| Search by meaning | [Milvus](../reference/storage-adapters/milvus.md) for vector similarity |
+| Feed other systems | [webhook](../reference/links/webhook.md), egress lists |
+| Record a tamper-evident trail | [scitt](../reference/links/scitt.md), [datatrails](../reference/links/datatrails.md), the [JLINC tracer](../reference/tracers/jlinc.md) |
 
-### Links
+The server alone does not make a deployment compliant with any regulation, and it does not manage consent. See [lawful basis](../concepts/lawful-basis.md).
 
-**Links** are modular processors that transform or analyze vCons:
+## Take the next step
 
-| Link Type | Examples |
-|-----------|----------|
-| Transcription | `deepgram_link`, `groq_whisper`, `hugging_face_whisper` |
-| Analysis | `analyze`, `analyze_and_label`, `detect_engagement` |
-| Tagging | `tag`, `check_and_tag` |
-| Routing | `tag_router`, `sampler` |
-| Integration | `webhook`, `post_analysis_to_slack` |
-
-### Storage Adapters
-
-**Storage adapters** persist vCons to various backends:
-
-- **Databases**: PostgreSQL, MongoDB, Elasticsearch
-- **Object Storage**: S3, local filesystem
-- **Vector Databases**: Milvus (for similarity search)
-- **Specialized**: SFTP, Dataverse, ChatGPT Files
-
-## Use Cases
-
-### Call Center Analytics
-
-Process customer service calls to:
-
-- Transcribe audio recordings
-- Analyze sentiment and topics
-- Detect customer engagement levels
-- Route based on call outcome
-
-### Compliance Recording
-
-Archive voice communications with:
-
-- Immutable storage in S3
-- Full-text search in Elasticsearch
-- Audit trails via tracers
-
-### AI-Powered Insights
-
-Extract value from conversations:
-
-- Generate summaries and action items
-- Classify calls by intent
-- Build searchable knowledge bases
-
-## Next Steps
-
-1. **[System Requirements](requirements.md)**: Check what you need to run vCon Server
-2. **[Quick Start](quick-start.md)**: Get running in 5 minutes with Docker
-3. **[Installation Guide](../installation/index.md)**: Detailed installation options
+1. [Check the system requirements](requirements.md).
+2. [Run the quick start](quick-start.md).
+3. [Pick an installation method](../installation/index.md) for a real deployment.

@@ -1,26 +1,42 @@
 # jq_link
 
-Filters vCons with jq expressions.
+Passes or stops a vCon according to a jq expression.
 
-## Configuration
+Module: `links.jq_link`
 
-```yaml
-links:
-  jq_filter:
-    module: links.jq_link
-    options:
-      filter: '.attachments | length > 0'
-      forward_matches: true
-```
-
-## Options
+## Set the options
 
 | Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `filter` | string | `"."` | jq expression evaluated against the vCon |
-| `forward_matches` | boolean | `true` | Forward matches when `true`, or forward non-matches when `false` |
+|---|---|---|---|
+| `filter` | string | `.` | jq expression run against the vCon |
+| `forward_matches` | bool | `true` | When true, matching vCons continue. When false, non-matching vCons continue |
 
-## Examples
+## Follow the processing steps
+
+1. Load the vCon and run the expression on its dict form.
+2. Treat the vCon as a match if the first result is truthy. Later results are ignored, and no result means no match.
+3. Forward the vCon if the match agrees with `forward_matches`.
+
+Truthiness here is Python's, not jq's. A first result of `0`, `""`, `[]` or `{}` is not a match.
+
+Some legacy vCons hold mixed values in `body` arrays, and jq string functions such as `startswith()` raise on the non-strings. When jq reports `requires string inputs`, the link retries once with those arrays reduced to their strings. For new filters, guard explicitly:
+
+```jq
+.attachments[0]
+| select(any(.body[]; type == "string" and startswith("call_type:") and . != "call_type:2"))
+```
+
+## Read the return value
+
+Returns the uuid to forward, or `None` to stop the chain. An invalid filter or any other jq error is logged and also returns `None`, so a broken expression drops every vCon and raises nothing. A missing vCon returns `None`.
+
+A stopped chain skips its storages and egress lists.
+
+## Inspect the vCon changes
+
+None.
+
+## Copy a configuration example
 
 ```yaml
 links:
@@ -29,41 +45,8 @@ links:
     options:
       filter: '.analysis | length > 0'
       forward_matches: true
-
-  skip_empty_analysis:
-    module: links.jq_link
-    options:
-      filter: '.analysis | length == 0'
-      forward_matches: false
 ```
 
-## Mixed-Type `body` Arrays
+## Track the metrics
 
-Some legacy vCons contain mixed values inside attachment or analysis `body`
-arrays. For example, a tags-like array may contain strings plus integers or
-objects. Raw jq string functions such as `startswith()` fail on non-string
-inputs.
-
-`jq_link` now retries once with string-only `body` arrays when jq raises a
-string-input type error. That hardens common filters that scan `body[]` values
-for tag prefixes.
-
-For new filters, prefer explicit string guards:
-
-```jq
-.attachments[0]
-| select(.body[] | strings | startswith("call_type:") and . != "call_type:2")
-```
-
-or:
-
-```jq
-.attachments[0]
-| select(any(.body[]; type == "string" and startswith("call_type:") and . != "call_type:2"))
-```
-
-## Behavior
-
-If the jq expression returns a truthy first result, the link treats the vCon as
-a match. Invalid filters or runtime jq failures are logged and the vCon is
-filtered out.
+`conserver.link.jq.vcon_filtered_out`, `conserver.link.jq.filter_errors` and `conserver.link.jq.string_body_array_retries`. See [Metrics](../metrics.md).

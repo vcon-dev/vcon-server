@@ -23,13 +23,13 @@ A specialized link that helps reduce the size and content of vCon objects by sel
 A simple but effective link that sets an expiration time for vCon objects in Redis, enabling automatic cleanup after a specified period. Useful for data retention policy enforcement and storage optimization.
 
 ### @groq_whisper
-A specialized link that performs speech-to-text transcription on audio recordings in vCon dialogs using Groq's implementation of the Whisper ASR service, with support for various audio formats and robust error handling.
+A specialized link that performs speech-to-text transcription on audio recordings in vCon dialogs using Groq's implementation of the Whisper ASR service, with support for various audio formats and error handling.
 
 ### @hugging_face_whisper
-A specialized link that performs speech-to-text transcription on audio recordings in vCon dialogs using Hugging Face's implementation of the Whisper ASR service, with support for various audio formats and robust error handling.
+A specialized link that performs speech-to-text transcription on audio recordings in vCon dialogs using Hugging Face's implementation of the Whisper ASR service, with support for various audio formats and error handling.
 
 ### @hugging_llm_link
-A specialized link that performs AI-powered analysis on vCon transcripts using Hugging Face's language models, supporting both API-based and local model inference with configurable parameters and robust error handling.
+A specialized link that performs AI-powered analysis on vCon transcripts using Hugging Face's language models, supporting both API-based and local model inference with configurable parameters and error handling.
 
 ### @jq_link
 A specialized link that filters vCon objects using jq expressions, allowing for complex content-based filtering with configurable forwarding rules for matching or non-matching vCons.

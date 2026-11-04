@@ -1,5 +1,7 @@
 # Tag Router Link
 
+Reference: [`links.tag_router`](../../../docs/reference/links/tag-router.md)
+
 The Tag Router link is a specialized plugin that routes vCon objects to different Redis lists based on their tags. It provides a flexible way to organize and distribute vCons to different processing queues or storage locations based on their tag content.
 
 ## Features
@@ -9,7 +11,7 @@ The Tag Router link is a specialized plugin that routes vCon objects to differen
 - Configurable forwarding behavior
 - Flexible tag-based routing rules
 - Efficient Redis list management
-- Seamless integration with vCon processing chains
+- Integrates with vCon processing chains
 
 ## Configuration Options
 

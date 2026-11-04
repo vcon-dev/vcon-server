@@ -1,174 +1,146 @@
-# YAML Configuration
+# Write the YAML configuration
 
-Complete reference for the vCon Server YAML configuration file.
+One YAML file defines what the server does to each vCon: which links run, where results go, and who may submit. `CONSERVER_CONFIG_FILE` names the file. Server-level settings live in [environment variables](environment-variables.md).
 
-## File Structure
+Start from the small file in [the Docker guide](../installation/docker.md#write-the-chain-configuration).
+
+`example_config.yml` is a syntax catalogue to read, not to run. It names modules that are not in this repo, and its empty `tracers` key sends every vCon to the dead letter queue.
+
+## Learn the file rules
+
+The server loads the file with `yaml.safe_load`, with no further processing:
+
+- `${VAR}` is not expanded. A value such as `${OPENAI_API_KEY}` reaches the link as that literal text. Write the real value, and render the file in your deployment tooling if you keep secrets elsewhere.
+- Nothing validates the file on load. An unknown key is ignored and a wrong one fails when the code reaches it.
+- `GET /config` returns the parsed file, secrets included, to any caller with an API key. `POST /config` replaces the whole file, and comments are lost.
+
+## Know the top-level keys
+
+| Key | Read by | Holds |
+|---|---|---|
+| `ingress_auth` | API | API keys per ingress list |
+| `imports` | Conserver | Modules to load when a worker starts |
+| `links` | Conserver | Named processing links |
+| `storages` | Conserver and API | Named storage backends |
+| `tracers` | Conserver | Named tracers |
+| `chains` | Conserver and queue metrics | Pipelines that join the above |
+| `followers` | Conserver | Remote servers to pull from |
+
+Every key is optional. With no `chains`, the workers log a warning and retry every 15 seconds.
+
+## Plan for reloads
+
+The server reads the file again at these points, so most edits need no restart:
+
+| Section | Takes effect |
+|---|---|
+| `chains`, `links`, `tracers` | On each worker loop, after a vCon is popped or the 15 second wait ends |
+| `storages` | On the next write or read |
+| `ingress_auth` | On the next request |
+| `imports` | When a worker starts |
+| `followers` | When the conserver process starts |
+
+A YAML syntax error stops a worker at its next reload, so check a change before you save it over the live file.
+
+## Authorize external ingress
+
+`ingress_auth` maps an ingress list to one key or a list of keys:
 
 ```yaml
-# API key authentication for ingress lists
 ingress_auth:
-  ...
-
-# Dynamic module imports
-imports:
-  ...
-
-# Processing link definitions
-links:
-  ...
-
-# Storage backend definitions
-storages:
-  ...
-
-# Tracer definitions
-tracers:
-  ...
-
-# Processing chain definitions
-chains:
-  ...
-
-# Follower configurations (distributed mode)
-followers:
-  ...
-```
-
-## Ingress Authentication
-
-Map API keys to specific ingress lists for external integrations.
-
-### Single Key
-
-```yaml
-ingress_auth:
-  customer_data: "customer-api-key-12345"
-```
-
-### Multiple Keys
-
-```yaml
-ingress_auth:
+  customer_data: "replace-with-a-key"
   support_calls:
-    - "support-api-key-67890"
-    - "support-client-2-key"
-    - "support-vendor-key-xyz"
+    - "replace-with-a-key-for-client-1"
+    - "replace-with-a-key-for-client-2"
 ```
 
-### Usage
-
-External systems use the `/vcon/external-ingress` endpoint with their assigned key:
+A caller sends the key to `POST /vcon/external-ingress`:
 
 ```bash
-curl -X POST "http://api/vcon/external-ingress?ingress_list=customer_data" \
-  -H "x-conserver-api-token: customer-api-key-12345" \
+curl -X POST "http://localhost:8000/vcon/external-ingress?ingress_list=customer_data" \
+  -H "x-conserver-api-token: replace-with-a-key" \
   -H "Content-Type: application/json" \
-  -d '{"vcon": "0.0.1", ...}'
+  -d @vcon.json
 ```
 
-## Imports
+A key works only for its own list. With `ingress_auth` empty, or the list missing from it, the API returns 403. See [authentication](authentication.md).
 
-Define modules to import dynamically from PyPI or GitHub.
+## Import extra modules
 
-### From PyPI
+`imports` loads modules when each worker starts. A module that is missing is installed with `pip`, and an import that still fails stops the worker.
 
 ```yaml
 imports:
   custom_utility:
     module: custom_utils
     pip_name: custom-utils-package
-```
-
-### From GitHub
-
-```yaml
-imports:
   github_helper:
     module: github_helper
     pip_name: git+https://github.com/username/helper-repo.git
-```
-
-### Direct Module
-
-```yaml
-imports:
-  # Module name matches pip package
   requests_import:
     module: requests
+  legacy_module: some.legacy.module
 ```
 
-## Links
+`pip_name` defaults to the module name. A plain string is the older form and names the module alone. See [dynamic modules](../extending/dynamic-modules.md).
 
-Define processing links that transform vCons.
+## Add processing links
 
-### Basic Link
+A link entry has a name of your choice and these keys:
+
+| Key | Required | Use |
+|---|---|---|
+| `module` | Yes | Python module with a `run` function, such as `links.tag` |
+| `options` | In practice | Mapping passed to the link |
+| `pip_name` | No | Package to install when the module is missing |
+
+```yaml
+links:
+  tag_processed:
+    module: links.tag
+    options:
+      tags:
+        - processed
+```
+
+Always write `options`, even as `options: {}`. Without the key the link receives `None`, not its `default_options`, and most bundled links then raise an error. A bare `options:` key also loads as `None`. A missing block does not break `delay`, `hugging_llm_link` or the four deprecated transcription modules. `transcribe` then falls to `whisper_builtin` and raises, and `wtf_transcribe` halts the chain because it has no `vfun-server-url`.
+
+`options.after_link` goes to the after-link hook, which does nothing unless a build replaces it. See [creating links](../extending/creating-links.md).
+
+The [link reference](../reference/links/index.md) lists each bundled link and its options.
+
+### Transcribe with one link
+
+`links.transcribe` is the transcription link. `vendor` picks the service and `vendor_options` goes to it unchanged.
 
 ```yaml
 links:
   transcribe:
     module: links.transcribe
-```
-
-### Link with Options
-
-```yaml
-links:
-  deepgram_link:
-    module: links.deepgram_link
     options:
-      model: nova-2
-      language: en
-      punctuate: true
-      diarize: true
+      vendor: deepgram
+      vendor_options:
+        DEEPGRAM_KEY: replace-with-a-key
+        api:
+          model: nova-3
 ```
 
-### External Link
+Always set `vendor`. The default, `whisper_builtin`, calls `Vcon.transcribe`, which the `Vcon` class in `common/vcon.py` does not have, so the link raises an error.
 
-```yaml
-links:
-  custom_analyzer:
-    module: custom_analyzer_module
-    pip_name: custom-analyzer-package
-    options:
-      api_key: your-key
-      endpoint: https://api.example.com
-```
+The per-vendor modules are deprecated. A chain that names one still runs: the server routes it through `links.transcribe`, treats its `options` as `vendor_options` and logs a warning.
 
-### Available Links
+| Deprecated module | `vendor` |
+|---|---|
+| `links.deepgram_link` | `deepgram` |
+| `links.groq_whisper` | `groq` |
+| `links.hugging_face_whisper` | `hugging_face` |
+| `links.openai_transcribe` | `openai` |
 
-| Link | Module | Description |
-|------|--------|-------------|
-| `deepgram_link` | `links.deepgram_link` | Deepgram transcription |
-| `groq_whisper` | `links.groq_whisper` | Groq Whisper transcription |
-| `hugging_face_whisper` | `links.hugging_face_whisper` | HuggingFace Whisper |
-| `openai_transcribe` | `links.openai_transcribe` | OpenAI Whisper |
-| `analyze` | `links.analyze` | AI analysis |
-| `analyze_and_label` | `links.analyze_and_label` | Analysis with labeling |
-| `analyze_vcon` | `links.analyze_vcon` | vCon-specific analysis |
-| `detect_engagement` | `links.detect_engagement` | Engagement detection |
-| `tag` | `links.tag` | Add static tags |
-| `check_and_tag` | `links.check_and_tag` | Conditional tagging |
-| `tag_router` | `links.tag_router` | Route by tags |
-| `sampler` | `links.sampler` | Random sampling |
-| `webhook` | `links.webhook` | HTTP webhook delivery |
-| `post_analysis_to_slack` | `links.post_analysis_to_slack` | Slack notifications |
-| `diet` | `links.diet` | Reduce vCon size |
-| `expire_vcon` | `links.expire_vcon` | Set expiration |
-| `jq_link` | `links.jq_link` | jq transformations |
+`links.wtf_transcribe` is a separate link and does not go through this dispatcher.
 
-## Storages
+## Add storage backends
 
-Define storage backends for persisting vCons.
-
-### Redis Storage
-
-```yaml
-storages:
-  redis_storage:
-    module: storage.redis_storage
-```
-
-### PostgreSQL
+A storage entry has a name, a `module` and `options`:
 
 ```yaml
 storages:
@@ -176,111 +148,21 @@ storages:
     module: storage.postgres
     options:
       user: vcon
-      password: vcon_password
+      password: replace-with-a-password
       host: postgres
       port: "5432"
       database: vcon_server
 ```
 
-### MongoDB
+With no `options` key, the adapter gets its `default_options`. With the key, it gets exactly that mapping, and the server does not merge in the defaults. Check the adapter's reference page for the options it requires.
 
-```yaml
-storages:
-  mongo:
-    module: storage.mongo
-    options:
-      url: mongodb://root:example@mongo:27017/
-      database: conserver
-      collection: vcons
-```
+Storage modules load with a plain import, so `pip_name` has no effect here. List a storage package under `imports`, or install it in the image. The API process does not run `imports`, and it loads the same adapters to read vCons, so an image install covers both.
 
-### Amazon S3
+The [storage adapter reference](../reference/storage-adapters/index.md) lists each adapter.
 
-```yaml
-storages:
-  s3:
-    module: storage.s3
-    options:
-      aws_access_key_id: your-access-key
-      aws_secret_access_key: your-secret-key
-      aws_bucket: vcon-archive
-      aws_region: us-east-1
-      s3_path: vcons/  # Optional prefix
-```
+## Add tracers
 
-### S3-Compatible Storage
-
-```yaml
-storages:
-  minio:
-    module: storage.s3
-    options:
-      aws_access_key_id: minioadmin
-      aws_secret_access_key: minioadmin
-      aws_bucket: vcons
-      endpoint_url: http://minio:9000
-```
-
-### Elasticsearch
-
-```yaml
-storages:
-  elasticsearch:
-    module: storage.elasticsearch
-    options:
-      hosts:
-        - http://elasticsearch:9200
-      index: vcons
-```
-
-### Milvus (Vector Database)
-
-```yaml
-storages:
-  milvus:
-    module: storage.milvus
-    options:
-      host: milvus
-      port: "19530"
-      collection_name: vcons
-      embedding_model: text-embedding-3-small
-      embedding_dim: 1536
-      api_key: your-openai-key  # For embeddings
-      create_collection_if_missing: true
-      index_type: IVF_FLAT
-      metric_type: L2
-```
-
-### File Storage
-
-```yaml
-storages:
-  file:
-    module: storage.file
-    options:
-      path: /data/vcons
-      organize_by_date: true
-      compression: false
-```
-
-### SFTP
-
-```yaml
-storages:
-  sftp:
-    module: storage.sftp
-    options:
-      host: sftp.example.com
-      username: vcon
-      private_key_path: /etc/vcon/sftp_key
-      remote_path: /uploads/vcons
-```
-
-## Tracers
-
-Define tracers for audit trails and monitoring.
-
-### JLINC Tracer
+Tracers run around links and report each step to an outside system. Every tracer under the top-level `tracers` key runs for every chain.
 
 ```yaml
 tracers:
@@ -288,210 +170,159 @@ tracers:
     module: tracers.jlinc
     options:
       data_store_api_url: http://jlinc-server:9090
-      data_store_api_key: your-key
+      data_store_api_key: replace-with-a-key
       archive_api_url: http://jlinc-server:9090
-      archive_api_key: your-key
+      archive_api_key: replace-with-a-key
       system_prefix: VCONProd
       agreement_id: 00000000-0000-0000-0000-000000000000
       hash_event_data: true
       dlq_vcon_on_error: true
 ```
 
-## Chains
+Keep the `options` key. Without it the tracer receives `None`, and the error handling in `conserver/main.py` raises a second error when the tracer fails.
 
-Define processing chains that combine links, storage, and routing.
+A tracer error is logged and processing continues, unless `dlq_vcon_on_error` is true. Then the vCon moves to the dead letter queue. A chain with no links runs no tracers. See [creating tracers](../extending/creating-tracers.md).
 
-### Basic Chain
+## Build processing chains
+
+A chain ties links and storage to ingress lists:
 
 ```yaml
 chains:
-  simple_chain:
+  main_chain:
     links:
       - transcribe
-    storages:
-      - redis_storage
-    ingress_lists:
-      - default
-    enabled: 1
-```
-
-### Full Chain
-
-```yaml
-chains:
-  production_chain:
-    links:
-      - deepgram_link
-      - analyze
-      - tag
-      - tag_router
+      - tag_processed
     storages:
       - postgres
-      - s3
-      - elasticsearch
-    tracers:
-      - jlinc
     ingress_lists:
-      - production_ingress
+      - main_ingress
     egress_lists:
-      - processed_vcons
-      - analytics_queue
-    enabled: 1
+      - processed
 ```
 
-### Chain with Link Options
+| Key | Required | Use |
+|---|---|---|
+| `links` | Yes | Link names, run in order. Use `[]` for none. A chain without the key fails each vCon with `KeyError` |
+| `ingress_lists` | To run at all | Redis lists the workers read for this chain |
+| `storages` | No | Storage names to write when the links finish |
+| `egress_lists` | No | Redis lists that receive the vCon UUID when the links finish |
 
-```yaml
-chains:
-  custom_chain:
-    links:
-      - deepgram_link:
-          model: nova-2
-          diarize: true
-      - analyze:
-          model: gpt-4
-          prompt: "Summarize this call"
-      - sampler:
-          rate: 0.1  # Sample 10%
-    storages:
-      - postgres
-    ingress_lists:
-      - sample_input
-    enabled: 1
-```
+These rules follow from the code:
 
-### Disabled Chain
+- Each entry under `links` must be a plain name. An inline mapping such as `- analyze: {model: gpt-4}` raises `TypeError` and sends the vCon to the dead letter queue. To vary options, define a second link.
+- If two chains name the same ingress list, the chain defined last takes it.
+- A link that returns nothing halts the chain. The vCon then skips egress lists and storage.
+- Egress lists fill before storage runs. A storage failure does not fail the chain: that vCon goes to `DLQ:storage:<backend>`.
 
-```yaml
-chains:
-  disabled_chain:
-    links:
-      - transcribe
-    storages:
-      - redis_storage
-    ingress_lists:
-      - unused
-    enabled: 0  # Chain is disabled
-```
+Three keys that appear in older examples do nothing:
 
-## Followers
+| Key | What the code does |
+|---|---|
+| `enabled` | Never reads it. `enabled: 0` does not stop a chain. To stop one, remove its `ingress_lists` |
+| `timeout` | Writes it to a debug log and enforces nothing |
+| `tracers` | Never reads it on a chain. See [tracers](#add-tracers) |
 
-Configure follower processes for distributed deployments.
+The `ingress-lists` and `egress-lists` keys on a link, seen in `example_config.yml`, are ignored too.
+
+[Chains and pipelines](chains-and-pipelines.md) covers chain design.
+
+## Pull from another server
+
+A follower polls the egress list of another server and copies each vCon into a local ingress list. Followers start with the conserver process.
 
 ```yaml
 followers:
   upstream_server:
     url: http://upstream-vcon-server:8000
-    egress_list: processed_vcons
+    egress_list: processed
     follower_ingress_list: incoming_from_upstream
-    auth_token: upstream-api-token
-    pulling_interval: 60  # seconds
+    auth_token: replace-with-the-upstream-key
+    pulling_interval: 60
     fetch_vcon_limit: 10
 ```
 
-## Complete Example
+| Key | Use |
+|---|---|
+| `url` | Base URL of the other server's API, with no trailing slash |
+| `egress_list` | Egress list to pop UUIDs from |
+| `follower_ingress_list` | Local list that receives each vCon |
+| `auth_token` | API key for the other server, sent in the header named by the local `CONSERVER_HEADER_NAME` |
+| `pulling_interval` | Seconds between polls |
+| `fetch_vcon_limit` | UUIDs to pop on each poll |
+
+All six keys are required. Popping removes the UUID from the other server's list, so give each follower its own egress list.
+
+## See a complete example
+
+This file joins the sections above into one working shape. Replace the placeholders before you use it.
 
 ```yaml
----
-# =============================================================================
-# vCon Server Configuration
-# =============================================================================
-
-# Ingress-specific authentication
 ingress_auth:
-  partner_a: "partner-a-secure-key"
-  partner_b:
-    - "partner-b-key-1"
-    - "partner-b-key-2"
+  partner_a: "replace-with-a-key"
 
-# Processing links
 links:
-  deepgram_link:
-    module: links.deepgram_link
+  transcribe:
+    module: links.transcribe
     options:
-      model: nova-2
-      language: en
-      punctuate: true
-      diarize: true
-
-  analyze:
+      vendor: deepgram
+      vendor_options:
+        DEEPGRAM_KEY: replace-with-a-key
+        api:
+          model: nova-3
+  summarize:
     module: links.analyze
     options:
-      model: gpt-4
-      temperature: 0.3
-
-  tag:
+      OPENAI_API_KEY: replace-with-a-key
+      analysis_type: summary
+      prompt: "Summarize this conversation."
+      source:
+        analysis_type: transcript
+        text_location: body.transcript
+  tag_processed:
     module: links.tag
     options:
       tags:
         - processed
-        - v1
-
-  tag_router:
+  route_urgent:
     module: links.tag_router
     options:
-      rules:
-        - tag: urgent
-          queue: urgent_queue
-        - tag: routine
-          queue: routine_queue
+      tag_routes:
+        urgent: urgent_queue
+      forward_original: true
 
-# Storage backends
 storages:
   postgres:
     module: storage.postgres
     options:
       user: vcon
-      password: vcon_password
+      password: replace-with-a-password
       host: postgres
       port: "5432"
       database: vcon_server
-
   s3:
     module: storage.s3
     options:
-      aws_access_key_id: ${AWS_ACCESS_KEY_ID}
-      aws_secret_access_key: ${AWS_SECRET_ACCESS_KEY}
+      aws_access_key_id: replace-with-a-key-id
+      aws_secret_access_key: replace-with-a-secret
       aws_bucket: vcon-archive
       aws_region: us-east-1
 
-  elasticsearch:
-    module: storage.elasticsearch
-    options:
-      hosts:
-        - http://elasticsearch:9200
-      index: vcons
-
-# Tracers
-tracers:
-  jlinc:
-    module: tracers.jlinc
-    options:
-      data_store_api_url: http://jlinc:9090
-      data_store_api_key: jlinc-key
-      system_prefix: PROD
-
-# Processing chains
 chains:
   main_pipeline:
     links:
-      - deepgram_link
-      - analyze
-      - tag
-      - tag_router
+      - transcribe
+      - summarize
+      - tag_processed
+      - route_urgent
     storages:
       - postgres
       - s3
-      - elasticsearch
-    tracers:
-      - jlinc
     ingress_lists:
       - main_ingress
       - partner_a
-      - partner_b
     egress_lists:
       - processed
-    enabled: 1
 
   archive_only:
     links: []
@@ -499,5 +330,4 @@ chains:
       - s3
     ingress_lists:
       - archive_ingress
-    enabled: 1
 ```

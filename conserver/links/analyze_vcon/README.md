@@ -1,5 +1,7 @@
 # Analyze vCon Link
 
+Reference: [`links.analyze_vcon`](../../../docs/reference/links/analyze-vcon.md)
+
 The Analyze vCon link is a specialized plugin that performs AI-powered analysis on entire vCon objects using OpenAI's GPT models. Unlike the standard analyze link that processes individual dialogs, this link analyzes the complete vCon structure and returns structured JSON output.
 
 ## Features

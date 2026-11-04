@@ -1,0 +1,114 @@
+%%{init: {'theme':'base','themeVariables':{'fontFamily':'Inter, Helvetica, Arial, sans-serif','fontSize':'14px','background':'#FFFFFF','primaryColor':'#F3F4F6','primaryTextColor':'#292929','primaryBorderColor':'#0A7D18','secondaryColor':'#FFFFFF','secondaryTextColor':'#33363B','secondaryBorderColor':'#8A8A8D','tertiaryColor':'#FFFFFF','tertiaryTextColor':'#33363B','tertiaryBorderColor':'#8A8A8D','lineColor':'#33363B','textColor':'#33363B','mainBkg':'#F3F4F6','nodeBorder':'#0A7D18','clusterBkg':'#FFFFFF','clusterBorder':'#8A8A8D','edgeLabelBackground':'#FFFFFF','actorBkg':'#F3F4F6','actorBorder':'#0A7D18','actorTextColor':'#292929','signalColor':'#33363B','signalTextColor':'#292929','labelBoxBkgColor':'#F3F4F6','labelBoxBorderColor':'#0A7D18','noteBkgColor':'#F3F4F6','noteBorderColor':'#8A8A8D','noteTextColor':'#292929'}}}%%
+%%{init: {'fontFamily':'Inter, Helvetica, Arial, sans-serif'}}%%
+classDiagram
+    direction LR
+
+    class UpstreamProducer {
+        <<outside this server>>
+        builds the vCon it sends
+    }
+    class IngressPaths {
+        <<server>>
+        POST /vcon
+        POST /vcon/external-ingress
+        follower pull
+    }
+    class Vcon {
+        <<common/vcon.py>>
+        +uuid
+        +vcon
+        +created_at
+        +add_analysis()
+        +add_tag()
+        +add_attachment()
+        +find_attachment_by_purpose()
+        +to_dict()
+    }
+    class Party {
+        <<dict>>
+        tel
+        mailto
+    }
+    class Dialog {
+        <<dict>>
+        type
+        start
+        parties
+        body
+    }
+    class Analysis {
+        <<dict>>
+        type
+        dialog
+        vendor
+        body
+        encoding
+    }
+    class Attachment {
+        <<dict>>
+        purpose
+        body
+        encoding
+    }
+    class TagsAttachment {
+        <<written by add_tag>>
+        purpose = tags
+        body = name:value list
+        encoding = json
+    }
+    class LawfulBasisAttachment {
+        <<carried, never created>>
+        purpose = lawful_basis
+        body.lawful_basis
+        body.purpose_grants
+        body.expiration
+    }
+    class Links {
+        <<conserver/links>>
+        run(vcon_uuid, link_name, opts)
+    }
+    class DietLink {
+        <<conserver/links/diet>>
+        remove_attachment_types
+    }
+    class VconRedis {
+        <<common/lib/vcon_redis.py>>
+        +get_vcon()
+        +store_vcon()
+        -_enforce_spec_on_write()
+    }
+    class LegacyNormalizer {
+        <<common/lib/vcon_compat.py>>
+        normalize_legacy_fields()
+    }
+    class EgressDowngrade {
+        <<common/lib/vcon_egress_compat.py>>
+        to_legacy()
+    }
+    class UtopiaAdapter {
+        <<common/storage/utopia>>
+        render()
+        require_analysis_grant = false
+    }
+
+    UpstreamProducer ..> IngressPaths : sends the vCon
+    UpstreamProducer ..> LawfulBasisAttachment : may include
+    IngressPaths ..> Vcon : stores after model validation
+    Vcon "1" *-- "0..*" Party : parties
+    Vcon "1" *-- "0..*" Dialog : dialog
+    Vcon "1" *-- "0..*" Analysis : analysis
+    Vcon "1" *-- "0..*" Attachment : attachments
+    Attachment <|-- TagsAttachment
+    Attachment <|-- LawfulBasisAttachment
+    Links ..> Analysis : add_analysis
+    Links ..> TagsAttachment : add_tag
+    DietLink ..> Attachment : drops entries by mime_type when configured
+    VconRedis ..> Vcon : loads and stores
+    VconRedis ..> LegacyNormalizer : calls on read and write
+    LegacyNormalizer ..> LawfulBasisAttachment : renames type to purpose, keeps body
+    EgressDowngrade ..> LawfulBasisAttachment : renames purpose to type, keeps body
+    UtopiaAdapter ..> LawfulBasisAttachment : reads and renders
+
+    note for LawfulBasisAttachment "No server code creates this record. The server does not validate, enforce or manage consent."
+
+    style LawfulBasisAttachment fill:#FFFFFF,stroke:#0BB81E,stroke-width:3px

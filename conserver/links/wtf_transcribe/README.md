@@ -1,5 +1,7 @@
 # WTF Transcription Link (vfun Integration)
 
+Reference: [`links.wtf_transcribe`](../../../docs/reference/links/wtf-transcribe.md)
+
 A link that sends vCon audio dialogs to a vfun transcription server and adds the results as WTF (World Transcription Format) analysis entries.
 
 ## Overview
@@ -136,5 +138,5 @@ curl -X POST http://localhost:8443/transcribe \
 
 ## Related
 
-- [vfun](https://github.com/strolid/vfun) - GPU-accelerated transcription server
+- vfun, the GPU-accelerated transcription server this link calls
 - [draft-howe-vcon-wtf-extension](https://datatracker.ietf.org/doc/html/draft-howe-vcon-wtf-extension) - IETF WTF specification

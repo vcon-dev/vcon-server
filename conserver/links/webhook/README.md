@@ -1,5 +1,7 @@
 # Webhook Link
 
+Reference: [`links.webhook`](../../../docs/reference/links/webhook.md)
+
 The Webhook link is a specialized plugin that sends vCon objects to configured webhook URLs. It provides a flexible way to integrate vCon processing with external systems by forwarding vCon data to specified endpoints.
 
 ## Features
@@ -9,7 +11,7 @@ The Webhook link is a specialized plugin that sends vCon objects to configured w
 - API token support
 - JSON payload formatting
 - Response logging
-- Seamless integration with vCon processing chains
+- Integrates with vCon processing chains
 
 ## Configuration Options
 

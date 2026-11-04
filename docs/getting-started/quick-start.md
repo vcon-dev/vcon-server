@@ -1,285 +1,235 @@
-# Quick Start
+# Quick start
 
-Get vCon Server running in 5 minutes using Docker Compose.
+This page takes you from a fresh clone to a processed vCon with Docker Compose. It needs no vendor keys, and the first build takes a few minutes.
 
-## Prerequisites
+You need Docker with the Compose plugin and Git. See [system requirements](requirements.md).
 
-- Docker and Docker Compose installed ([verify](requirements.md#verifying-requirements))
-- Git installed
-- Terminal access
-
-## Step 1: Clone the Repository
+## Clone the repository
 
 ```bash
 git clone https://github.com/vcon-dev/vcon-server.git
 cd vcon-server
 ```
 
-## Step 2: Configure Environment
+The repository ships a ready `docker-compose.yml`, so there is no Compose file to copy.
 
-Copy the example environment file and configure it:
+## Set the environment
 
 ```bash
 cp .env.example .env
+openssl rand -hex 32
 ```
 
-Edit `.env` with your settings:
+Edit `.env` and set these four values. Use the `openssl` output as your token.
 
 ```bash
-# Required: Redis connection
-REDIS_URL=redis://redis:6379
-
-# Required: API authentication token
-CONSERVER_API_TOKEN=your-secret-token-here
-
-# Optional: AI service keys (for transcription/analysis)
-DEEPGRAM_KEY=your-deepgram-key
-OPENAI_API_KEY=your-openai-key
+CONSERVER_API_TOKEN=your-generated-token
+CONSERVER_CONFIG_FILE=./config.yml
+LOGGING_CONFIG_FILE=common/logging_dev.conf
+COMPOSE_PROFILES=
 ```
 
-!!! tip "Generate a Secure Token"
-    Generate a secure API token:
-    ```bash
-    openssl rand -hex 32
-    ```
+Each one matters:
 
-## Step 3: Start Services
+| Variable | Without this change |
+|---|---|
+| `CONSERVER_API_TOKEN` | A blank token turns API authentication off |
+| `CONSERVER_CONFIG_FILE` | `.env.example` leaves it blank. A blank value overrides the built-in default, and the services cannot open a config file |
+| `LOGGING_CONFIG_FILE` | `.env.example` names a path that does not exist, and both services stop at startup |
+| `COMPOSE_PROFILES` | `.env.example` sets `postgres`, which starts PostgreSQL on host port 5432. This walkthrough does not use it |
+
+`common/logging_dev.conf` writes plain text, which the samples on this page show. `common/logging.conf` writes JSON for production.
+
+## Write the configuration
+
+Create `config.yml` in the repository root:
+
+```yaml
+links:
+  tag:
+    module: links.tag
+    options:
+      tags:
+        - quick_start
+
+storages:
+  file:
+    module: storage.file
+    options:
+      path: /data/vcons
+
+chains:
+  quick_start:
+    links:
+      - tag
+    storages:
+      - file
+    ingress_lists:
+      - default
+    egress_lists:
+      - quick_start_output
+    enabled: 1
+```
+
+This chain reads the `default` list, tags each vCon, writes it to a file inside the `conserver` container and pushes its uuid to `quick_start_output`.
+
+Create this file before you start the stack. Compose mounts `./config.yml` into the `conserver` container, and Docker creates a directory of that name if no file exists.
+
+Do not start from `example_config.yml`. It is a syntax sample, and it names placeholder packages, modules and backends that a fresh stack does not have. The worker tries to install those packages and stops.
+
+## Start the stack
 
 ```bash
-# Create the Docker network
 docker network create conserver
-
-# Copy and customize the Docker Compose file
-cp example_docker-compose.yml docker-compose.yml
-
-# Build and start all services
 docker compose up -d --build
 ```
 
-## Step 4: Verify Installation
+`docker-compose.yml` declares the `conserver` network as external, so it must exist first. If it already exists, the first command reports that and you can carry on.
 
-Check that services are running:
+Check the services:
 
 ```bash
 docker compose ps
 ```
 
-Expected output:
+You should see `api`, `conserver` and `redis` running. The `conserver` container can show `Up` after its process has failed, because a file watcher wraps it in the Compose setup. Read its logs to be sure:
 
-```
-NAME                SERVICE      STATUS
-vcon-server-api-1   api          running
-vcon-server-conserver-1  conserver   running
-vcon-server-redis-1 redis        running
+```bash
+docker compose logs conserver | tail
 ```
 
-Check the API health:
+A healthy worker logs `Worker-1 started`.
+
+Check the API:
 
 ```bash
 curl http://localhost:8000/api/health
 ```
 
-Expected response:
-
 ```json
-{"status": "healthy"}
+{"status":"healthy","version":{"version":"dev","git_commit":"unknown","build_time":"unknown"}}
 ```
 
-Check the version:
+A local build reports `dev`, because Compose passes no version at build time. This endpoint does not touch Redis, so it shows only that the API answers.
+
+## Submit a vCon
+
+Set the token and a uuid. The API rejects a `uuid` that is not a real UUID.
 
 ```bash
-curl http://localhost:8000/api/version
+export TOKEN=your-generated-token
+export VCON_UUID=$(uuidgen | tr 'A-Z' 'a-z')
+export NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 ```
 
-## Step 5: Submit a Test vCon
-
-Create a simple test vCon:
+Post a vCon to the `default` list:
 
 ```bash
-curl -X POST http://localhost:8000/api/vcon \
+curl -X POST "http://localhost:8000/api/vcon?ingress_lists=default" \
   -H "Content-Type: application/json" \
-  -H "x-conserver-api-token: your-secret-token-here" \
+  -H "x-conserver-api-token: $TOKEN" \
   -d '{
-    "vcon": "0.0.1",
-    "uuid": "test-vcon-001",
-    "created_at": "2024-01-15T10:30:00Z",
+    "vcon": "0.4.0",
+    "uuid": "'"$VCON_UUID"'",
+    "created_at": "'"$NOW"'",
     "parties": [
-      {"tel": "+15551234567", "name": "John Doe"},
-      {"tel": "+15559876543", "name": "Jane Smith"}
+      {"tel": "+15551234567", "name": "Caller"},
+      {"tel": "+15559876543", "name": "Agent"}
     ],
-    "dialog": []
+    "dialog": [
+      {
+        "type": "text",
+        "start": "'"$NOW"'",
+        "parties": [0, 1],
+        "originator": 0,
+        "mediatype": "text/plain",
+        "encoding": "none",
+        "body": "Hello, I have a question about my order."
+      }
+    ]
   }'
 ```
 
-Retrieve the vCon:
+The API returns `201` and the stored vCon. The `ingress_lists` parameter is what starts processing. Without it the API stores the vCon and no chain runs.
+
+This test vCon has no `lawful_basis` attachment, and the server does not add one. See [lawful basis](../concepts/lawful-basis.md).
+
+## Read the result
+
+Fetch the vCon:
 
 ```bash
-curl http://localhost:8000/api/vcon/test-vcon-001 \
-  -H "x-conserver-api-token: your-secret-token-here"
+curl "http://localhost:8000/api/vcon/$VCON_UUID" \
+  -H "x-conserver-api-token: $TOKEN"
 ```
 
-## Step 6: View Logs
+The `attachments` array now holds an entry the chain added:
 
-Monitor the processing:
+```json
+{"purpose": "tags", "body": "[\"quick_start:quick_start\"]", "encoding": "json"}
+```
+
+The `body` is a JSON string, not an array. Decode it with `fromjson` in `jq`:
 
 ```bash
-# View all logs
-docker compose logs -f
-
-# View only conserver logs
-docker compose logs -f conserver
-
-# View only API logs
-docker compose logs -f api
+curl -s "http://localhost:8000/api/vcon/$VCON_UUID" \
+  -H "x-conserver-api-token: $TOKEN" \
+  | jq '.attachments[] | select(.purpose == "tags") | .body | fromjson'
 ```
 
-## Basic Configuration
+Check the two other results of the chain:
 
-The default configuration in `example_config.yml` includes a sample processing chain:
-
-```yaml
-chains:
-  sample_chain:
-    links:
-      - transcribe
-      - analyze
-      - tag
-    storages:
-      - redis_storage
-    ingress_lists:
-      - default
-    enabled: 1
+```bash
+curl "http://localhost:8000/api/stats/queue?list_name=quick_start_output"
+docker compose exec conserver find /data/vcons -type f
 ```
 
-This chain:
+The first shows `"depth":1`. The second lists the stored file, under a date folder. That folder is inside the container, so recreating the container removes it. A real deployment uses a [storage adapter](../reference/storage-adapters/index.md) with durable storage.
 
-1. Transcribes audio using the configured transcription service
-2. Analyzes the transcript for insights
-3. Applies tags based on analysis
-4. Stores the result in Redis
+The API answers for one hour from Redis. After that, this setup returns `404`, because the file backend is visible only to the `conserver` container. See [read a stored vCon](../concepts/vcon-lifecycle.md#read-a-stored-vcon).
 
-## Common Operations
+The logs show the same run:
 
-### Stop Services
+```bash
+docker compose logs conserver | grep "Completed processing"
+```
+
+## Change the chain
+
+An idle worker rereads `config.yml` within 15 seconds, so chain changes need no restart. Compose mounts the file on its own, and on a Linux host an editor that saves by replacing the file leaves the container on the old copy. If an edit has no effect, run `docker compose up -d --force-recreate conserver`.
+
+To go further:
+
+- Add speech to text with [transcribe a recording](../configuration/chains-and-pipelines.md#transcribe-a-recording). The text dialog on this page has no audio, so `transcribe` skips it. Follow with an [analyze](../reference/links/analyze.md) step.
+- Build your own chain from [chains and pipelines](../configuration/chains-and-pipelines.md).
+- Browse the [API reference](../reference/api.md).
+
+## Stop the stack
 
 ```bash
 docker compose down
 ```
 
-### Restart Services
+Add `-v` to delete the Redis volume as well.
 
-```bash
-docker compose restart
-```
+## Fix common problems
 
-### View Configuration
+| Symptom | Cause | Fix |
+|---|---|---|
+| `api` exits with code 1, logs show `server/logging_dev.conf doesn't exist` | `.env` still holds the value from `.env.example` | Set `LOGGING_CONFIG_FILE=common/logging_dev.conf` |
+| `FileNotFoundError` naming an empty path, or `500` from `/config` | `CONSERVER_CONFIG_FILE` is blank | Set `CONSERVER_CONFIG_FILE=./config.yml` |
+| `IsADirectoryError` naming `./config.yml` | The stack started before the file existed | Stop the stack, delete the `config.yml` directory, then create the file |
+| `CalledProcessError` from `pip install` | `config.yml` names a package that cannot be installed, as `example_config.yml` does | Use the configuration on this page |
+| `network conserver declared as external, but could not be found` | The network does not exist | `docker network create conserver` |
+| Host port 8000 in use | Another process holds it | Set `CONSERVER_EXTERNAL_PORT` in `.env` |
+| `403` with `Invalid API Key` | Wrong or missing header | Send `x-conserver-api-token` with the value in `.env`. After you change `.env`, run `docker compose up -d api` |
+| `422` on `POST /vcon` | The body failed validation, often a `uuid` that is not a UUID | Read the `detail` field in the response |
+| vCon stays unprocessed | No `ingress_lists` parameter, or the list is not in a chain | Post with `?ingress_lists=default` and check `ingress_lists` in `config.yml` |
 
-```bash
-curl http://localhost:8000/api/config \
-  -H "x-conserver-api-token: your-secret-token-here"
-```
+For anything else, see [troubleshooting](../operations/troubleshooting.md). Failed vCons go to the [dead letter queue](../operations/dead-letter-queue.md).
 
-### Check Queue Status
+## Take the next step
 
-```bash
-# Connect to Redis and check queue lengths
-docker compose exec redis redis-cli LLEN default
-```
-
-## Troubleshooting
-
-### Services Won't Start
-
-Check Docker logs:
-
-```bash
-docker compose logs
-```
-
-Common issues:
-
-- Port 8000 already in use
-- Redis connection failed
-- Invalid API token format
-
-### API Returns 403 Forbidden
-
-Verify your API token:
-
-```bash
-# Check if token is set
-echo $CONSERVER_API_TOKEN
-
-# Ensure header matches
-curl -H "x-conserver-api-token: $CONSERVER_API_TOKEN" ...
-```
-
-### vCon Not Processing
-
-Check the conserver logs:
-
-```bash
-docker compose logs conserver
-```
-
-Verify the ingress list is configured in a chain:
-
-```yaml
-chains:
-  my_chain:
-    ingress_lists:
-      - default  # Must match where you're sending vCons
-```
-
-## Next Steps
-
-Now that you have vCon Server running:
-
-1. **[Docker Installation](../installation/docker.md)**: Learn about all Docker options
-2. **[Configuration Guide](../configuration/index.md)**: Customize your setup
-3. **[API Reference](../operations/api-reference.md)**: Explore all API endpoints
-4. **[Creating Chains](../configuration/chains-and-pipelines.md)**: Build custom processing pipelines
-
-## Example: Complete Workflow
-
-Here's a complete example that demonstrates the full workflow:
-
-```bash
-#!/bin/bash
-# complete-workflow.sh
-
-API_URL="http://localhost:8000/api"
-TOKEN="your-secret-token-here"
-
-# 1. Check health
-echo "Checking health..."
-curl -s "$API_URL/health"
-echo
-
-# 2. Create a vCon with audio reference
-echo "Creating vCon..."
-VCON_UUID=$(uuidgen)
-curl -s -X POST "$API_URL/vcon?ingress_lists=default" \
-  -H "Content-Type: application/json" \
-  -H "x-conserver-api-token: $TOKEN" \
-  -d "{
-    \"vcon\": \"0.0.1\",
-    \"uuid\": \"$VCON_UUID\",
-    \"created_at\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",
-    \"parties\": [
-      {\"tel\": \"+15551234567\", \"name\": \"Customer\"},
-      {\"tel\": \"+15559876543\", \"name\": \"Agent\"}
-    ],
-    \"dialog\": []
-  }"
-echo
-
-# 3. Wait for processing
-echo "Waiting for processing..."
-sleep 5
-
-# 4. Retrieve processed vCon
-echo "Retrieving processed vCon..."
-curl -s "$API_URL/vcon/$VCON_UUID" \
-  -H "x-conserver-api-token: $TOKEN" | jq .
-```
+- [Docker installation](../installation/docker.md) covers more Docker options.
+- [Configuration](../configuration/index.md) covers the environment and YAML settings.
+- [Authentication](../configuration/authentication.md) covers API keys and scoped ingress keys.

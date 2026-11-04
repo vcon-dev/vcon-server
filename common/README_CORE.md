@@ -2,11 +2,11 @@
 
 ## Overview
 
-The vCon Server is a robust processing pipeline designed to handle vCon objects through configurable processing chains. It implements a Redis-based queue system for managing the flow of vCons through various processing stages.
+The vCon Server is a processing pipeline that runs vCon objects through configurable chains. Redis lists carry the vCons between stages. The operator manual in `docs/` covers each topic in more depth.
 
 ## Core Components
 
-### 1. Main Processing Pipeline (`main.py`)
+### 1. Main Processing Pipeline (`conserver/main.py`)
 
 The main processing pipeline is the heart of the vCon server, responsible for:
 - Managing processing chains
@@ -38,7 +38,7 @@ The system uses a `ChainConfig` TypedDict to define processing chains with:
 - Processing timeout
 - Enable/disable status
 
-### 2. Configuration Management (`config.py`)
+### 2. Configuration Management (`common/config.py`)
 
 The configuration system provides:
 - YAML-based configuration loading
@@ -48,7 +48,7 @@ The configuration system provides:
 - Import configuration management
 - Ingress authentication configuration for external API access
 
-### 3. API Layer (`api.py`)
+### 3. API Layer (`api/api.py`)
 
 The API layer provides HTTP endpoints for vCon submission and management:
 - RESTful API endpoints using FastAPI
@@ -62,17 +62,27 @@ The API layer provides HTTP endpoints for vCon submission and management:
 - **Multi-tier Authentication**: Different API keys for internal vs external access
 - **Scoped Authorization**: External API keys limited to specific ingress lists
 - **Input Validation**: Automatic vCon schema validation
-- **Error Handling**: Comprehensive HTTP error responses
+- **Error Handling**: HTTP error responses
 - **Logging**: Detailed request and processing logging
 
-### 4. Redis Queue Management (`redis_mgr.py`)
+### 4. Redis Connection Factory (`common/redis_mgr.py`)
 
-The Redis management system provides:
-- Connection pool management
-- Synchronous and asynchronous client support
-- JSON-based key-value operations
-- Pattern-based key searching
-- Connection lifecycle management
+`redis_mgr.py` creates Redis clients and reads and writes JSON documents. It does no queue work.
+
+- `redis`: the shared synchronous client, created from `REDIS_URL` at import. `get_client()` returns it
+- `get_async_client()`: returns a new asynchronous client. The API calls it at startup, so the client binds to the running event loop
+- `json_set`, `json_get`, `json_set_async`, `json_get_async`, `json_mget_async`: store whole documents as JSON strings in plain Redis keys
+- `set_key`, `get_key`, `delete_key`, `show_keys`: key helpers on the shared client
+
+### 5. Queue Management (`common/lib/queue.py`)
+
+`VconQueue` is the entry point for moving vCon ids between lists. Redis stays the implementation, and this is not a pluggable backend.
+
+- `enqueue` appends with RPUSH and `dequeue` pops with BLPOP, which gives FIFO order
+- `enqueue_front` prepends with LPUSH, for a worker that must hand back a vCon it popped
+- `enqueue_dlq` and `enqueue_storage_dlq` write to the dead letter queues
+- `queue_length` and `set_vcon_ttl` read a list length and set a vCon's expiry
+- Methods suffixed `_async` take the async client as their first argument
 
 ## Processing Flow
 
@@ -123,7 +133,7 @@ The system implements multi-tier authentication and authorization:
 
 ## Error Handling
 
-The system implements comprehensive error handling:
+The system handles errors at these points:
 - Link-level error tracking
 - Storage operation error handling
 - API authentication and authorization errors

@@ -1,0 +1,71 @@
+name: Docs
+
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      # Ubuntu 24.04 blocks the Chrome sandbox for unprivileged users.
+      - name: Write the puppeteer config
+        run: echo '{"args":["--no-sandbox"]}' > "$RUNNER_TEMP/puppeteer.json"
+
+      - name: Run the docs check
+        env:
+          PUPPETEER_CONFIG: ${{ runner.temp }}/puppeteer.json
+        run: bash scripts/docs/check.sh
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: check
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v6
+
+      - name: Build the site
+        env:
+          NO_MKDOCS_2_WARNING: "1"
+        run: uvx --with mkdocs-material mkdocs build --strict -d site
+
+      - name: Upload the site
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
