@@ -2,7 +2,7 @@
 
 vCon Server, also called the Conserver, takes in [vCon](https://datatracker.ietf.org/doc/draft-ietf-vcon-vcon-core/) conversation records, runs them through configurable chains of processing steps and writes the results to the storage backends you choose.
 
-These pages cover the open source server and match the code in this repository.
+These pages cover the open source server and match the code in this repository. For an introduction to the conserver, see [conserver.io](https://www.conserver.io/conserver).
 
 ![API and conserver services around Redis, with storage backends and link services outside](diagrams/D01-system-context.svg)
 
@@ -28,6 +28,9 @@ The server carries `lawful_basis` attachments through the pipeline. It does not 
 | Deploy it | [Installation](installation/index.md) |
 | Set it up | [Configuration](configuration/index.md) |
 | Run it day to day | [Operations](operations/index.md) |
+| See why a conserver exists | [Conserver introduction](https://www.conserver.io/conserver/conserver-introduction) |
+| Follow one phone call through the system | [Day In the Life of a vCon](https://www.conserver.io/conserver/day-in-the-life-of-a-vcon) |
+| Connect your application | [Integrating Your App](https://www.conserver.io/conserver/integrating-your-app) |
 | Write a link, adapter or tracer | [Extending](extending/index.md) |
 | Look up a name | [Reference](reference/index.md) |
 | Change the code or the docs | [Contributing](contributing.md) |
