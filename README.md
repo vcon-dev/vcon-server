@@ -2,7 +2,7 @@
 
 vCon Server is a pipeline for [vCon](https://datatracker.ietf.org/doc/draft-ietf-vcon-vcon-core/) conversation records. It takes them in, runs them through configurable chains of links (transcription, AI analysis, tagging, routing, webhooks) and writes the results to one or more storage backends.
 
-**Documentation:** start at [docs/index.md](docs/index.md). The `Docs` workflow publishes the same pages to https://vcon-dev.github.io/vcon-server/.
+**Documentation:** start at [docs/index.md](docs/index.md). The `Docs` workflow publishes the same pages to https://vcon-dev.github.io/vcon-server/. For an introduction to vCons and the conserver, see [conserver.io](https://www.conserver.io/conserver).
 
 ## Start the server
 

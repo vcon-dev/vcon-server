@@ -98,3 +98,5 @@ Without a delete, a body in Redis ends with its TTL. If no storage holds a copy,
 ## Carry attachments through every state
 
 Attachments travel inside the body, so they share its lifetime. A `lawful_basis` attachment goes through these states like any other. No state creates or checks one. See [lawful basis](lawful-basis.md).
+
+For the same trip told as one phone call, see [Day In the Life of a vCon](https://www.conserver.io/conserver/day-in-the-life-of-a-vcon) on conserver.io.
