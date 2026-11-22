@@ -11,7 +11,7 @@ A default of `none` means the read returns nothing when the variable is unset. `
 
 Each process reads these values when it starts, so restart it after a change. For help choosing values, see the [environment guide](../configuration/environment-variables.md).
 
-The code reads 40 variables.
+The code reads 45 variables.
 
 | Variable | Default | Type | Read in | Description |
 |---|---|---|---|---|
@@ -32,9 +32,14 @@ The code reads 40 variables.
 | `LOGGING_CONFIG_FILE` | `logging.conf` beside `common/settings.py` | string | `common/settings.py` | Path passed to `logging.config.fileConfig`. The repo also ships `common/logging_dev.conf`. |
 | `LOG_LEVEL` | `DEBUG` | string | `common/settings.py` | Read into `settings`, but no code uses that setting. The logging config file sets log levels. |
 | `OPENAI_API_KEY` | `""` in `conserver/links/detect_engagement/__init__.py`<br>none in `common/settings.py` | string | `common/settings.py`<br>`conserver/links/detect_engagement/__init__.py` | Default `OPENAI_API_KEY` option for the `detect_engagement` link. The `settings` value is unused. Other links take the key from link options. |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | none | string | `common/lib/metrics.py` | OTLP endpoint for metrics, passed to the gRPC exporter in `common/lib/metrics.py`. Unset or empty, the metric helpers do nothing. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | none | string | `common/lib/metrics.py`<br>`common/lib/tracing.py` | OTLP endpoint for the worker's metrics and its own spans. Unset or empty, neither is exported. With `http/protobuf` the code appends `/v1/metrics` or `/v1/traces`. |
+| `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | none | string | `common/lib/otlp_config.py` | Full OTLP/HTTP URL for metrics. Overrides the path built from `OTEL_EXPORTER_OTLP_ENDPOINT`. |
+| `OTEL_EXPORTER_OTLP_METRICS_PROTOCOL` | none | string | `common/lib/otlp_config.py` | Use `grpc` or `http/protobuf` for metrics only. Overrides `OTEL_EXPORTER_OTLP_PROTOCOL`. |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | none | string | `common/lib/otlp_config.py` | Export protocol for metrics and spans, `grpc` or `http/protobuf`. Unset means `grpc`. Other values fall back to `grpc` with a warning. |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | none | string | `common/lib/otlp_config.py` | Full OTLP/HTTP URL for spans. Overrides the path built from `OTEL_EXPORTER_OTLP_ENDPOINT`. |
+| `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL` | none | string | `common/lib/otlp_config.py` | Use `grpc` or `http/protobuf` for spans only. Overrides `OTEL_EXPORTER_OTLP_PROTOCOL`. |
 | `OTEL_METRIC_EXPORT_INTERVAL` | `5000` | integer | `common/lib/metrics.py` | Metric export interval in milliseconds. |
-| `OTEL_SERVICE_NAME` | `vcon-server` | string | `common/lib/metrics.py` | Value of the `service.name` resource attribute on metrics. The Compose file sets `conserver` and `api`. |
+| `OTEL_SERVICE_NAME` | `vcon-server` | string | `common/lib/metrics.py`<br>`common/lib/tracing.py` | Value of the `service.name` resource attribute on metrics and spans. The Compose file sets `conserver` and `api`. |
 | `REDIS_URL` | `redis://localhost` | string | `common/settings.py` | Redis connection URL. `docker/wait_for_redis.sh` reads it too, and skips its wait when it is unset or empty. |
 | `SENTRY_DSN` | none | string | `common/lib/error_tracking.py` | Sentry DSN. Unset, Sentry stays off. Set, `ENV` must be in the process environment too. |
 | `SXT_API_KEY` | none | string | `common/storage/spaceandtime/__init__.py` | Space and Time API key for the `spaceandtime` storage adapter. |

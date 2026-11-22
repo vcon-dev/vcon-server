@@ -36,7 +36,8 @@ from lib.vcon_redis import VconRedis
 from settings import VCON_DLQ_EXPIRY
 from lib.context_utils import retrieve_context, store_context_sync, extract_otel_trace_context
 from lib.queue import VconQueue
-from lib.tracing import init_tracing
+from lib.tracing import init_tracing, get_tracer
+from lib.span_attributes import vcon_correlation_attributes
 from lib.error_tracking import init_error_tracker
 from lib.metrics import record_histogram, increment_counter, add_updown_counter
 from storage.base import Storage
@@ -243,7 +244,8 @@ class VconChainRequest:
         """
         self._span_context_manager = self._create_span_from_context()
         self._span = self._span_context_manager.__enter__()
-        
+        self._set_correlation_attributes()
+
         vcon_started = time.time()
         logger.debug(
             "Started processing vCon %s with chain %s",
@@ -296,6 +298,21 @@ class VconChainRequest:
         except Exception as e:
             logger.debug(f"Failed to end span: {e}")
 
+    def _set_correlation_attributes(self) -> None:
+        """Put ``tenant.id`` and ``call.session_id`` on the chain span.
+
+        Span attributes only. Never copy them onto a metric: one series per call fills the metrics
+        store. Skipped when the span is not recording, which saves the Redis read.
+        """
+        try:
+            if self._span is None or not self._span.is_recording():
+                return
+            vcon_dict = VconRedis().get_vcon_dict(self.vcon_id)
+            for key, value in vcon_correlation_attributes(vcon_dict).items():
+                self._span.set_attribute(key, value)
+        except Exception as e:
+            logger.debug(f"Failed to set correlation attributes for vCon {self.vcon_id}: {e}")
+
     def _create_span_from_context(self):
         """Open a vcon_processing root span for this chain run.
 
@@ -313,7 +330,7 @@ class VconChainRequest:
         Returns:
             The span context manager (never None).
         """
-        tracer = trace.get_tracer(__name__)
+        tracer = get_tracer(__name__)
         links = []
         if self.context:
             try:
@@ -394,7 +411,7 @@ class VconChainRequest:
             storage_name: Name of the storage backend to use
         """
         # Create a span for this storage operation - automatically inherits parent span context
-        tracer = trace.get_tracer(__name__)
+        tracer = get_tracer(__name__)
         with tracer.start_as_current_span(
             f"storage.{storage_name}",
             attributes={
@@ -560,7 +577,7 @@ class VconChainRequest:
         logger.debug("Processing link %s for vCon: %s", link_name, self.vcon_id)
         link = config["links"][link_name]
 # Create a span for this link - automatically inherits parent span context
-        tracer = trace.get_tracer(__name__)
+        tracer = get_tracer(__name__)
         with tracer.start_as_current_span(
             f"link.{link_name}",
             attributes={

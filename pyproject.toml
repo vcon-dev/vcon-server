@@ -9,6 +9,12 @@ dependencies = [
     "opentelemetry-sdk>=1.38.0",
     "opentelemetry-exporter-otlp>=1.38.0",
     "opentelemetry-distro==0.59b0",
+    # Instrumentations the images rely on, pinned to the distro's release so a build fails if one is
+    # missing. FastAPI is in the api group.
+    "opentelemetry-instrumentation-redis==0.59b0",
+    "opentelemetry-instrumentation-httpx==0.59b0",
+    "opentelemetry-instrumentation-requests==0.59b0",
+    "opentelemetry-instrumentation-logging==0.59b0",
     "redis==4.6.0",
     "pyyaml>=6.0.1",
     "sentry-sdk>=2.8.0",
@@ -56,6 +62,7 @@ storage-milvus = [
 api = [
     {include-group = "storage"},
     "fastapi==0.115.6",
+    "opentelemetry-instrumentation-fastapi==0.59b0",
     "uvicorn==0.23.2",
     "gunicorn>=23.0.0",
     "starlette>=0.40.0",
