@@ -41,9 +41,7 @@ def init_error_tracker():
     try:
         ext.enrich()
     except Exception:
-        logging.getLogger(__name__).exception(
-            "error_tracking_ext.enrich() raised; continuing without enrichment"
-        )
+        logging.getLogger(__name__).exception("error_tracking_ext.enrich() raised; continuing without enrichment")
 
 
 def capture_exception(e):

@@ -69,7 +69,10 @@ def _build_callback(client):
                 except Exception as e:
                     logger.warning(
                         "LLEN failed for %s (ingress_list=%s, kind=%s): %s",
-                        key, ingress_list, kind, e,
+                        key,
+                        ingress_list,
+                        kind,
+                        e,
                     )
                     continue
                 observations.append(
@@ -151,7 +154,6 @@ def register_redis_memory_gauge(client):
         metric_name="conserver.redis.memory_used_bytes",
         callback=_build_redis_memory_callback(client),
         description=(
-            "Current Redis memory usage in bytes (used_memory from INFO memory). "
-            "One series per conserver pod."
+            "Current Redis memory usage in bytes (used_memory from INFO memory). " "One series per conserver pod."
         ),
     )

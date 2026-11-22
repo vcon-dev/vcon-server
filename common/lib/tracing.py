@@ -1,3 +1,4 @@
+import atexit
 import logging
 import os
 import socket
@@ -10,7 +11,14 @@ from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
-from lib.otlp_config import HTTP_PROTOBUF, http_signal_url, otlp_protocol
+from lib.otlp_config import (
+    EXPORT_TIMEOUT_S,
+    HTTP_PROTOBUF,
+    TRACE_SHUTDOWN_BUDGET_S,
+    http_signal_url,
+    otlp_protocol,
+    run_bounded,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -53,11 +61,16 @@ def init_tracer_provider():
                     }
                 )
                 if otlp_protocol("traces") == HTTP_PROTOBUF:
-                    exporter = OTLPHttpSpanExporter(endpoint=http_signal_url("traces", endpoint))
+                    exporter = OTLPHttpSpanExporter(
+                        endpoint=http_signal_url("traces", endpoint), timeout=EXPORT_TIMEOUT_S
+                    )
                 else:
-                    exporter = OTLPSpanExporter(endpoint=endpoint)
-                provider = TracerProvider(resource=resource)
-                provider.add_span_processor(BatchSpanProcessor(exporter))
+                    exporter = OTLPSpanExporter(endpoint=endpoint, timeout=EXPORT_TIMEOUT_S)
+                # shutdown_on_exit=False: the SDK's own atexit hook can block for 30 s on a dead
+                # collector. shutdown_tracer_provider (registered below) does it with a time bound.
+                provider = TracerProvider(resource=resource, shutdown_on_exit=False)
+                provider.add_span_processor(BatchSpanProcessor(exporter, export_timeout_millis=EXPORT_TIMEOUT_S * 1000))
+                _register_atexit_once()
                 logger.info("OpenTelemetry tracing initialized: pid=%d", pid)
             except Exception as e:
                 provider = None
@@ -72,19 +85,28 @@ def tracing_enabled():
     return init_tracer_provider() is not None
 
 
+_atexit_registered = False
+
+
+def _register_atexit_once():
+    global _atexit_registered
+    if not _atexit_registered:
+        _atexit_registered = True
+        atexit.register(shutdown_tracer_provider)
+
+
 def shutdown_tracer_provider():
-    """Flush and shut down this process's own provider.
+    """Flush and shut down this process's own provider, waiting at most a few seconds.
 
     A forked multiprocessing child leaves through ``os._exit``, which skips ``atexit``, so a worker
-    calls this itself before it returns. A provider inherited from another pid is left alone.
+    calls this itself before it returns. A provider inherited from another pid is left alone. With
+    the collector down the wait is capped, and spans still queued are dropped.
     """
     global _tracer_provider
-    if _tracer_provider is not None and _tracer_provider_pid == os.getpid():
-        try:
-            _tracer_provider.shutdown()
-        except Exception as e:
-            logger.warning("Failed to shut down OpenTelemetry tracing: %s", e)
+    provider = _tracer_provider
+    if provider is not None and _tracer_provider_pid == os.getpid():
         _tracer_provider = None
+        run_bounded(provider.shutdown, TRACE_SHUTDOWN_BUDGET_S, "tracing")
 
 
 def get_tracer(name):

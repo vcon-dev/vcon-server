@@ -2,6 +2,7 @@
 
 import logging
 import os
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -41,3 +42,35 @@ def http_signal_url(signal, base_endpoint):
     if specific:
         return specific
     return f"{base_endpoint.rstrip('/')}/v1/{signal}"
+
+
+# Bounds on telemetry work at exit. A dead collector must not hold a worker for the SDK defaults,
+# which add up to about a minute (30 s trace shutdown plus the metrics export timeout).
+EXPORT_TIMEOUT_S = 2
+TRACE_SHUTDOWN_BUDGET_S = 3.0
+METRIC_SHUTDOWN_BUDGET_S = 2.0
+
+
+def run_bounded(fn, budget_s, what):
+    """Run ``fn`` on a daemon thread and give up waiting after ``budget_s`` seconds.
+
+    Returns True when ``fn`` finished in time. A late thread is abandoned: it is a daemon, so it
+    cannot keep the process alive, and whatever it had not exported is dropped.
+    """
+    error = []
+
+    def target():
+        try:
+            fn()
+        except Exception as e:  # noqa: BLE001
+            error.append(e)
+
+    thread = threading.Thread(target=target, name=f"otel-shutdown-{what}", daemon=True)
+    thread.start()
+    thread.join(budget_s)
+    if thread.is_alive():
+        logger.warning("OpenTelemetry %s shutdown still running after %.1f s, abandoning it", what, budget_s)
+        return False
+    if error:
+        logger.warning("Failed to shut down OpenTelemetry %s: %s", what, error[0])
+    return True

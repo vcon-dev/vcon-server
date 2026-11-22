@@ -119,8 +119,7 @@ def to_legacy(vcon_dict: Dict[str, Any], target_version: str) -> Dict[str, Any]:
     """
     if target_version not in SUPPORTED_VERSIONS:
         raise ValueError(
-            f"Unsupported egress_format_version {target_version!r}; "
-            f"supported: {sorted(SUPPORTED_VERSIONS)}"
+            f"Unsupported egress_format_version {target_version!r}; " f"supported: {sorted(SUPPORTED_VERSIONS)}"
         )
     if not isinstance(vcon_dict, dict):
         return vcon_dict

@@ -32,7 +32,6 @@ present, the spec field wins and the legacy field is dropped.
 
 from typing import Any, Dict, List
 
-
 _TOP_LEVEL_RENAMES = {
     "appended": "amended",
     "must_support": "critical",

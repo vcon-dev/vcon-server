@@ -94,7 +94,7 @@ def test_metrics_default_protocol_is_grpc(monkeypatch):
             patch.object(metrics, "OTEL_EXPORTER_OTLP_ENDPOINT", "http://fake:4317"),
         ):
             metrics._init_otel_metrics()
-        grpc_exp.assert_called_once_with(endpoint="http://fake:4317")
+        grpc_exp.assert_called_once_with(endpoint="http://fake:4317", timeout=2)
         assert not http_exp.called
     finally:
         _reset_metrics(metrics)
@@ -137,7 +137,7 @@ def test_tracer_provider_exports_over_http_protobuf(tracing_module, monkeypatch)
         patch("lib.tracing.BatchSpanProcessor"),
     ):
         tracing_module.init_tracer_provider()
-    http_exp.assert_called_once_with(endpoint="http://collector:4318/v1/traces")
+    http_exp.assert_called_once_with(endpoint="http://collector:4318/v1/traces", timeout=2)
     assert not grpc_exp.called
 
 
@@ -258,3 +258,48 @@ def test_forked_worker_exports_spans_and_metrics_without_a_manual_flush(fail, tm
     assert "/v1/traces" in collector.paths
     assert b"child.work" in b"".join(collector.bodies)
     assert "/v1/metrics" in collector.paths
+
+
+# --- shutdown is bounded when the collector is down ----------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "protocol,mode", [("grpc", "refused"), ("http/protobuf", "refused"), ("http/protobuf", "hang")]
+)
+def test_worker_shutdown_returns_quickly_with_an_unreachable_collector(monkeypatch, protocol, mode):
+    """A dead collector must not hold a worker for the SDK defaults (about a minute)."""
+    import socket
+    import time
+
+    from lib import metrics, tracing
+
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    if mode == "hang":
+        sock.listen(128)  # accepts connections at the kernel level, never answers
+    else:
+        sock.close()  # nothing listening: connection refused
+    url = f"http://127.0.0.1:{port}"
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", url)
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_PROTOCOL", protocol)
+    monkeypatch.setattr(metrics, "OTEL_EXPORTER_OTLP_ENDPOINT", url)
+    for module, names in ((tracing, ("_tracer_provider", "_tracer_provider_pid")), (metrics, ())):
+        for n in names:
+            monkeypatch.setattr(module, n, None)
+    _reset_metrics(metrics)
+    try:
+        tracer = tracing.get_tracer("t")
+        for i in range(3000):
+            tracer.start_span(f"s{i}").end()
+        metrics.increment_counter("o6.down.counter")
+
+        started = time.monotonic()
+        tracing.shutdown_tracer_provider()
+        metrics.shutdown_meter_provider()
+        elapsed = time.monotonic() - started
+    finally:
+        if mode == "hang":
+            sock.close()
+        _reset_metrics(metrics)
+    assert elapsed < 7, f"shutdown took {elapsed:.1f}s"

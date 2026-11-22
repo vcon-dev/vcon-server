@@ -10,7 +10,14 @@ from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 from opentelemetry.sdk.resources import Resource
 
-from lib.otlp_config import HTTP_PROTOBUF, http_signal_url, otlp_protocol
+from lib.otlp_config import (
+    EXPORT_TIMEOUT_S,
+    HTTP_PROTOBUF,
+    METRIC_SHUTDOWN_BUDGET_S,
+    http_signal_url,
+    otlp_protocol,
+    run_bounded,
+)
 
 OTEL_EXPORTER_OTLP_ENDPOINT = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
 OTEL_SERVICE_NAME = os.environ.get("OTEL_SERVICE_NAME", "vcon-server")
@@ -114,10 +121,12 @@ def _init_otel_metrics():
         if otlp_protocol("metrics") == HTTP_PROTOBUF:
             otlp_exporter = OTLPHttpMetricExporter(
                 endpoint=http_signal_url("metrics", OTEL_EXPORTER_OTLP_ENDPOINT),
+                timeout=EXPORT_TIMEOUT_S,
             )
         else:
             otlp_exporter = OTLPMetricExporter(
                 endpoint=OTEL_EXPORTER_OTLP_ENDPOINT,
+                timeout=EXPORT_TIMEOUT_S,
             )
 
         reader = PeriodicExportingMetricReader(
@@ -188,18 +197,16 @@ def _init_otel_metrics():
 
 
 def shutdown_meter_provider():
-    """Flush and shut down this process's own meter provider (see ``lib.tracing``).
+    """Flush and shut down this process's own meter provider, waiting at most a couple of seconds.
 
     A forked worker leaves through ``os._exit`` and never runs the ``atexit`` hook, so it calls this
     before it returns. A provider inherited from another pid is left alone.
     """
     global _meter_provider
-    if _meter_provider is not None and _otel_initialized_pid == os.getpid():
-        try:
-            _meter_provider.shutdown()
-        except Exception as e:
-            logger.warning("Failed to shut down OpenTelemetry metrics: %s", e)
+    provider = _meter_provider
+    if provider is not None and _otel_initialized_pid == os.getpid():
         _meter_provider = None
+        run_bounded(provider.shutdown, METRIC_SHUTDOWN_BUDGET_S, "metrics")
 
 
 def increment_counter(metric_name, value=1, attributes=None):
