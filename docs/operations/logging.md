@@ -31,7 +31,7 @@ Both shipped files stop at `INFO`, including `logging_dev.conf`, because the roo
 
 ## Read the JSON output
 
-The JSON formatter is `TraceJsonFormatter`, a `pythonjsonlogger` subclass. Fields passed through `extra` become top-level keys. A record written inside an OpenTelemetry span also has `trace_id` and `span_id`.
+The JSON formatter is `TraceJsonFormatter`, a `pythonjsonlogger` subclass. Fields passed through `extra` become top-level keys. With `OTEL_EXPORTER_OTLP_ENDPOINT` set, a record written inside an OpenTelemetry span also has `trace_id` and `span_id`.
 
 ```json
 {"asctime": "2026-11-03 17:46:27,793", "levelname": "INFO", "name": "storage.base", "message": "Finished storage postgres module storage.postgres save for vCon: 018f0000-0000-8000-8000-000000000001 in 0.12 seconds.", "taskName": null, "storage_processing_time": 0.12}

@@ -1,5 +1,7 @@
 """JSON log formatter that carries the active trace and span ids."""
 
+import os
+
 from pythonjsonlogger.jsonlogger import JsonFormatter
 
 
@@ -15,8 +17,8 @@ class TraceJsonFormatter(JsonFormatter):
     """JsonFormatter plus ``trace_id`` and ``span_id``.
 
     The ids come from the OpenTelemetry logging instrumentation, which stamps ``otelTraceID`` and
-    ``otelSpanID`` on every record (see ``lib.logging_utils``). Outside a span, or with the
-    instrumentation off, the two fields are left out and every other field is unchanged.
+    ``otelSpanID`` on every record (see ``lib.logging_utils``). Outside a span, with no
+    OTEL_EXPORTER_OTLP_ENDPOINT set, or with the instrumentation off, the two fields are left out and every other field is unchanged.
     """
 
     def add_fields(self, log_record, record, message_dict):
@@ -26,6 +28,7 @@ class TraceJsonFormatter(JsonFormatter):
         # The instrumentation's own attributes would otherwise appear as extra keys.
         for key in ("otelTraceID", "otelSpanID", "otelTraceSampled", "otelServiceName"):
             log_record.pop(key, None)
-        if _is_set(trace_id) and _is_set(span_id):
+        # Telemetry off (no endpoint) leaves the log format exactly as it was.
+        if os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT") and _is_set(trace_id) and _is_set(span_id):
             log_record["trace_id"] = trace_id
             log_record["span_id"] = span_id

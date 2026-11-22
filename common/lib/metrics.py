@@ -53,7 +53,8 @@ def _prepare_attributes(metric_name, attributes):
         _warned_per_vcon_metrics.add(metric_name)
         logger.warning(
             "Dropping per-vCon attribute(s) %s from metric %s: unbounded cardinality",
-            sorted(dropped), metric_name,
+            sorted(dropped),
+            metric_name,
         )
     return {k: v for k, v in attributes.items() if k not in PER_VCON_ATTRIBUTE_KEYS}
 
@@ -102,11 +103,13 @@ def _init_otel_metrics():
         # multiple processes in the same pod into one fingerprint.
         instance_id = f"{host_name}-pid-{current_pid}"
 
-        resource = Resource.create({
-            "service.name": OTEL_SERVICE_NAME,
-            "host.name": host_name,
-            "service.instance.id": instance_id,
-        })
+        resource = Resource.create(
+            {
+                "service.name": OTEL_SERVICE_NAME,
+                "host.name": host_name,
+                "service.instance.id": instance_id,
+            }
+        )
 
         if otlp_protocol("metrics") == HTTP_PROTOBUF:
             otlp_exporter = OTLPHttpMetricExporter(
@@ -175,7 +178,8 @@ def _init_otel_metrics():
         _otel_initialized_pid = current_pid
         logger.info(
             "OpenTelemetry metrics initialized: pid=%d, instance_id=%s",
-            current_pid, instance_id,
+            current_pid,
+            instance_id,
         )
     except Exception as e:
         logger.warning("Failed to initialize OpenTelemetry metrics: %s", e)
@@ -183,12 +187,27 @@ def _init_otel_metrics():
         _otel_initialized_pid = current_pid
 
 
+def shutdown_meter_provider():
+    """Flush and shut down this process's own meter provider (see ``lib.tracing``).
+
+    A forked worker leaves through ``os._exit`` and never runs the ``atexit`` hook, so it calls this
+    before it returns. A provider inherited from another pid is left alone.
+    """
+    global _meter_provider
+    if _meter_provider is not None and _otel_initialized_pid == os.getpid():
+        try:
+            _meter_provider.shutdown()
+        except Exception as e:
+            logger.warning("Failed to shut down OpenTelemetry metrics: %s", e)
+        _meter_provider = None
+
+
 def increment_counter(metric_name, value=1, attributes=None):
     """Increment a counter metric in OpenTelemetry.
-    
+
     Only publishes if OpenTelemetry endpoint is configured.
     Initializes OpenTelemetry automatically on first call if not already initialized.
-    
+
     Args:
         metric_name: Name of the metric
         value: Counter increment value (default: 1)
@@ -196,21 +215,21 @@ def increment_counter(metric_name, value=1, attributes=None):
     """
     # Lazy initialization on first use
     _init_otel_metrics()
-    
+
     if not OTEL_EXPORTER_OTLP_ENDPOINT or not meter:
         return
-    
+
     try:
         # Host is already in the resource; per-vCon keys are dropped.
         attributes = _prepare_attributes(metric_name, attributes)
-        
+
         # Get or create counter metric
         if metric_name not in counter_metrics:
             counter_metrics[metric_name] = meter.create_counter(
                 name=metric_name,
                 description=f"Counter metric for {metric_name}",
             )
-        
+
         # Record the increment
         counter_metrics[metric_name].add(value, attributes=attributes)
     except Exception as e:
@@ -290,10 +309,10 @@ def register_observable_gauge(metric_name, callback, description=None):
 
 def record_histogram(metric_name, value, attributes=None):
     """Record a value in a histogram metric in OpenTelemetry.
-    
+
     Only publishes if OpenTelemetry endpoint is configured.
     Initializes OpenTelemetry automatically on first call if not already initialized.
-    
+
     Args:
         metric_name: Name of the metric
         value: Value to record in the histogram
@@ -304,18 +323,18 @@ def record_histogram(metric_name, value, attributes=None):
 
     if not OTEL_EXPORTER_OTLP_ENDPOINT or not meter:
         return
-    
+
     try:
         # Host is already in the resource; per-vCon keys are dropped.
         attributes = _prepare_attributes(metric_name, attributes)
-        
+
         # Get or create histogram metric
         if metric_name not in histogram_metrics:
             histogram_metrics[metric_name] = meter.create_histogram(
                 name=metric_name,
                 description=f"Histogram metric for {metric_name}",
             )
-        
+
         # Record the value
         histogram_metrics[metric_name].record(value, attributes=attributes)
     except Exception as e:

@@ -112,7 +112,8 @@ def _json_logger(name):
     return log, stream
 
 
-def test_json_log_record_carries_trace_and_span_ids(span_exporter, log_correlation):
+def test_json_log_record_carries_trace_and_span_ids(span_exporter, log_correlation, monkeypatch):
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector:4317")
     _, provider = span_exporter
     log, stream = _json_logger("o6.test.logs.inside")
     tracer = provider.get_tracer("t")
@@ -132,7 +133,8 @@ def test_json_log_record_carries_trace_and_span_ids(span_exporter, log_correlati
     assert not [k for k in record if k.startswith("otel")]
 
 
-def test_json_log_record_outside_a_span_has_no_ids(log_correlation):
+def test_json_log_record_outside_a_span_has_no_ids(log_correlation, monkeypatch):
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector:4317")
     log, stream = _json_logger("o6.test.logs.outside")
     log.info("no span")
     record = json.loads(stream.getvalue())
@@ -167,24 +169,35 @@ def test_correlation_attributes_absent_when_not_in_vcon():
     assert vcon_correlation_attributes(bad) == {}
 
 
-def _run_chain(span_provider, meter_reader, vcon_dict):
+VCON_UUID = "0192f0f0-0000-7000-8000-000000000001"
+
+
+def _run_chain(span_provider, meter_reader, vcon_dict, tracing_on=True):
+    """Run one chain with an in-memory span provider.
+
+    Returns the mock standing in for ``main.VconRedis`` so tests can count reads, and the Redis
+    client that ``main.r`` is patched to.
+    """
+    import os
+
     import main as main_module
     from main import VconChainRequest
+    from vcon import Vcon
 
     chain = {"name": "o6_chain", "links": ["mock_link"], "storages": [], "egress_lists": []}
     main_module.config = {"links": {"mock_link": {"module": "mock_module", "options": {}}}}
     link_module = MagicMock()
-    link_module.run.return_value = "0192f0f0-0000-7000-8000-000000000001"
-    redis_instance = MagicMock()
-    redis_instance.get_vcon_dict.return_value = vcon_dict
+    link_module.run.return_value = VCON_UUID
+    vcon_redis_cls = MagicMock()
+    vcon_redis_cls.return_value.get_vcon.return_value = Vcon(vcon_dict) if vcon_dict is not None else None
+    redis_client = MagicMock()
 
     meter_provider = MeterProvider(metric_readers=[meter_reader])
-    import os
-
     with (
         patch.dict("main.imported_modules", {"mock_module": link_module}),
         patch("main.get_tracer", side_effect=lambda name: span_provider.get_tracer(name)),
-        patch("main.VconRedis", return_value=redis_instance),
+        patch("main.VconRedis", vcon_redis_cls),
+        patch("main.r", redis_client),
         patch.multiple(
             "lib.metrics",
             meter=meter_provider.get_meter("t"),
@@ -195,9 +208,11 @@ def _run_chain(span_provider, meter_reader, vcon_dict):
             updown_counter_metrics={},
             observable_gauges={},
         ),
+        patch("main.tracing_enabled", return_value=tracing_on),
     ):
-        VconChainRequest(chain, "0192f0f0-0000-7000-8000-000000000001", context=None).process()
+        VconChainRequest(chain, VCON_UUID, context=None).process()
     meter_provider.shutdown()
+    return vcon_redis_cls, redis_client
 
 
 def test_chain_span_has_tenant_and_session_but_metrics_do_not(span_exporter):
@@ -235,3 +250,81 @@ def test_chain_span_without_tenant_or_tag_omits_both(span_exporter):
     chain_span = next(s for s in exporter.get_finished_spans() if s.name == "vcon_processing.o6_chain")
     assert "tenant.id" not in chain_span.attributes
     assert "call.session_id" not in chain_span.attributes
+
+
+# --- no extra read, and nothing unless an endpoint is configured ---------------------------
+
+
+def test_chain_span_adds_no_vcon_read(span_exporter):
+    """The attributes come from the vCon the link step already loads: one get_vcon per link, and no
+    other Redis or storage call from the correlation code."""
+    exporter, provider = span_exporter
+    with (
+        patch("lib.vcon_redis.VconRedis.get_vcon_dict") as get_dict,
+        patch("lib.vcon_redis.VconRedis._load_from_storage") as storage,
+    ):
+        vcon_redis_cls, redis_client = _run_chain(provider, InMemoryMetricReader(), _vcon_dict())
+    assert vcon_redis_cls.return_value.get_vcon.call_count == 1
+    assert not redis_client.get.called
+    assert not get_dict.called and not storage.called
+
+
+def test_no_attributes_when_no_endpoint_is_configured(span_exporter, monkeypatch):
+    """The distro's SDK provider records spans even with nothing exporting. With no endpoint the
+    correlation attributes are not computed at all."""
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
+    import lib.tracing as tracing_lib
+
+    monkeypatch.setattr(tracing_lib, "_tracer_provider", None)
+    monkeypatch.setattr(tracing_lib, "_tracer_provider_pid", None)
+    exporter, provider = span_exporter
+    with patch("main.vcon_correlation_attributes") as attrs:
+        _run_chain_real_gate(provider)
+    assert not attrs.called
+    span = next(s for s in exporter.get_finished_spans() if s.name == "vcon_processing.o6_chain")
+    assert "tenant.id" not in span.attributes
+
+
+def _run_chain_real_gate(provider):
+    import main as main_module
+    from main import VconChainRequest
+    from vcon import Vcon
+
+    chain = {"name": "o6_chain", "links": ["mock_link"], "storages": [], "egress_lists": []}
+    main_module.config = {"links": {"mock_link": {"module": "mock_module", "options": {}}}}
+    link_module = MagicMock()
+    link_module.run.return_value = VCON_UUID
+    vcon_redis_cls = MagicMock()
+    vcon_redis_cls.return_value.get_vcon.return_value = Vcon(_vcon_dict())
+    with (
+        patch.dict("main.imported_modules", {"mock_module": link_module}),
+        patch("main.get_tracer", side_effect=lambda n: provider.get_tracer(n)),
+        patch("main.VconRedis", vcon_redis_cls),
+    ):
+        VconChainRequest(chain, VCON_UUID, context=None).process()
+
+
+def test_missing_vcon_with_endpoint_set_is_harmless(span_exporter):
+    exporter, provider = span_exporter
+    with (
+        patch("lib.vcon_redis.VconRedis._load_from_storage") as storage,
+        patch("lib.vcon_redis.VconRedis._cache_back_to_redis") as cache_back,
+    ):
+        vcon_redis_cls, redis_client = _run_chain(provider, InMemoryMetricReader(), None, tracing_on=True)
+    assert not redis_client.get.called and not storage.called and not cache_back.called
+    span = next(s for s in exporter.get_finished_spans() if s.name == "vcon_processing.o6_chain")
+    assert "tenant.id" not in span.attributes and "call.session_id" not in span.attributes
+
+
+# --- log ids only when telemetry is on ---------------------------------------------------------
+
+
+def test_json_log_has_no_ids_when_no_endpoint_is_set(span_exporter, log_correlation, monkeypatch):
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
+    _, provider = span_exporter
+    log, stream = _json_logger("o6.test.logs.off")
+    with provider.get_tracer("t").start_as_current_span("work"):
+        log.info("telemetry off")
+    record = json.loads(stream.getvalue())
+    assert "trace_id" not in record and "span_id" not in record
+    assert not [k for k in record if k.startswith("otel")]

@@ -166,3 +166,75 @@ def test_get_tracer_uses_process_provider(tracing_module, monkeypatch):
         tracer = tracing_module.get_tracer("x")
         assert tracer is not None
         assert tracing_module._tracer_provider is not None
+
+
+def test_pid_marker_is_set_only_after_the_provider_is_built(tracing_module, monkeypatch):
+    """A second thread must not see 'initialized' while the first is still building."""
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector:4317")
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_PROTOCOL", raising=False)
+    seen = {}
+
+    def exporter_factory(**kwargs):
+        seen["pid_during_build"] = tracing_module._tracer_provider_pid
+        return MagicMock()
+
+    with patch("lib.tracing.OTLPSpanExporter", side_effect=exporter_factory), patch("lib.tracing.BatchSpanProcessor"):
+        provider = tracing_module.init_tracer_provider()
+    assert seen["pid_during_build"] is None
+    assert provider is not None and tracing_module._tracer_provider_pid == os.getpid()
+
+
+def test_init_tracing_can_skip_building_the_provider(tracing_module, monkeypatch):
+    """The multi-worker parent skips the provider so each child builds its own after the fork."""
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://collector:4317")
+    with patch("lib.tracing.OTLPSpanExporter") as exp:
+        tracing_module.init_tracing(build_provider=False)
+    assert not exp.called
+    assert tracing_module._tracer_provider is None and tracing_module._tracer_provider_pid is None
+
+
+# --- a forked worker flushes before it returns ---------------------------------------------------
+
+
+def _forked_worker(url, fail):
+    """Runs in a forked child, which leaves through os._exit and so never runs atexit hooks."""
+    import main
+    from lib import metrics, tracing
+
+    os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = url
+    os.environ["OTEL_EXPORTER_OTLP_PROTOCOL"] = "http/protobuf"
+    tracing._tracer_provider = None
+    tracing._tracer_provider_pid = None
+    metrics.OTEL_EXPORTER_OTLP_ENDPOINT = url
+    metrics._otel_initialized_pid = None
+    metrics._meter_provider = None
+
+    def body(worker_id):
+        with tracing.get_tracer("t").start_as_current_span("child.work"):
+            pass
+        metrics.increment_counter("o6.child.counter")
+        if fail:
+            raise RuntimeError("worker crashed")
+
+    main._worker_loop_inner = body
+    try:
+        main.worker_loop(1)
+    except RuntimeError:
+        pass
+
+
+@pytest.mark.parametrize("fail", [False, True])
+def test_forked_worker_exports_spans_and_metrics_without_a_manual_flush(fail):
+    import multiprocessing
+
+    import main  # noqa: F401  imported before the fork, as the real parent has
+
+    with _Collector() as collector:
+        ctx = multiprocessing.get_context("fork")
+        proc = ctx.Process(target=_forked_worker, args=(collector.url, fail))
+        proc.start()
+        proc.join(timeout=60)
+        assert proc.exitcode == 0
+    assert "/v1/traces" in collector.paths
+    assert b"child.work" in b"".join(collector.bodies)
+    assert "/v1/metrics" in collector.paths

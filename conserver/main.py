@@ -36,10 +36,10 @@ from lib.vcon_redis import VconRedis
 from settings import VCON_DLQ_EXPIRY
 from lib.context_utils import retrieve_context, store_context_sync, extract_otel_trace_context
 from lib.queue import VconQueue
-from lib.tracing import init_tracing, get_tracer
+from lib.tracing import init_tracing, get_tracer, tracing_enabled, shutdown_tracer_provider
 from lib.span_attributes import vcon_correlation_attributes
 from lib.error_tracking import init_error_tracker
-from lib.metrics import record_histogram, increment_counter, add_updown_counter
+from lib.metrics import record_histogram, increment_counter, add_updown_counter, shutdown_meter_provider
 from storage.base import Storage
 
 # OpenTelemetry trace context propagation
@@ -229,6 +229,7 @@ class VconChainRequest:
         self.context = context
         self._span = None
         self._span_context_manager = None
+        self._correlation_set = False
 
     def process(self) -> None:
         """Process the vCon through all configured chain links.
@@ -244,8 +245,6 @@ class VconChainRequest:
         """
         self._span_context_manager = self._create_span_from_context()
         self._span = self._span_context_manager.__enter__()
-        self._set_correlation_attributes()
-
         vcon_started = time.time()
         logger.debug(
             "Started processing vCon %s with chain %s",
@@ -298,16 +297,19 @@ class VconChainRequest:
         except Exception as e:
             logger.debug(f"Failed to end span: {e}")
 
-    def _set_correlation_attributes(self) -> None:
+    def _set_correlation_attributes(self, vcon_dict) -> None:
         """Put ``tenant.id`` and ``call.session_id`` on the chain span.
 
-        Span attributes only. Never copy them onto a metric: one series per call fills the metrics
-        store. Skipped when the span is not recording, which saves the Redis read.
+        Takes the vCon that ``_process_link`` has already loaded for its after-link hook, so it adds
+        no Redis or storage read. Span attributes only. Never copy them onto a metric: one series
+        per call fills the metrics store. Skipped unless an export endpoint is configured.
         """
+        if self._correlation_set:
+            return
+        self._correlation_set = True
         try:
-            if self._span is None or not self._span.is_recording():
+            if self._span is None or not self._span.is_recording() or not tracing_enabled():
                 return
-            vcon_dict = VconRedis().get_vcon_dict(self.vcon_id)
             for key, value in vcon_correlation_attributes(vcon_dict).items():
                 self._span.set_attribute(key, value)
         except Exception as e:
@@ -602,6 +604,8 @@ class VconChainRequest:
             parties = []
             try:
                 _vcon = VconRedis().get_vcon(self.vcon_id)
+                if _vcon is not None:
+                    self._set_correlation_attributes(_vcon.vcon_dict)
                 for party in (_vcon.parties or []) if _vcon else []:
                     tel = party.get("tel") if isinstance(party, dict) else getattr(party, "tel", None)
                     mailto = party.get("mailto") if isinstance(party, dict) else getattr(party, "mailto", None)
@@ -789,6 +793,20 @@ def _handle_vcon(
 
 
 def worker_loop(worker_id: int) -> None:
+    """Run one worker and flush its telemetry on the way out, normal or not.
+
+    A forked multiprocessing child exits through ``os._exit``, which skips ``atexit``, so the
+    ``atexit`` hooks on the tracer and meter providers never run there. Without this, the last
+    batch of spans and metrics from every worker is lost.
+    """
+    try:
+        _worker_loop_inner(worker_id)
+    finally:
+        shutdown_tracer_provider()
+        shutdown_meter_provider()
+
+
+def _worker_loop_inner(worker_id: int) -> None:
     """Worker process main loop for vCon processing.
 
     Each worker independently polls Redis queues and processes vCons.
@@ -968,9 +986,11 @@ def main() -> None:
         version_info["build_time"]
     )
 
-    init_tracing()
-
     worker_count = get_worker_count()
+    # With several workers each child builds its own tracer provider after the fork, so the parent
+    # skips it and does not hand every child an idle one.
+    init_tracing(build_provider=worker_count <= 1)
+
     parallel_storage = is_parallel_storage_enabled()
     start_method = get_start_method()
     
