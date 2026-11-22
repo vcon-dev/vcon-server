@@ -8,7 +8,6 @@ direct OpenAI or Azure OpenAI credentials from opts.
 All links and storage that call OpenAI should use get_openai_client(opts) so
 LLM provider and proxy can be switched in one place.
 """
-
 from openai import OpenAI, AzureOpenAI, AsyncOpenAI, AsyncAzureOpenAI
 
 from lib.logging_utils import init_logger
@@ -67,7 +66,11 @@ def get_openai_client(opts=None, max_retries=0):
             max_retries=max_retries,
         )
 
-    openai_api_key = opts.get("OPENAI_API_KEY") or opts.get("openai_api_key") or opts.get("api_key")
+    openai_api_key = (
+        opts.get("OPENAI_API_KEY")
+        or opts.get("openai_api_key")
+        or opts.get("api_key")
+    )
     if openai_api_key:
         logger.info("Using public OpenAI client")
         organization = opts.get("organization") or opts.get("organization_key")
@@ -186,7 +189,11 @@ def get_async_openai_client(opts=None):
             max_retries=0,
         )
 
-    openai_api_key = opts.get("OPENAI_API_KEY") or opts.get("openai_api_key") or opts.get("api_key")
+    openai_api_key = (
+        opts.get("OPENAI_API_KEY")
+        or opts.get("openai_api_key")
+        or opts.get("api_key")
+    )
     if openai_api_key:
         logger.info("Using public OpenAI client (async)")
         return AsyncOpenAI(api_key=openai_api_key, timeout=120.0, max_retries=0)

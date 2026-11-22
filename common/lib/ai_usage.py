@@ -3,13 +3,14 @@ import requests
 from datetime import datetime, timezone
 from typing import Optional
 
+
 logger = init_logger(__name__)
 
 
 def send_ai_usage_data_for_tracking(
     vcon_uuid: str,
-    input_units: int,
-    output_units: int,
+    input_units: int, 
+    output_units: int, 
     unit_type: str,
     type: str,
     send_ai_usage_data_to_url: str,
@@ -30,15 +31,17 @@ def send_ai_usage_data_for_tracking(
     }
     if send_ai_usage_data_to_url:
         response = requests.post(
-            send_ai_usage_data_to_url, json=data, headers={"Authorization": f"Bearer {ai_usage_api_token}"}, timeout=30
+            send_ai_usage_data_to_url,
+            json=data, 
+            headers={"Authorization": f"Bearer {ai_usage_api_token}"},
+            timeout=30
         )
         if response.ok:
             logger.info(f"AI usage data sent to portal endpoint for tracking: {data}")
         else:
-            logger.error(
-                f"Failed to send AI usage data to portal endpoint for tracking: {response.status_code} {response.text}"
-            )
+            logger.error(f"Failed to send AI usage data to portal endpoint for tracking: {response.status_code} {response.text}")
     else:
         logger.info(
-            "AI usage data not sent to portal endpoint as " "send_ai_usage_data_to_url is not provided for tracking"
+            "AI usage data not sent to portal endpoint as "
+            "send_ai_usage_data_to_url is not provided for tracking"
         )

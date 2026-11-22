@@ -128,11 +128,7 @@ class VconQueue:
             end
             return redis.call('RPUSH', KEYS[2], ARGV[1])
             """,
-            2,
-            _vcon_key(vcon_id),
-            dlq_name,
-            vcon_id,
-            retention_seconds,
+            2, _vcon_key(vcon_id), dlq_name, vcon_id, retention_seconds,
         )
         if result == -1:
             raise ValueError(f"Cannot dead-letter missing vCon body: {vcon_id}")
@@ -150,7 +146,9 @@ class VconQueue:
 
     # ---- Async queue ops -------------------------------------------
 
-    async def enqueue_async(self, redis_async, list_name: str, *vcon_ids: str) -> int:
+    async def enqueue_async(
+        self, redis_async, list_name: str, *vcon_ids: str
+    ) -> int:
         """Async RPUSH one or more vCon ids onto the tail of a queue.
 
         Accepts ``*vcon_ids`` so batched ingestion paths (e.g., the

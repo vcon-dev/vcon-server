@@ -31,7 +31,7 @@ class VconRedis:
     Attributes:
         DEFAULT_TTL: Default TTL in seconds from VCON_REDIS_EXPIRY setting (3600s).
     """
-
+    
     DEFAULT_TTL = VCON_REDIS_EXPIRY
 
     @staticmethod
@@ -128,16 +128,13 @@ class VconRedis:
             except Exception as e:
                 logger.warning(
                     "Storage fallback %s raised while loading vCon %s: %s",
-                    storage_name,
-                    vcon_id,
-                    e,
+                    storage_name, vcon_id, e,
                 )
                 continue
             if vcon_dict:
                 logger.info(
                     "vCon %s missed Redis but recovered from storage %s",
-                    vcon_id,
-                    storage_name,
+                    vcon_id, storage_name,
                 )
                 return vcon_dict
         return None
@@ -165,9 +162,7 @@ class VconRedis:
         except (ValueError, TypeError) as e:
             logger.debug(
                 "Skipping sorted-set add for vCon %s (created_at=%r): %s",
-                vcon_id,
-                created_at,
-                e,
+                vcon_id, created_at, e,
             )
 
     def get_vcon(self, vcon_id: str) -> Optional[vcon.Vcon]:
@@ -187,7 +182,7 @@ class VconRedis:
 
     def store_vcon_dict(self, vcon_dict: dict, ttl: Optional[int] = None) -> None:
         """Stores a vcon dictionary into redis with optional TTL.
-
+        
         Args:
             vcon_dict (dict): The vCon as a dictionary to store.
             ttl (Optional[int]): Time-to-live in seconds. If None, existing expiry is retained; new keys are persistent.
@@ -230,11 +225,11 @@ class VconRedis:
 
     def set_expiry(self, vcon_id: str, ttl: int) -> bool:
         """Sets or updates the TTL on an existing vCon.
-
+        
         Args:
             vcon_id (str): The vCon UUID.
             ttl (int): Time-to-live in seconds.
-
+            
         Returns:
             bool: True if the expiry was set, False if the key doesn't exist.
         """
@@ -246,10 +241,10 @@ class VconRedis:
 
     def get_ttl(self, vcon_id: str) -> int:
         """Gets the remaining TTL on a vCon.
-
+        
         Args:
             vcon_id (str): The vCon UUID.
-
+            
         Returns:
             int: Remaining TTL in seconds, -1 if no expiry is set,
                  -2 if the key doesn't exist.
@@ -259,10 +254,10 @@ class VconRedis:
 
     def remove_expiry(self, vcon_id: str) -> bool:
         """Removes the TTL from a vCon, making it persistent.
-
+        
         Args:
             vcon_id (str): The vCon UUID.
-
+            
         Returns:
             bool: True if the expiry was removed, False if the key doesn't exist
                   or had no expiry.
@@ -273,7 +268,12 @@ class VconRedis:
             logger.debug(f"Removed TTL from vCon {vcon_id}")
         return bool(result)
 
-    async def store_vcon_async(self, redis_async, vCon: vcon.Vcon, ttl: Optional[int] = None) -> None:
+    async def store_vcon_async(
+        self, 
+        redis_async, 
+        vCon: vcon.Vcon, 
+        ttl: Optional[int] = None
+    ) -> None:
         """Asynchronously stores the vcon into redis with optional TTL.
 
         Args:
@@ -288,9 +288,14 @@ class VconRedis:
         if ttl is not None:
             logger.debug(f"Set TTL of {ttl}s on vCon {vCon.uuid}")
 
-    async def store_vcon_dict_async(self, redis_async, vcon_dict: dict, ttl: Optional[int] = None) -> None:
+    async def store_vcon_dict_async(
+        self, 
+        redis_async, 
+        vcon_dict: dict, 
+        ttl: Optional[int] = None
+    ) -> None:
         """Asynchronously stores a vcon dictionary into redis with optional TTL.
-
+        
         Args:
             redis_async: Async Redis client instance.
             vcon_dict (dict): The vCon as a dictionary to store.
@@ -305,12 +310,12 @@ class VconRedis:
 
     async def set_expiry_async(self, redis_async, vcon_id: str, ttl: int) -> bool:
         """Asynchronously sets or updates the TTL on an existing vCon.
-
+        
         Args:
             redis_async: Async Redis client instance.
             vcon_id (str): The vCon UUID.
             ttl (int): Time-to-live in seconds.
-
+            
         Returns:
             bool: True if the expiry was set, False if the key doesn't exist.
         """
@@ -322,11 +327,11 @@ class VconRedis:
 
     async def get_ttl_async(self, redis_async, vcon_id: str) -> int:
         """Asynchronously gets the remaining TTL on a vCon.
-
+        
         Args:
             redis_async: Async Redis client instance.
             vcon_id (str): The vCon UUID.
-
+            
         Returns:
             int: Remaining TTL in seconds, -1 if no expiry is set,
                  -2 if the key doesn't exist.
