@@ -62,9 +62,15 @@ Take CPU, memory, disk and network figures from your container platform. The ser
 
 The server has two separate OpenTelemetry pipelines.
 
-**Metrics** go through `common/lib/metrics.py`. They publish only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set, and always over OTLP gRPC, whatever `OTEL_EXPORTER_OTLP_PROTOCOL` says. Each process exports with its own `service.instance.id`, so sum across instances for a total.
+**Metrics** go through `common/lib/metrics.py`. They publish only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set. The exporter follows `OTEL_EXPORTER_OTLP_PROTOCOL`: `grpc`, or `http/protobuf`, which posts to `<endpoint>/v1/metrics`. Unset means `grpc`. `OTEL_EXPORTER_OTLP_METRICS_PROTOCOL` and `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` override one signal. Each process exports with its own `service.instance.id`, so sum across instances for a total.
 
-**Traces** come from `opentelemetry-instrument`, which wraps both processes in `docker-compose.yml`. Workers open one span per vCon, with `link.*` and `storage.*` children, and `init_tracing` adds OpenAI LLM spans. The API has only auto-instrumented request spans.
+**Traces** come from `opentelemetry-instrument`, which wraps both processes in `docker-compose.yml`, and from spans the worker opens itself. The images install the Redis, httpx, requests, logging and FastAPI instrumentations as pinned dependencies, so a build fails if one is missing. The API honors an incoming `traceparent` header: its request span joins the caller's trace. Workers open one span per vCon, `vcon_processing.<chain>`, with `link.*` and `storage.*` children. The chain span carries `tenant.id`, from the vCon's `tenant` attachment, and `call.session_id`, from a `telnyx_call_session_id` tag, when the vCon has them and an export endpoint is set. They are read from the vCon the link step already loads, so they add no Redis or storage read. They are span attributes only and never go on a metric, since one series per call grows without bound.
+
+The worker spans export through a tracer provider that each worker process builds for itself, with its own `service.instance.id`, the same way metrics do. A worker flushes both providers when it returns, because a forked worker never runs `atexit`. It follows the same protocol variables, plus `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL` and `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`.
+
+Spans and logs carry no vCon bodies, dialog, transcripts or prompts. If the optional `openinference` OpenAI instrumentation is installed, `init_tracing` turns it on with prompt and reply content hidden, so only model names and token counts remain.
+
+**Logs** are JSON. With an export endpoint set, a record written inside a span also has `trace_id` and `span_id`, so a log line can be matched to its trace. Outside a span, or with no endpoint, the two fields are absent.
 
 Set the endpoint in `.env`. `docker-compose.yml` passes the `OTEL_EXPORTER_OTLP_*` variables through.
 
@@ -134,7 +140,7 @@ service:
 
 ### Send traces to Langfuse
 
-Langfuse accepts traces over OTLP HTTP. Metrics cannot follow, since the metrics exporter is gRPC only. If you want metrics too, use [a collector to fan out](#fan-out-to-several-backends).
+Langfuse accepts traces over OTLP HTTP and does not ingest metrics, so the metrics export to it fails. If you want metrics too, use [a collector to fan out](#fan-out-to-several-backends).
 
 In Langfuse, open the API keys page in its settings and copy your public and secret keys. Then build the auth header:
 

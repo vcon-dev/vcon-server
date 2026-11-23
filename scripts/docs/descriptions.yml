@@ -56,9 +56,14 @@ environment:
       description: Path passed to `logging.config.fileConfig`. The repo also ships `common/logging_dev.conf`.
       default: "`logging.conf` beside `common/settings.py`"
     OPENAI_API_KEY: Default `OPENAI_API_KEY` option for the `detect_engagement` link. The `settings` value is unused. Other links take the key from link options.
-    OTEL_EXPORTER_OTLP_ENDPOINT: OTLP endpoint for metrics, passed to the gRPC exporter in `common/lib/metrics.py`. Unset or empty, the metric helpers do nothing.
+    OTEL_EXPORTER_OTLP_ENDPOINT: OTLP endpoint for the worker's metrics and its own spans. Unset or empty, neither is exported. With `http/protobuf` the code appends `/v1/metrics` or `/v1/traces`.
+    OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: Full OTLP/HTTP URL for metrics. Overrides the path built from `OTEL_EXPORTER_OTLP_ENDPOINT`.
+    OTEL_EXPORTER_OTLP_METRICS_PROTOCOL: Use `grpc` or `http/protobuf` for metrics only. Overrides `OTEL_EXPORTER_OTLP_PROTOCOL`.
+    OTEL_EXPORTER_OTLP_PROTOCOL: Export protocol for metrics and spans, `grpc` or `http/protobuf`. Unset means `grpc`. Other values fall back to `grpc` with a warning.
+    OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: Full OTLP/HTTP URL for spans. Overrides the path built from `OTEL_EXPORTER_OTLP_ENDPOINT`.
+    OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: Use `grpc` or `http/protobuf` for spans only. Overrides `OTEL_EXPORTER_OTLP_PROTOCOL`.
     OTEL_METRIC_EXPORT_INTERVAL: Metric export interval in milliseconds.
-    OTEL_SERVICE_NAME: Value of the `service.name` resource attribute on metrics. The Compose file sets `conserver` and `api`.
+    OTEL_SERVICE_NAME: Value of the `service.name` resource attribute on metrics and spans. The Compose file sets `conserver` and `api`.
     REDIS_URL: Redis connection URL. `docker/wait_for_redis.sh` reads it too, and skips its wait when it is unset or empty.
     SENTRY_DSN:
       description: Sentry DSN. Unset, Sentry stays off. Set, `ENV` must be in the process environment too.

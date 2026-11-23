@@ -15,6 +15,7 @@ def test_init_tracing_instruments_when_dependency_is_available():
     instrumentation_module = types.ModuleType("openinference.instrumentation")
     openinference_module.instrumentation = instrumentation_module
     instrumentation_module.openai = openai_module
+    instrumentation_module.TraceConfig = Mock(name="TraceConfig")
 
     original_modules = sys.modules.copy()
     sys.modules.update(
@@ -31,6 +32,13 @@ def test_init_tracing_instruments_when_dependency_is_available():
         sys.modules.update(original_modules)
 
     instrumentor.instrument.assert_called_once()
+    # LLM content capture stays off: every content switch is passed as hidden.
+    config_kwargs = instrumentation_module.TraceConfig.call_args.kwargs
+    assert config_kwargs["hide_inputs"] is True
+    assert config_kwargs["hide_outputs"] is True
+    assert config_kwargs["hide_input_messages"] is True
+    assert config_kwargs["hide_output_messages"] is True
+    assert instrumentor.instrument.call_args.kwargs["config"] is instrumentation_module.TraceConfig.return_value
 
 
 def test_init_tracing_logs_when_dependency_is_missing(monkeypatch, caplog):
@@ -58,6 +66,7 @@ def test_init_tracing_logs_when_instrumentor_fails(caplog):
     instrumentation_module = types.ModuleType("openinference.instrumentation")
     openinference_module.instrumentation = instrumentation_module
     instrumentation_module.openai = openai_module
+    instrumentation_module.TraceConfig = Mock(name="TraceConfig")
 
     original_modules = sys.modules.copy()
     sys.modules.update(
