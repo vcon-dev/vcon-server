@@ -32,3 +32,6 @@ redis_data
 venv
 config.yml
 docker-compose.dev.yml
+.env
+**/.env
+**/*.bak*
