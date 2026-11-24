@@ -1,3 +1,4 @@
+from lib.redaction import safe_opts
 from lib.vcon_redis import VconRedis
 from lib.logging_utils import init_logger
 from lib.openai_client import get_openai_client, get_vendor_from_opts
@@ -142,13 +143,7 @@ def run(
             continue
 
         # Filter out sensitive keys from logging
-        filtered_opts = {
-            k: v for k, v in opts.items()
-            if k not in (
-                "OPENAI_API_KEY", "AZURE_OPENAI_API_KEY",
-                "AZURE_OPENAI_ENDPOINT", "ai_usage_api_token"
-            )
-        }
+        filtered_opts = safe_opts(opts)
         logger.info(
             "Analysing dialog %s with options: %s",
             index,

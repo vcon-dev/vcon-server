@@ -5,6 +5,7 @@ auto-reroutes ``module: links.deepgram_link`` to the unified
 ``links.transcribe`` dispatcher and emits a one-time deprecation warning.
 """
 
+from lib.redaction import safe_opts
 from typing import Optional
 import os
 import tempfile
@@ -296,14 +297,7 @@ def run(
 
         # Prepare vendor schema, omitting credentials
         vendor_schema = {}
-        sensitive_keys = {
-            "DEEPGRAM_KEY",
-            "ai_usage_api_token",
-            "send_ai_usage_data_to_url",
-            "LITELLM_PROXY_URL",
-            "LITELLM_MASTER_KEY",
-        }
-        vendor_schema["opts"] = {k: v for k, v in opts.items() if k not in sensitive_keys}
+        vendor_schema["opts"] = safe_opts(opts)
 
         # Add the transcript analysis to the vCon
         vCon.add_analysis(

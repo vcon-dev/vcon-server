@@ -10,6 +10,7 @@ in vCon recordings. It handles the transcription process, error retries, and upd
 transcription results.
 """
 
+from lib.redaction import safe_opts
 import base64
 import hashlib
 import logging
@@ -219,7 +220,7 @@ def run(
         logger.info(result)
 
         # Prepare vendor schema without sensitive data
-        vendor_schema = {"opts": {k: v for k, v in opts.items() if k != "API_KEY"}}
+        vendor_schema = {"opts": safe_opts(opts)}
 
         # Add transcription analysis to vCon
         vCon.add_analysis(
