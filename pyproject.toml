@@ -128,3 +128,7 @@ omit = [
 [tool.coverage.report]
 show_missing = true
 skip_covered = true
+
+[tool.uv]
+# vcon 0.9.2 requires the PyPI package `ffmpeg`, which is empty and breaks ffmpeg-python.
+override-dependencies = ["ffmpeg ; sys_platform == 'never'"]
