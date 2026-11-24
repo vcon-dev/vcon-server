@@ -117,12 +117,12 @@ def test_post_blocks_to_channel_falls_back_and_reraises(mock_web_client, mock_in
             abstract="summary",
             url="https://details.test",
             opts={"default_channel_name": "fallback-alerts"},
-            attrs={"link.name": "post_analysis_to_slack", "vcon.uuid": "test-uuid"},
+            attrs={"link.name": "post_analysis_to_slack"},
         )
 
     mock_increment_counter.assert_called_once_with(
         "conserver.link.slack.fallback_channel_used",
-        attributes={"link.name": "post_analysis_to_slack", "vcon.uuid": "test-uuid"},
+        attributes={"link.name": "post_analysis_to_slack"},
     )
     assert client.chat_postMessage.call_args_list == [
         call(
@@ -169,7 +169,7 @@ def test_run_posts_to_team_and_default_channels_and_marks_analysis(mock_vcon_red
                 "only_if": {"analysis_type": "customer_frustration", "includes": "NEEDS REVIEW"},
                 "default_channel_name": "default-alerts",
             },
-            attrs={"link.name": "post_analysis_to_slack", "vcon.uuid": "test-uuid"},
+            attrs={"link.name": "post_analysis_to_slack"},
         ),
         call(
             "test-token",
@@ -184,7 +184,7 @@ def test_run_posts_to_team_and_default_channels_and_marks_analysis(mock_vcon_red
                 "only_if": {"analysis_type": "customer_frustration", "includes": "NEEDS REVIEW"},
                 "default_channel_name": "default-alerts",
             },
-            attrs={"link.name": "post_analysis_to_slack", "vcon.uuid": "test-uuid"},
+            attrs={"link.name": "post_analysis_to_slack"},
         ),
     ]
     assert vcon.analysis[0]["was_posted_to_slack"] is True

@@ -158,7 +158,7 @@ def run(
             )
             increment_counter(
                 "conserver.link.openai.invalid_json",
-                attributes={"analysis_type": opts['analysis_type'], "link.name": link_name, "vcon.uuid": vcon_uuid},
+                attributes={"analysis_type": opts['analysis_type'], "link.name": link_name},
             )
             raise ValueError("Invalid JSON response from OpenAI")
 
@@ -170,14 +170,14 @@ def run(
         )
         increment_counter(
             "conserver.link.openai.analysis_failures",
-            attributes={"analysis_type": opts['analysis_type'], "link.name": link_name, "vcon.uuid": vcon_uuid},
+            attributes={"analysis_type": opts['analysis_type'], "link.name": link_name},
         )
         raise e
 
     record_histogram(
         "conserver.link.openai.analysis_time",
         time.time() - start,
-        attributes={"analysis_type": opts['analysis_type'], "link.name": link_name, "vcon.uuid": vcon_uuid},
+        attributes={"analysis_type": opts['analysis_type'], "link.name": link_name},
     )
 
     vendor_schema = {}

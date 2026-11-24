@@ -339,7 +339,7 @@ def test_run_increments_counter_and_breaks_when_no_transcription_is_generated():
     mock_transcribe.assert_called_once()
     mock_counter.assert_called_once_with(
         "conserver.link.openai.transcription_failures",
-        attributes={"link.name": "openai-link", "vcon.uuid": "vc-1"},
+        attributes={"link.name": "openai-link"},
     )
     assert fake_vcon.added_analysis == []
     redis_client.store_vcon.assert_called_once_with(fake_vcon)
@@ -357,6 +357,6 @@ def test_run_increments_counter_and_reraises_transcription_errors():
 
     mock_counter.assert_called_once_with(
         "conserver.link.openai.transcription_failures",
-        attributes={"link.name": "openai-link", "vcon.uuid": "vc-1"},
+        attributes={"link.name": "openai-link"},
     )
     redis_client.store_vcon.assert_not_called()

@@ -164,14 +164,14 @@ def run(
                 increment_counter(
                     "conserver.link.openai.labels_added",
                     value=len(labels),
-                    attributes={"analysis_type": opts['analysis_type'], "link.name": link_name, "vcon.uuid": vcon_uuid},
+                    attributes={"analysis_type": opts['analysis_type'], "link.name": link_name},
                 )
                 
             except json.JSONDecodeError as e:
                 logger.error(f"Failed to parse JSON response for vCon {vcon_uuid}: {e}")
                 increment_counter(
                     "conserver.link.openai.json_parse_failures",
-                    attributes={"analysis_type": opts['analysis_type'], "link.name": link_name, "vcon.uuid": vcon_uuid},
+                    attributes={"analysis_type": opts['analysis_type'], "link.name": link_name},
                 )
                 # Add the raw text anyway as the analysis
                 vCon.add_analysis(
@@ -197,14 +197,14 @@ def run(
             )
             increment_counter(
                 "conserver.link.openai.analysis_failures",
-                attributes={"analysis_type": opts['analysis_type'], "link.name": link_name, "vcon.uuid": vcon_uuid},
+                attributes={"analysis_type": opts['analysis_type'], "link.name": link_name},
             )
             raise e
 
         record_histogram(
             "conserver.link.openai.analysis_time",
             time.time() - start,
-            attributes={"analysis_type": opts['analysis_type'], "link.name": link_name, "vcon.uuid": vcon_uuid},
+            attributes={"analysis_type": opts['analysis_type'], "link.name": link_name},
         )
 
     vcon_redis.store_vcon(vCon)

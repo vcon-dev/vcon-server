@@ -30,6 +30,29 @@ logger = logging.getLogger(__name__)
 # Get the host name
 host_name = socket.gethostname()
 
+# Attribute keys that identify a single vCon. Never valid on a metric: each distinct value is its
+# own time series, and with cumulative temporality every series is re-exported on each interval
+# for the life of the process, so volume grows without bound until a restart. Per-vCon detail
+# belongs in logs and span attributes. Dropped here as a backstop for any link that sets them.
+PER_VCON_ATTRIBUTE_KEYS = frozenset({"vcon.uuid", "vcon_uuid", "vcon_id", "vcon.id"})
+_warned_per_vcon_metrics = set()
+
+
+def _prepare_attributes(metric_name, attributes):
+    """Copy ``attributes`` and drop per-vCon keys, warning once per metric that sends them."""
+    if not attributes:
+        return {}
+    dropped = PER_VCON_ATTRIBUTE_KEYS.intersection(attributes)
+    if not dropped:
+        return dict(attributes)
+    if metric_name not in _warned_per_vcon_metrics:
+        _warned_per_vcon_metrics.add(metric_name)
+        logger.warning(
+            "Dropping per-vCon attribute(s) %s from metric %s: unbounded cardinality",
+            sorted(dropped), metric_name,
+        )
+    return {k: v for k, v in attributes.items() if k not in PER_VCON_ATTRIBUTE_KEYS}
+
 
 def init_metrics():
     logger.warning("This function is deprecated, use increment_counter or record_histogram instead")
@@ -168,11 +191,8 @@ def increment_counter(metric_name, value=1, attributes=None):
         return
     
     try:
-        # Prepare attributes (host is already in resource, no need to add here)
-        if attributes is None:
-            attributes = {}
-        else:
-            attributes = attributes.copy()
+        # Host is already in the resource; per-vCon keys are dropped.
+        attributes = _prepare_attributes(metric_name, attributes)
         
         # Get or create counter metric
         if metric_name not in counter_metrics:
@@ -208,10 +228,7 @@ def add_updown_counter(metric_name, value=1, attributes=None):
         return
 
     try:
-        if attributes is None:
-            attributes = {}
-        else:
-            attributes = attributes.copy()
+        attributes = _prepare_attributes(metric_name, attributes)
 
         if metric_name not in updown_counter_metrics:
             updown_counter_metrics[metric_name] = meter.create_up_down_counter(
@@ -279,11 +296,8 @@ def record_histogram(metric_name, value, attributes=None):
         return
     
     try:
-        # Prepare attributes (host is already in resource, no need to add here)
-        if attributes is None:
-            attributes = {}
-        else:
-            attributes = attributes.copy()
+        # Host is already in the resource; per-vCon keys are dropped.
+        attributes = _prepare_attributes(metric_name, attributes)
         
         # Get or create histogram metric
         if metric_name not in histogram_metrics:

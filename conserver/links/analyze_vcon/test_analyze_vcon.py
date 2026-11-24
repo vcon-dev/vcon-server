@@ -100,7 +100,6 @@ def test_run_raises_for_invalid_json_response(
         attributes={
             "analysis_type": "json_analysis",
             "link.name": "analyze_vcon",
-            "vcon.uuid": "test-uuid",
         },
     )
     mock_increment_counter.assert_any_call(
@@ -108,6 +107,5 @@ def test_run_raises_for_invalid_json_response(
         attributes={
             "analysis_type": "json_analysis",
             "link.name": "analyze_vcon",
-            "vcon.uuid": "test-uuid",
         },
     )

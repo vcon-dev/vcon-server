@@ -75,7 +75,7 @@ def run(vcon_uuid, link_name, opts=default_options):
         logger.debug(f"No tags found in vCon {vcon_uuid}")
         return vcon_uuid if opts.get("forward_original") else None
 
-    attrs = {"link.name": link_name, "vcon.uuid": vcon_uuid}
+    attrs = {"link.name": link_name}
 
     # Route the vCon to the configured Redis lists by tag name.
     queue = VconQueue()

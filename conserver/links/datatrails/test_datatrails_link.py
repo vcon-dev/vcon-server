@@ -212,7 +212,7 @@ def test_run_uses_existing_asset_and_swallows_asset_free_event_failure(
     mock_create_asset_event.assert_called_once()
     mock_increment_counter.assert_called_once_with(
         "conserver.link.datatrails.event_creation_failures",
-        attributes={"link.name": "datatrails", "vcon.uuid": "test-uuid", "event_type": "asset_free"},
+        attributes={"link.name": "datatrails", "event_type": "asset_free"},
     )
 
 
@@ -293,5 +293,5 @@ def test_run_counts_and_raises_when_asset_event_creation_fails(
 
     mock_increment_counter.assert_called_once_with(
         "conserver.link.datatrails.event_creation_failures",
-        attributes={"link.name": "datatrails", "vcon.uuid": "test-uuid"},
+        attributes={"link.name": "datatrails"},
     )

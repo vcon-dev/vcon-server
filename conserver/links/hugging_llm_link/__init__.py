@@ -291,7 +291,7 @@ class VConLLMProcessor:
             logger.info("No transcript found in vCon: %s", vcon_uuid)
             return vcon_uuid
 
-        attrs = {"link.name": link_name, "vcon.uuid": vcon_uuid}
+        attrs = {"link.name": link_name}
         try:
             start = time.time()
             result = self.llm.analyze(transcript_text)

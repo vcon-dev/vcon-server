@@ -553,7 +553,7 @@ def run(
             continue
 
         # Initialize OpenAI client for each dialog (in case key changes)
-        attrs = {"link.name": link_name, "vcon.uuid": vcon_uuid}
+        attrs = {"link.name": link_name}
         start = time.time()
         result = None
         try:

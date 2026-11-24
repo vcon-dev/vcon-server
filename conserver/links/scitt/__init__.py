@@ -184,7 +184,7 @@ def run(
             operation_payload = f"{payload}:{operation}"
             meta_map = {"vcon_operation": operation}
 
-        attrs = {"link.name": link_name, "vcon.uuid": vcon_uuid}
+        attrs = {"link.name": link_name}
         try:
             signed_statement = create_hashed_signed_statement.create_hashed_signed_statement(
                 issuer=opts["issuer"],

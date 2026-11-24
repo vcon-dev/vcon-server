@@ -134,7 +134,7 @@ def run(vcon_uuid, link_name, opts=default_options):
     for key, value in options.items():
         logger.info("diet::%s: %s", key, _redact_option_value(key, value))
 
-    attrs = {"link.name": link_name, "vcon.uuid": vcon_uuid}
+    attrs = {"link.name": link_name}
 
     # Load vCon as a raw dict so we can do diet's in-place redactions.
     # Going through VconRedis ensures the read-side legacy-field
