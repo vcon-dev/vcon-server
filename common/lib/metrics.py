@@ -5,15 +5,26 @@ import socket
 
 from opentelemetry import metrics
 from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
+from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter as OTLPHttpMetricExporter
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 from opentelemetry.sdk.resources import Resource
+
+from lib.otlp_config import (
+    EXPORT_TIMEOUT_S,
+    HTTP_PROTOBUF,
+    METRIC_SHUTDOWN_BUDGET_S,
+    http_signal_url,
+    otlp_protocol,
+    run_bounded,
+)
 
 OTEL_EXPORTER_OTLP_ENDPOINT = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
 OTEL_SERVICE_NAME = os.environ.get("OTEL_SERVICE_NAME", "vcon-server")
 OTEL_METRIC_EXPORT_INTERVAL = int(os.environ.get("OTEL_METRIC_EXPORT_INTERVAL", "5000"))
 
 meter = None
+_meter_provider = None
 counter_metrics = {}
 histogram_metrics = {}
 observable_gauges = {}
@@ -80,7 +91,7 @@ def _init_otel_metrics():
     CONSERVER_VCON_CONCURRENCY=128, peak in-flight should reach ~256 per
     pod, but the collapsed series only shows one worker's count (≤128).
     """
-    global meter, _otel_initialized_pid
+    global meter, _meter_provider, _otel_initialized_pid
     current_pid = os.getpid()
 
     # Already initialized in this process — bail.
@@ -104,9 +115,16 @@ def _init_otel_metrics():
             "service.instance.id": instance_id,
         })
 
-        otlp_exporter = OTLPMetricExporter(
-            endpoint=OTEL_EXPORTER_OTLP_ENDPOINT,
-        )
+        if otlp_protocol("metrics") == HTTP_PROTOBUF:
+            otlp_exporter = OTLPHttpMetricExporter(
+                endpoint=http_signal_url("metrics", OTEL_EXPORTER_OTLP_ENDPOINT),
+                timeout=EXPORT_TIMEOUT_S,
+            )
+        else:
+            otlp_exporter = OTLPMetricExporter(
+                endpoint=OTEL_EXPORTER_OTLP_ENDPOINT,
+                timeout=EXPORT_TIMEOUT_S,
+            )
 
         reader = PeriodicExportingMetricReader(
             exporter=otlp_exporter,
@@ -139,6 +157,7 @@ def _init_otel_metrics():
         # metrics continue to flow through their own pipeline. Both end up
         # at the OTel collector independently.
         meter = provider.get_meter(__name__)
+        _meter_provider = provider
 
         # Flush our provider's metric reader on process exit. The
         # auto-instrumentation MeterProvider registers its own atexit
@@ -171,6 +190,19 @@ def _init_otel_metrics():
         logger.warning("Failed to initialize OpenTelemetry metrics: %s", e)
         # Remember we tried for this pid; avoid retrying every call.
         _otel_initialized_pid = current_pid
+
+
+def shutdown_meter_provider():
+    """Flush and shut down this process's own meter provider, waiting at most a couple of seconds.
+
+    A forked worker leaves through ``os._exit`` and never runs the ``atexit`` hook, so it calls this
+    before it returns. A provider inherited from another pid is left alone.
+    """
+    global _meter_provider
+    provider = _meter_provider
+    if provider is not None and _otel_initialized_pid == os.getpid():
+        _meter_provider = None
+        run_bounded(provider.shutdown, METRIC_SHUTDOWN_BUDGET_S, "metrics")
 
 
 def increment_counter(metric_name, value=1, attributes=None):

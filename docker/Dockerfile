@@ -36,10 +36,8 @@ RUN uv venv --seed /opt/venv && \
     UV_PROJECT_ENVIRONMENT=/opt/venv uv sync --frozen --group conserver --group api --group dev --group storage-milvus
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Auto-install OTel instrumentation packages for the installed libraries.
-# || true: bootstrap raises on version conflicts between auto-detected packages;
-# instrumentation still works for packages that installed cleanly.
-RUN opentelemetry-bootstrap -a install || true
+# The OTel instrumentations (Redis, httpx, requests, logging, and FastAPI in the api group) are pinned
+# dependencies in pyproject.toml, so a missing one fails the sync above instead of the build passing silently.
 
 COPY . /app
 
